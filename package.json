@@ -3,7 +3,11 @@
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
   "version": "0.1.0",
-  "publisher": "cursor-sync",
+  "publisher": "Marcelo Barella",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Marcelo-Barella/cursor-sync.git"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.74.0"
@@ -99,6 +103,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "test": "vitest run",
