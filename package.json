@@ -1,0 +1,119 @@
+{
+  "name": "cursor-sync",
+  "displayName": "Cursor Sync",
+  "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
+  "version": "0.1.0",
+  "publisher": "cursor-sync",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorSync.configureGithub",
+        "title": "Cursor Sync: Configure GitHub"
+      },
+      {
+        "command": "cursorSync.push",
+        "title": "Cursor Sync: Push Now",
+        "enablement": "cursorSync.configured"
+      },
+      {
+        "command": "cursorSync.pull",
+        "title": "Cursor Sync: Pull Now",
+        "enablement": "cursorSync.configured"
+      },
+      {
+        "command": "cursorSync.showStatus",
+        "title": "Cursor Sync: Show Status"
+      },
+      {
+        "command": "cursorSync.resolveConflicts",
+        "title": "Cursor Sync: Resolve Conflicts",
+        "enablement": "cursorSync.hasConflicts"
+      }
+    ],
+    "configuration": {
+      "title": "Cursor Sync",
+      "properties": {
+        "cursorSync.enabledPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "settings.json",
+            "keybindings.json",
+            "snippets/**",
+            "extensions.json",
+            "skills/**/SKILL.md",
+            "skills-cursor/**/SKILL.md",
+            "commands/**/*.md",
+            "rules/*.mdc"
+          ],
+          "description": "Glob patterns for included sync paths"
+        },
+        "cursorSync.excludeGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional glob patterns to exclude from sync"
+        },
+        "cursorSync.schedule.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable periodic auto-sync"
+        },
+        "cursorSync.schedule.intervalMin": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "Minutes between scheduled syncs"
+        },
+        "cursorSync.maxFileSizeKB": {
+          "type": "number",
+          "default": 512,
+          "description": "Skip files larger than this size in KB"
+        },
+        "cursorSync.syncProfileName": {
+          "type": "string",
+          "default": "default",
+          "description": "Profile name written to manifest"
+        },
+        "cursorSync.safeMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require confirmation before pull overwrites local files"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "minimatch": "^10.0.0"
+  }
+}
