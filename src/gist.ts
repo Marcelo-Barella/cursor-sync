@@ -14,6 +14,29 @@ export class GistClient {
     return this.request<boolean>("GET", "/gists?per_page=1", undefined, () => true);
   }
 
+  async findExistingGist(): Promise<ApiResult<string | undefined>> {
+    const perPage = 100;
+    for (let page = 1; page <= 10; page++) {
+      const result = await this.request<GistResponse[]>(
+        "GET",
+        `/gists?per_page=${perPage}&page=${page}`
+      );
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      const match = result.data.find(
+        (g) => g.description === "Cursor Sync - Settings Backup"
+      );
+      if (match) {
+        return { ok: true, data: match.id };
+      }
+      if (result.data.length < perPage) {
+        break;
+      }
+    }
+    return { ok: true, data: undefined };
+  }
+
   async getGist(gistId: string): Promise<ApiResult<GistResponse>> {
     return this.request<GistResponse>("GET", `/gists/${gistId}`);
   }

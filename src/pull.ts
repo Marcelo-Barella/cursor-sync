@@ -37,13 +37,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   logger.appendLine(`[${new Date().toISOString()}] Pull started`);
 
   const syncState = await loadSyncState(context);
-  if (!syncState?.gistId) {
-    vscode.window.showErrorMessage(
-      "Not configured. Push first or configure a Gist ID."
-    );
-    logger.appendLine(`[${new Date().toISOString()}] Pull failed: not configured`);
-    return false;
-  }
+  let gistId = syncState?.gistId;
 
   const token = await requireToken(context);
   if (!token) {
@@ -51,7 +45,34 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   }
 
   const client = new GistClient(token);
-  const gistResult = await withRetry(() => client.getGist(syncState.gistId));
+
+  if (!gistId) {
+    const findResult = await withRetry(() => client.findExistingGist());
+    if (!findResult.ok) {
+      vscode.window.showErrorMessage(`Pull failed: ${findResult.error.message}`);
+      logger.appendLine(
+        `[${new Date().toISOString()}] Pull failed: ${findResult.error.category} - ${findResult.error.message}`
+      );
+      return false;
+    }
+    if (!findResult.data) {
+      vscode.window.showErrorMessage(
+        "Not configured. Push first or configure a Gist ID."
+      );
+      logger.appendLine(`[${new Date().toISOString()}] Pull failed: not configured`);
+      return false;
+    }
+    gistId = findResult.data;
+    await saveSyncState(context, {
+      lastSyncTimestamp: new Date().toISOString(),
+      lastSyncDirection: "pull",
+      gistId,
+      localChecksums: {},
+      remoteChecksums: {},
+    });
+  }
+
+  const gistResult = await withRetry(() => client.getGist(gistId!));
 
   if (!gistResult.ok) {
     vscode.window.showErrorMessage(`Pull failed: ${gistResult.error.message}`);
@@ -210,8 +231,8 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   const newState: SyncState = {
     lastSyncTimestamp: new Date().toISOString(),
     lastSyncDirection: "pull",
-    gistId: syncState.gistId,
-    localChecksums: { ...syncState.localChecksums, ...newLocalChecksums },
+    gistId: gistId!,
+    localChecksums: { ...(syncState?.localChecksums ?? {}), ...newLocalChecksums },
     remoteChecksums: remoteChecksums,
   };
   await saveSyncState(context, newState);
