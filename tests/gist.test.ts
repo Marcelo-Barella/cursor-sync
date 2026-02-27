@@ -194,4 +194,142 @@ describe("GistClient", () => {
       expect(result.data.files["manifest.json"]).toBeDefined();
     }
   });
+
+  it("finds existing gist by description", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [
+        {
+          id: "other1",
+          html_url: "https://gist.github.com/other1",
+          description: "Some other gist",
+          files: {},
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        },
+        {
+          id: "sync_gist_42",
+          html_url: "https://gist.github.com/sync_gist_42",
+          description: "Cursor Sync - Settings Backup",
+          files: {},
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        },
+      ],
+    });
+
+    const { GistClient } = await import("../src/gist.js");
+    const client = new GistClient("ghp_token");
+    const result = await client.findExistingGist();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toBe("sync_gist_42");
+    }
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://api.github.com/gists?per_page=100&page=1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("returns undefined when no matching gist exists", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => [
+        {
+          id: "unrelated1",
+          html_url: "https://gist.github.com/unrelated1",
+          description: "My notes",
+          files: {},
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        },
+      ],
+    });
+
+    const { GistClient } = await import("../src/gist.js");
+    const client = new GistClient("ghp_token");
+    const result = await client.findExistingGist();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toBeUndefined();
+    }
+  });
+
+  it("finds gist on second page", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      id: `filler_${i}`,
+      html_url: `https://gist.github.com/filler_${i}`,
+      description: `Filler gist ${i}`,
+      files: {},
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01",
+    }));
+
+    const page2 = [
+      {
+        id: "found_on_page2",
+        html_url: "https://gist.github.com/found_on_page2",
+        description: "Cursor Sync - Settings Backup",
+        files: {},
+        created_at: "2026-01-01",
+        updated_at: "2026-01-01",
+      },
+    ];
+
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => page1,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => page2,
+      });
+
+    const { GistClient } = await import("../src/gist.js");
+    const client = new GistClient("ghp_token");
+    const result = await client.findExistingGist();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toBe("found_on_page2");
+    }
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://api.github.com/gists?per_page=100&page=2",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("propagates API errors from findExistingGist", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers(),
+      json: async () => ({ message: "Bad credentials" }),
+    });
+
+    const { GistClient } = await import("../src/gist.js");
+    const client = new GistClient("bad_token");
+    const result = await client.findExistingGist();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.category).toBe("AUTH_FAILED");
+      expect(result.error.statusCode).toBe(401);
+    }
+  });
 });
