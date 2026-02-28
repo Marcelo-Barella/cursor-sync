@@ -14,6 +14,14 @@ export class GistClient {
     return this.request<boolean>("GET", "/gists?per_page=1", undefined, () => true);
   }
 
+  async findExistingGist(): Promise<ApiResult<GistResponse | null>> {
+    return this.request<GistResponse | null>("GET", "/gists", undefined, (data) => {
+      const gists = data as GistResponse[];
+      const found = gists.find((g) => g.description === "Cursor Sync - Settings Backup");
+      return found || null;
+    });
+  }
+
   async getGist(gistId: string): Promise<ApiResult<GistResponse>> {
     return this.request<GistResponse>("GET", `/gists/${gistId}`);
   }

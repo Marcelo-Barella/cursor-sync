@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { GistClient } from "./gist.js";
 import { withRetry } from "./retry.js";
-import { getLogger } from "./diagnostics.js";
+import { getLogger, loadSyncState, saveSyncState } from "./diagnostics.js";
 
 const SECRET_KEY = "cursorSync.githubPAT";
 
@@ -44,6 +44,27 @@ export async function configureGithub(
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", true);
   vscode.window.showInformationMessage("GitHub token configured successfully.");
   logger.appendLine(`[${new Date().toISOString()}] GitHub token configured`);
+
+  try {
+    const existingGistResult = await withRetry(() => client.findExistingGist());
+    if (existingGistResult.ok && existingGistResult.data) {
+      const gistId = existingGistResult.data.id;
+      const syncState = await loadSyncState(context);
+      if (!syncState || syncState.gistId !== gistId) {
+        await saveSyncState(context, {
+          lastSyncTimestamp: syncState?.lastSyncTimestamp || new Date().toISOString(),
+          lastSyncDirection: syncState?.lastSyncDirection || "pull",
+          gistId: gistId,
+          localChecksums: syncState?.localChecksums || {},
+          remoteChecksums: syncState?.remoteChecksums || {},
+        });
+        logger.appendLine(`[${new Date().toISOString()}] Discovered existing Gist: ${gistId}`);
+        vscode.window.showInformationMessage("Found existing Cursor Sync Gist. You can now pull your settings.");
+      }
+    }
+  } catch (err) {
+    logger.appendLine(`[${new Date().toISOString()}] Error discovering existing Gist: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function getToken(

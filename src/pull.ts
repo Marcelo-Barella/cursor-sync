@@ -36,14 +36,8 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Pull started`);
 
-  const syncState = await loadSyncState(context);
-  if (!syncState?.gistId) {
-    vscode.window.showErrorMessage(
-      "Not configured. Push first or configure a Gist ID."
-    );
-    logger.appendLine(`[${new Date().toISOString()}] Pull failed: not configured`);
-    return false;
-  }
+  let syncState = await loadSyncState(context);
+  let gistId = syncState?.gistId;
 
   const token = await requireToken(context);
   if (!token) {
@@ -51,7 +45,36 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   }
 
   const client = new GistClient(token);
-  const gistResult = await withRetry(() => client.getGist(syncState.gistId));
+
+  if (!gistId) {
+    const existingResult = await withRetry(() => client.findExistingGist());
+    if (!existingResult.ok) {
+      vscode.window.showErrorMessage(`Pull failed: ${existingResult.error.message}`);
+      logger.appendLine(`[${new Date().toISOString()}] Pull failed: ${existingResult.error.category} - ${existingResult.error.message}`);
+      return false;
+    }
+
+    if (existingResult.data) {
+      gistId = existingResult.data.id;
+      syncState = {
+        lastSyncTimestamp: new Date().toISOString(),
+        lastSyncDirection: "pull",
+        gistId: gistId,
+        localChecksums: syncState?.localChecksums || {},
+        remoteChecksums: syncState?.remoteChecksums || {}
+      };
+      await saveSyncState(context, syncState);
+      logger.appendLine(`[${new Date().toISOString()}] Found existing Gist: ${gistId}`);
+    } else {
+      vscode.window.showErrorMessage(
+        "Not configured. Push first or configure a Gist ID."
+      );
+      logger.appendLine(`[${new Date().toISOString()}] Pull failed: not configured`);
+      return false;
+    }
+  }
+
+  const gistResult = await withRetry(() => client.getGist(gistId));
 
   if (!gistResult.ok) {
     vscode.window.showErrorMessage(`Pull failed: ${gistResult.error.message}`);

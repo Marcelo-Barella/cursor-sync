@@ -1,5 +1,6 @@
 **
 !dist/extension.js
+!assets/icon.png
 !package.json
 !README.md
 !CHANGELOG.md

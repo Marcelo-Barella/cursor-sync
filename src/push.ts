@@ -92,6 +92,13 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
   let gistId = syncState?.gistId;
 
   if (!gistId) {
+    const existingResult = await withRetry(() => client.findExistingGist());
+    if (existingResult.ok && existingResult.data) {
+      gistId = existingResult.data.id;
+    }
+  }
+
+  if (!gistId) {
     const result = await withRetry(() =>
       client.createGist(gistFiles, "Cursor Sync - Settings Backup")
     );
