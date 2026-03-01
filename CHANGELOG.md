@@ -3,12 +3,12 @@
 ## v0.1.4
 
 - chore: update package version to 0.1.4 in package.json.
+- Save sync state when an existing Gist is found.
 
 ## v0.1.3
 
 - feat: enhance Gist management and update package metadata.
 - Find existing Gists in GistClient; pull and push use existing Gist when not configured.
-- Save sync state when an existing Gist is found.
 - Package version set to 0.1.3; icon path added; assets/icon.png included; .vscodeignore updated for packaging.
 
 ## v0.1.1
