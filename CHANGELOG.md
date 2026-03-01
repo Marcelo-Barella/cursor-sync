@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.5
+
+- docs: added changelogs for previous versions.
+
 ## v0.1.4
 
 - chore: update package version to 0.1.4 in package.json.
