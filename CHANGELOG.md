@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.0
+
+- feat: anonymous usage metrics are collected to help improve the extension. No sensitive data (tokens, gist IDs, file paths, or error messages) is ever sent.
+
 ## v0.1.6
 
 - feat: add sidebar view and status bar item for Cursor Sync.

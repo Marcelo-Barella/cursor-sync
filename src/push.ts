@@ -10,7 +10,10 @@ import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForK
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSidebar } from "./sidebar.js";
+import { sendEvent } from "./analytics.js";
 import type { SyncState } from "./types.js";
+
+export type PushTrigger = "manual" | "scheduled";
 
 let pushLock = false;
 
@@ -19,8 +22,10 @@ export function isPushLocked(): boolean {
 }
 
 export async function executePush(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { trigger?: PushTrigger }
 ): Promise<boolean> {
+  const trigger = options?.trigger ?? "manual";
   const logger = getLogger();
 
   if (pushLock) {
@@ -31,7 +36,7 @@ export async function executePush(
   pushLock = true;
   updateStatusBar("syncing");
   try {
-    const success = await doPush(context);
+    const success = await doPush(context, trigger);
     updateStatusBar(success ? "ok" : "error", new Date());
     refreshSidebar();
     return success;
@@ -44,7 +49,10 @@ export async function executePush(
   }
 }
 
-async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
+async function doPush(
+  context: vscode.ExtensionContext,
+  trigger: PushTrigger = "manual"
+): Promise<boolean> {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push started`);
 
@@ -52,12 +60,14 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
     const token = await requireToken(context);
     if (!token) {
       logger.appendLine(`[${new Date().toISOString()}] Push failed: AUTH_FAILED`);
+      sendEvent(context, "sync_failed", { direction: "push", reason: "AUTH_FAILED", trigger });
       return false;
     }
   }
 
   const token = await requireToken(context);
   if (!token) {
+    sendEvent(context, "sync_failed", { direction: "push", reason: "AUTH_FAILED", trigger });
     return false;
   }
 
@@ -77,6 +87,7 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
           `${unresolved.length} conflict(s) detected. Resolve them before pushing.`
         );
         logger.appendLine(`[${new Date().toISOString()}] Push blocked: CONFLICT`);
+        sendEvent(context, "sync_failed", { direction: "push", reason: "CONFLICT", trigger });
         return false;
       }
     }
@@ -84,7 +95,7 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
 
   const extensionsJson = generateExtensionsJson();
   const cursorUserRoot = (await import("./paths.js")).resolveSyncRoots().cursorUser;
-  const extensionsPath = await writeExtensionsFile(cursorUserRoot, extensionsJson);
+  await writeExtensionsFile(cursorUserRoot, extensionsJson);
 
   const files = await enumerateSyncFiles();
   const config = vscode.workspace.getConfiguration("cursorSync");
@@ -100,6 +111,7 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
   }
 
   let gistId = syncState?.gistId;
+  let isNewGist = false;
 
   if (!gistId) {
     const existingResult = await withRetry(() => client.findExistingGist());
@@ -117,9 +129,16 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
       );
+      sendEvent(context, "sync_failed", {
+        direction: "push",
+        reason: result.error.category,
+        trigger,
+        status_code: result.error.statusCode,
+      });
       return false;
     }
     gistId = result.data.id;
+    isNewGist = true;
   } else {
     const existingResult = await withRetry(() => client.getGist(gistId!));
     let filesToDelete: Record<string, null> = {};
@@ -145,6 +164,12 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
       );
+      sendEvent(context, "sync_failed", {
+        direction: "push",
+        reason: result.error.category,
+        trigger,
+        status_code: result.error.statusCode,
+      });
       return false;
     }
   }
@@ -165,6 +190,12 @@ async function doPush(context: vscode.ExtensionContext): Promise<boolean> {
   clearConflicts();
 
   const fileCount = packaged.size;
+  sendEvent(context, "sync_completed", {
+    direction: "push",
+    file_count: fileCount,
+    trigger,
+    is_new_gist: isNewGist,
+  });
   vscode.window.showInformationMessage(
     `Push complete: ${fileCount} file(s) synced.`
   );

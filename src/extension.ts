@@ -8,6 +8,7 @@ import { startScheduler, stopScheduler } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
 import { initializeSidebar } from "./sidebar.js";
 import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
+import { getOrCreateClientId } from "./analytics.js";
 
 let configListener: vscode.Disposable | undefined;
 
@@ -52,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
+  getOrCreateClientId(context);
   startScheduler(context);
 
   configListener = vscode.workspace.onDidChangeConfiguration((e) => {

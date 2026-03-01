@@ -4,6 +4,7 @@ import { withRetry } from "./retry.js";
 import { getLogger, loadSyncState, saveSyncState } from "./diagnostics.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSidebar } from "./sidebar.js";
+import { sendEvent } from "./analytics.js";
 
 const SECRET_KEY = "cursorSync.githubPAT";
 
@@ -44,7 +45,7 @@ export async function configureGithub(
 
   await context.secrets.store(SECRET_KEY, pat.trim());
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", true);
-  
+
   const syncState = await loadSyncState(context);
   const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
   updateStatusBar("ok", lastSync);
@@ -55,6 +56,7 @@ export async function configureGithub(
   try {
     const existingGistResult = await withRetry(() => client.findExistingGist());
     if (existingGistResult.ok && existingGistResult.data) {
+      sendEvent(context, "user_configured", { has_existing_gist: true });
       const gistId = existingGistResult.data.id;
       const syncState = await loadSyncState(context);
       if (!syncState || syncState.gistId !== gistId) {
@@ -72,9 +74,12 @@ export async function configureGithub(
         updateStatusBar("ok", newSyncState ? new Date(newSyncState.lastSyncTimestamp) : undefined);
         refreshSidebar();
       }
+    } else {
+      sendEvent(context, "user_configured", { has_existing_gist: false });
     }
   } catch (err) {
     logger.appendLine(`[${new Date().toISOString()}] Error discovering existing Gist: ${err instanceof Error ? err.message : String(err)}`);
+    sendEvent(context, "user_configured", { has_existing_gist: false });
   }
 }
 

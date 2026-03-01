@@ -12,6 +12,7 @@ import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js
 import { findMissingExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSidebar } from "./sidebar.js";
+import { sendEvent } from "./analytics.js";
 import type { SyncState, Manifest } from "./types.js";
 
 let pullLock = false;
@@ -51,6 +52,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
 
   const token = await requireToken(context);
   if (!token) {
+    sendEvent(context, "sync_failed", { direction: "pull", reason: "not_configured" });
     return false;
   }
 
@@ -61,6 +63,11 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
     if (!existingResult.ok) {
       vscode.window.showErrorMessage(`Pull failed: ${existingResult.error.message}`);
       logger.appendLine(`[${new Date().toISOString()}] Pull failed: ${existingResult.error.category} - ${existingResult.error.message}`);
+      sendEvent(context, "sync_failed", {
+        direction: "pull",
+        reason: existingResult.error.category,
+        status_code: existingResult.error.statusCode,
+      });
       return false;
     }
 
@@ -80,6 +87,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
         "Not configured. Push first or configure a Gist ID."
       );
       logger.appendLine(`[${new Date().toISOString()}] Pull failed: not configured`);
+      sendEvent(context, "sync_failed", { direction: "pull", reason: "not_configured" });
       return false;
     }
   }
@@ -91,6 +99,11 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
     logger.appendLine(
       `[${new Date().toISOString()}] Pull failed: ${gistResult.error.category} - ${gistResult.error.message}`
     );
+    sendEvent(context, "sync_failed", {
+      direction: "pull",
+      reason: gistResult.error.category,
+      status_code: gistResult.error.statusCode,
+    });
     return false;
   }
 
@@ -99,6 +112,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   if (!manifestFile) {
     vscode.window.showErrorMessage("Pull failed: manifest.json not found in Gist.");
     logger.appendLine(`[${new Date().toISOString()}] Pull failed: missing manifest`);
+    sendEvent(context, "sync_failed", { direction: "pull", reason: "missing_manifest" });
     return false;
   }
 
@@ -108,6 +122,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   } catch {
     vscode.window.showErrorMessage("Pull failed: invalid manifest.json.");
     logger.appendLine(`[${new Date().toISOString()}] Pull failed: invalid manifest`);
+    sendEvent(context, "sync_failed", { direction: "pull", reason: "invalid_manifest" });
     return false;
   }
 
@@ -127,6 +142,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
         `${unresolved.length} conflict(s) detected. Resolve them before pulling.`
       );
       logger.appendLine(`[${new Date().toISOString()}] Pull blocked: CONFLICT`);
+      sendEvent(context, "sync_failed", { direction: "pull", reason: "CONFLICT" });
       return false;
     }
   }
@@ -181,6 +197,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
 
     if (!selected) {
       logger.appendLine(`[${new Date().toISOString()}] Pull cancelled by user`);
+      sendEvent(context, "sync_failed", { direction: "pull", reason: "cancelled" });
       return false;
     }
 
@@ -192,6 +209,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
 
   if (filesToWrite.length === 0) {
     vscode.window.showInformationMessage("Pull complete: no files to update.");
+    sendEvent(context, "sync_completed", { direction: "pull", file_count: 0 });
     return true;
   }
 
@@ -230,6 +248,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
       "Pull failed: file write error. Changes have been rolled back."
     );
     logger.appendLine(`[${new Date().toISOString()}] Pull failed: FILE_SYSTEM_ERROR`);
+    sendEvent(context, "sync_failed", { direction: "pull", reason: "FILE_SYSTEM_ERROR" });
     return false;
   }
 
@@ -250,6 +269,10 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   await saveSyncState(context, newState);
   clearConflicts();
 
+  sendEvent(context, "sync_completed", {
+    direction: "pull",
+    file_count: filesToWrite.length,
+  });
   checkMissingExtensions(gistData.files);
 
   vscode.window.showInformationMessage(

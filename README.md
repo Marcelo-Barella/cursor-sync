@@ -89,8 +89,8 @@ The following are always excluded from sync:
 
 - Your GitHub PAT is stored exclusively in VS Code SecretStorage. It never appears in settings files, logs, or telemetry.
 - All Gists created by this extension are **private**.
-- No data is sent to any service other than the GitHub Gist API.
-- No telemetry is collected.
+- No data is sent to any service other than the GitHub Gist API for sync operations.
+- **Anonymous usage metrics**: The extension sends anonymous usage metrics (e.g. sync completed/failed, feature usage) to Google Analytics 4 to help improve the extension. No sensitive data—tokens, gist IDs, file paths, or error messages—is ever included.
 
 ## Conflict Resolution
 

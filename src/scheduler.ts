@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { executePush, isPushLocked } from "./push.js";
 import { getLogger } from "./diagnostics.js";
+import { sendEvent } from "./analytics.js";
 
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_JITTER_MS = 60_000;
@@ -52,6 +53,7 @@ async function scheduledTick(context: vscode.ExtensionContext): Promise<void> {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync skipped: operation in progress`
     );
+    sendEvent(context, "scheduled_sync_skipped", { reason: "in_progress" });
     return;
   }
 
@@ -60,10 +62,11 @@ async function scheduledTick(context: vscode.ExtensionContext): Promise<void> {
   );
 
   try {
-    await executePush(context);
+    await executePush(context, { trigger: "scheduled" });
   } catch (err) {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync failed: ${err instanceof Error ? err.message : String(err)}`
     );
+    sendEvent(context, "scheduled_sync_failed", { reason: "exception" });
   }
 }
