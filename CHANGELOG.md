@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.6
+
+- feat: add sidebar view and status bar item for Cursor Sync.
+- feat: add icons to push and pull commands.
+- fix: remove `skills-cursor/**/SKILL.md` from default sync paths.
+
 ## v0.1.5
 
 - docs: added changelogs for previous versions.

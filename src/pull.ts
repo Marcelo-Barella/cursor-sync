@@ -10,6 +10,8 @@ import { computeChecksum } from "./packaging.js";
 import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflicts } from "./conflicts.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
 import { findMissingExtensions } from "./extensions.js";
+import { updateStatusBar } from "./statusbar.js";
+import { refreshSidebar } from "./sidebar.js";
 import type { SyncState, Manifest } from "./types.js";
 
 let pullLock = false;
@@ -25,8 +27,16 @@ export async function executePull(
   }
 
   pullLock = true;
+  updateStatusBar("syncing");
   try {
-    return await doPull(context);
+    const success = await doPull(context);
+    updateStatusBar(success ? "ok" : "error", new Date());
+    refreshSidebar();
+    return success;
+  } catch (err) {
+    updateStatusBar("error", new Date());
+    refreshSidebar();
+    throw err;
   } finally {
     pullLock = false;
   }
@@ -233,8 +243,8 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
   const newState: SyncState = {
     lastSyncTimestamp: new Date().toISOString(),
     lastSyncDirection: "pull",
-    gistId: syncState.gistId,
-    localChecksums: { ...syncState.localChecksums, ...newLocalChecksums },
+    gistId: syncState?.gistId || gistId,
+    localChecksums: { ...(syncState?.localChecksums || {}), ...newLocalChecksums },
     remoteChecksums: remoteChecksums,
   };
   await saveSyncState(context, newState);

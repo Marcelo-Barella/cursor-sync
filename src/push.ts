@@ -8,6 +8,8 @@ import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger } from "./diagnostics.js";
 import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForKey } from "./conflicts.js";
 import { generateExtensionsJson } from "./extensions.js";
+import { updateStatusBar } from "./statusbar.js";
+import { refreshSidebar } from "./sidebar.js";
 import type { SyncState } from "./types.js";
 
 let pushLock = false;
@@ -27,8 +29,16 @@ export async function executePush(
   }
 
   pushLock = true;
+  updateStatusBar("syncing");
   try {
-    return await doPush(context);
+    const success = await doPush(context);
+    updateStatusBar(success ? "ok" : "error", new Date());
+    refreshSidebar();
+    return success;
+  } catch (err) {
+    updateStatusBar("error", new Date());
+    refreshSidebar();
+    throw err;
   } finally {
     pushLock = false;
   }

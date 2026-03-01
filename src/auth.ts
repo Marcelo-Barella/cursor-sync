@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { GistClient } from "./gist.js";
 import { withRetry } from "./retry.js";
 import { getLogger, loadSyncState, saveSyncState } from "./diagnostics.js";
+import { updateStatusBar } from "./statusbar.js";
+import { refreshSidebar } from "./sidebar.js";
 
 const SECRET_KEY = "cursorSync.githubPAT";
 
@@ -42,6 +44,11 @@ export async function configureGithub(
 
   await context.secrets.store(SECRET_KEY, pat.trim());
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", true);
+  
+  const syncState = await loadSyncState(context);
+  const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
+  updateStatusBar("ok", lastSync);
+  
   vscode.window.showInformationMessage("GitHub token configured successfully.");
   logger.appendLine(`[${new Date().toISOString()}] GitHub token configured`);
 
@@ -60,6 +67,10 @@ export async function configureGithub(
         });
         logger.appendLine(`[${new Date().toISOString()}] Discovered existing Gist: ${gistId}`);
         vscode.window.showInformationMessage("Found existing Cursor Sync Gist. You can now pull your settings.");
+        
+        const newSyncState = await loadSyncState(context);
+        updateStatusBar("ok", newSyncState ? new Date(newSyncState.lastSyncTimestamp) : undefined);
+        refreshSidebar();
       }
     }
   } catch (err) {
@@ -107,6 +118,7 @@ export async function validateStoredToken(
       "Stored GitHub token is no longer valid. Please reconfigure."
     );
     await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
+    updateStatusBar("unconfigured");
     return false;
   }
 

@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -21,6 +21,44 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cursorSync",
+          "title": "Cursor Sync",
+          "icon": "$(sync)"
+        }
+      ]
+    },
+    "views": {
+      "cursorSync": [
+        {
+          "id": "cursorSync.sidebar",
+          "name": "Cursor Sync"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "cursorSync.sidebar",
+        "contents": "Sync your Cursor settings and assets across devices using a private GitHub Gist.\n\n[Configure GitHub](command:cursorSync.configureGithub)\n\nTo get started, you'll need a GitHub Personal Access Token with the `gist` scope.",
+        "when": "!cursorSync.configured"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "cursorSync.push",
+          "when": "view == cursorSync.sidebar && viewItem == statusItem",
+          "group": "inline"
+        },
+        {
+          "command": "cursorSync.pull",
+          "when": "view == cursorSync.sidebar && viewItem == statusItem",
+          "group": "inline"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "cursorSync.configureGithub",
@@ -29,11 +67,13 @@
       {
         "command": "cursorSync.push",
         "title": "Cursor Sync: Push Now",
+        "icon": "$(cloud-upload)",
         "enablement": "cursorSync.configured"
       },
       {
         "command": "cursorSync.pull",
         "title": "Cursor Sync: Pull Now",
+        "icon": "$(cloud-download)",
         "enablement": "cursorSync.configured"
       },
       {
@@ -60,7 +100,6 @@
             "snippets/**",
             "extensions.json",
             "skills/**/SKILL.md",
-            "skills-cursor/**/SKILL.md",
             "commands/**/*.md",
             "rules/*.mdc"
           ],

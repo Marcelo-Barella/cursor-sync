@@ -5,12 +5,16 @@ import { executePull } from "./pull.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
-import { getLogger } from "./diagnostics.js";
+import { getLogger, loadSyncState } from "./diagnostics.js";
+import { initializeSidebar } from "./sidebar.js";
+import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
 
 let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = getLogger();
+
+  initializeStatusBar(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.configureGithub", () =>
@@ -42,6 +46,11 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
+  const sidebarProvider = initializeSidebar(context);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("cursorSync.sidebar", sidebarProvider)
+  );
+
   updateConfiguredContext(context);
   startScheduler(context);
 
@@ -64,9 +73,19 @@ async function updateConfiguredContext(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const token = await getToken(context);
+  const isConfigured = token !== undefined;
+  
   await vscode.commands.executeCommand(
     "setContext",
     "cursorSync.configured",
-    token !== undefined
+    isConfigured
   );
+
+  if (isConfigured) {
+    const syncState = await loadSyncState(context);
+    const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
+    updateStatusBar("ok", lastSync);
+  } else {
+    updateStatusBar("unconfigured");
+  }
 }
