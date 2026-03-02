@@ -76,3 +76,14 @@ export async function saveSyncState(
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(state, null, 2), "utf-8");
 }
+
+export async function clearSyncState(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const filePath = getSyncStatePath(context);
+  try {
+    await fs.unlink(filePath);
+  } catch {
+    // Ignore if file doesn't exist
+  }
+}

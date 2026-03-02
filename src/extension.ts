@@ -4,6 +4,7 @@ import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
+import { executeReset } from "./reset.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
 import { initializeSidebar } from "./sidebar.js";
@@ -44,6 +45,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.resolveConflicts", () =>
       resolveConflictsCommand(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.reset", () =>
+      executeReset(context)
     )
   );
 

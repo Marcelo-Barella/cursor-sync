@@ -107,6 +107,12 @@ export async function requireToken(
   return token;
 }
 
+export async function clearToken(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await context.secrets.delete(SECRET_KEY);
+}
+
 export async function validateStoredToken(
   context: vscode.ExtensionContext
 ): Promise<boolean> {

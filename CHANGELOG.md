@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.1
+
+- feat: add `Cursor Sync: Reset Extension State` command to easily clear the GitHub token, sync state, and reset configuration to defaults.
+
 ## v0.2.0
 
 - feat: anonymous usage metrics are collected to help improve the extension. No sensitive data (tokens, gist IDs, file paths, or error messages) is ever sent.
