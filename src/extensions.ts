@@ -42,3 +42,15 @@ export function findMissingExtensions(
     (entry) => !installedIds.has(entry.id.toLowerCase())
   );
 }
+
+export function findExtraExtensions(
+  remoteEntries: ExtensionEntry[]
+): string[] {
+  const remoteIds = new Set(
+    remoteEntries.map((entry) => entry.id.toLowerCase())
+  );
+  return vscode.extensions.all
+    .filter((ext) => !ext.id.startsWith("vscode."))
+    .map((ext) => ext.id)
+    .filter((id) => !remoteIds.has(id.toLowerCase()));
+}

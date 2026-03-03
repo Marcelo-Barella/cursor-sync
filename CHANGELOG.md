@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1
+
+- feat: add `cursorSync.syncExtensions.autoInstall` (default `true`) to automatically install extensions from the synced list on pull.
+- feat: add `cursorSync.syncExtensions.autoUninstall` (default `false`) and optional confirmation to uninstall extensions that are not in the synced list on pull.
+
 ## v0.3.0
 
 - feat: change `cursorSync.schedule.enabled` default to `true`.

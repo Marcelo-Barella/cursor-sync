@@ -9,7 +9,7 @@ import { resolveSyncRoots, gistFileNameToSyncKey } from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflicts } from "./conflicts.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
-import { findMissingExtensions } from "./extensions.js";
+import { findMissingExtensions, findExtraExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSidebar } from "./sidebar.js";
 import { sendEvent } from "./analytics.js";
@@ -273,7 +273,7 @@ async function doPull(context: vscode.ExtensionContext): Promise<boolean> {
     direction: "pull",
     file_count: filesToWrite.length,
   });
-  checkMissingExtensions(gistData.files);
+  await syncExtensionsAfterPull(gistData.files, logger);
 
   vscode.window.showInformationMessage(
     `Pull complete: ${filesToWrite.length} file(s) updated.`
@@ -301,22 +301,83 @@ function syncKeyToAbsolutePath(
   return undefined;
 }
 
-function checkMissingExtensions(
-  gistFiles: Record<string, { content: string }>
-): void {
+const CONCURRENT_INSTALLS = 2;
+
+async function syncExtensionsAfterPull(
+  gistFiles: Record<string, { content: string }>,
+  logger: vscode.OutputChannel
+): Promise<void> {
   const extFile = gistFiles["cursor-user--extensions.json"];
   if (!extFile) {
     return;
   }
 
+  let entries: Array<{ id: string; version: string }>;
   try {
-    const entries = JSON.parse(extFile.content) as Array<{ id: string; version: string }>;
-    const missing = findMissingExtensions(entries);
-    if (missing.length > 0) {
-      const names = missing.map((m) => m.id).join(", ");
-      vscode.window.showInformationMessage(
-        `Extensions present remotely but not installed locally: ${names}`
+    entries = JSON.parse(extFile.content) as Array<{ id: string; version: string }>;
+  } catch {
+    return;
+  }
+
+  const config = vscode.workspace.getConfiguration("cursorSync");
+  const autoInstall = config.get<boolean>("syncExtensions.autoInstall") ?? true;
+  const autoUninstall = config.get<boolean>("syncExtensions.autoUninstall") ?? false;
+
+  const missing = findMissingExtensions(entries);
+  if (autoInstall && missing.length > 0) {
+    for (let i = 0; i < missing.length; i += CONCURRENT_INSTALLS) {
+      const batch = missing.slice(i, i + CONCURRENT_INSTALLS);
+      await Promise.all(
+        batch.map(async (entry) => {
+          try {
+            await vscode.commands.executeCommand(
+              "workbench.extensions.installExtension",
+              entry.id
+            );
+          } catch (err) {
+            logger.appendLine(
+              `[${new Date().toISOString()}] Failed to install extension ${entry.id}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        })
       );
     }
-  } catch {}
+  } else if (!autoInstall && missing.length > 0) {
+    const names = missing.map((m) => m.id).join(", ");
+    vscode.window.showInformationMessage(
+      `Extensions present remotely but not installed locally: ${names}`
+    );
+  }
+
+  const extras = findExtraExtensions(entries);
+  if (extras.length === 0) {
+    return;
+  }
+
+  let shouldUninstall = autoUninstall;
+  if (!shouldUninstall) {
+    const choice = await vscode.window.showWarningMessage(
+      `Remove ${extras.length} extension(s) that are not in the synced list?`,
+      "Yes",
+      "No"
+    );
+    shouldUninstall = choice === "Yes";
+  }
+
+  if (!shouldUninstall) {
+    return;
+  }
+
+  for (const id of extras) {
+    try {
+      await vscode.commands.executeCommand(
+        "workbench.extensions.uninstallExtension",
+        id
+      );
+    } catch (err) {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Failed to uninstall extension ${id}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
 }

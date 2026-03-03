@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -150,6 +150,16 @@
           "type": "boolean",
           "default": true,
           "description": "Require confirmation before pull overwrites local files"
+        },
+        "cursorSync.syncExtensions.autoInstall": {
+          "type": "boolean",
+          "default": true,
+          "description": "On pull, automatically install extensions that are in the synced list but not installed locally"
+        },
+        "cursorSync.syncExtensions.autoUninstall": {
+          "type": "boolean",
+          "default": false,
+          "description": "On pull, automatically uninstall extensions that are installed locally but not in the synced list (use with caution)"
         }
       }
     }
