@@ -90,7 +90,7 @@ The following are always excluded from sync:
 - Your GitHub PAT is stored exclusively in VS Code SecretStorage. It never appears in settings files, logs, or telemetry.
 - All Gists created by this extension are **private**.
 - No data is sent to any service other than the GitHub Gist API for sync operations.
-- **Anonymous usage metrics**: The extension sends anonymous usage metrics (e.g. sync completed/failed, feature usage) to Google Analytics 4 to help improve the extension. No sensitive data—tokens, gist IDs, file paths, or error messages—is ever included.
+- **Anonymous usage metrics**: The extension sends anonymous usage metrics (e.g. sync completed/failed, feature usage) to help improve the extension. No sensitive data—tokens, gist IDs, file paths, or error messages—is ever included.
 
 ## Conflict Resolution
 
@@ -102,4 +102,4 @@ If a pull operation fails partway through writing files, all partially written f
 
 ## Extension List
 
-On push, the extension generates an `extensions.json` file listing all installed non-builtin extensions with their IDs and versions. On pull, this file is written locally and a notification lists any extensions present remotely but not installed locally. Extensions are not auto-installed.
+On push, the extension generates an `extensions.json` file listing all installed non-builtin extensions with their IDs and versions. On pull, this file is written locally and a notification lists any extensions present remotely but not installed locally. Extensions are auto-installed/auto-uninstalled if configured.
