@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.0
+
+- feat: change `cursorSync.schedule.enabled` default to `true`.
+- feat: add `Cursor Sync: Export Settings to Public Gist` command to selectively share settings via public Gists.
+- feat: add `Cursor Sync: Import Settings from Public Gist` command to import settings from a public Gist URL or ID without requiring a GitHub token.
+
 ## v0.2.1
 
 - feat: add `Cursor Sync: Reset Extension State` command to easily clear the GitHub token, sync state, and reset configuration to defaults.

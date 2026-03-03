@@ -11,7 +11,7 @@ let jitterTimeout: ReturnType<typeof setTimeout> | undefined;
 
 export function startScheduler(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration("cursorSync");
-  const enabled = config.get<boolean>("schedule.enabled") ?? false;
+  const enabled = config.get<boolean>("schedule.enabled") ?? true;
 
   if (!enabled) {
     return;

@@ -136,6 +136,22 @@ export class SidebarProvider implements vscode.TreeDataProvider<SyncTreeItem> {
           new vscode.ThemeIcon("cloud-download", new vscode.ThemeColor("charts.orange")),
           vscode.TreeItemCollapsibleState.None,
           "Manually pull remote settings from your GitHub Gist and apply them locally."
+        ),
+        new SyncTreeItem(
+          "Export",
+          "Export to public gist",
+          "cursorSync.export",
+          new vscode.ThemeIcon("export", new vscode.ThemeColor("charts.purple")),
+          vscode.TreeItemCollapsibleState.None,
+          "Export selected settings to a public GitHub Gist."
+        ),
+        new SyncTreeItem(
+          "Import",
+          "Import from public gist",
+          "cursorSync.import",
+          new vscode.ThemeIcon("desktop-download", new vscode.ThemeColor("charts.blue")),
+          vscode.TreeItemCollapsibleState.None,
+          "Import settings from a public GitHub Gist URL."
         )
       ];
     }

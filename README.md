@@ -79,7 +79,7 @@ The following are always excluded from sync:
 |---------|------|---------|-------------|
 | `cursorSync.enabledPaths` | `string[]` | *(see path matrix)* | Glob patterns for included sync paths |
 | `cursorSync.excludeGlobs` | `string[]` | `[]` | Additional glob patterns to exclude |
-| `cursorSync.schedule.enabled` | `boolean` | `false` | Enable periodic auto-sync |
+| `cursorSync.schedule.enabled` | `boolean` | `true` | Enable periodic auto-sync |
 | `cursorSync.schedule.intervalMin` | `number` | `30` | Minutes between scheduled syncs (minimum 5) |
 | `cursorSync.maxFileSizeKB` | `number` | `512` | Skip files larger than this size in KB |
 | `cursorSync.syncProfileName` | `string` | `"default"` | Profile name written to the sync manifest |

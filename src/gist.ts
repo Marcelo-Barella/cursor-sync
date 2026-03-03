@@ -4,9 +4,9 @@ const GITHUB_API = "https://api.github.com";
 const USER_AGENT = "cursor-sync-extension";
 
 export class GistClient {
-  private pat: string;
+  private pat?: string;
 
-  constructor(pat: string) {
+  constructor(pat?: string) {
     this.pat = pat;
   }
 
@@ -28,11 +28,12 @@ export class GistClient {
 
   async createGist(
     files: Record<string, { content: string }>,
-    description: string
+    description: string,
+    isPublic: boolean = false
   ): Promise<ApiResult<GistResponse>> {
     return this.request<GistResponse>("POST", "/gists", {
       description,
-      public: false,
+      public: isPublic,
       files,
     });
   }
@@ -52,10 +53,13 @@ export class GistClient {
   ): Promise<ApiResult<T>> {
     const url = `${GITHUB_API}${endpoint}`;
     const headers: Record<string, string> = {
-      Authorization: `token ${this.pat}`,
       Accept: "application/vnd.github.v3+json",
       "User-Agent": USER_AGENT,
     };
+
+    if (this.pat) {
+      headers["Authorization"] = `token ${this.pat}`;
+    }
 
     if (body) {
       headers["Content-Type"] = "application/json";

@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -88,6 +88,14 @@
       {
         "command": "cursorSync.reset",
         "title": "Cursor Sync: Reset Extension State"
+      },
+      {
+        "command": "cursorSync.export",
+        "title": "Cursor Sync: Export Settings to Public Gist"
+      },
+      {
+        "command": "cursorSync.import",
+        "title": "Cursor Sync: Import Settings from Public Gist"
       }
     ],
     "configuration": {
@@ -119,7 +127,7 @@
         },
         "cursorSync.schedule.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable periodic auto-sync"
         },
         "cursorSync.schedule.intervalMin": {
