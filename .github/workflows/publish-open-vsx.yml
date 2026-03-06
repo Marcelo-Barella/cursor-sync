@@ -1,0 +1,63 @@
+name: Publish to Open VSX
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Detect version change
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          BEFORE_SHA="${{ github.event.before }}"
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            PREVIOUS_VERSION=""
+          else
+            PREVIOUS_VERSION="$(git show "${BEFORE_SHA}:package.json" 2>/dev/null | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{try{const parsed=JSON.parse(data);process.stdout.write(parsed.version ?? '')}catch{process.stdout.write('')}})")"
+          fi
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Build extension
+        if: steps.version.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Publish to Open VSX
+        if: steps.version.outputs.changed == 'true'
+        run: npx ovsx publish -p "${{ secrets.OVSX_PAT }}"
+
+      - name: Skip publish
+        if: steps.version.outputs.changed != 'true'
+        run: |
+          echo "Skipping publish. Version unchanged."
+          echo "Previous: ${{ steps.version.outputs.previous }}"
+          echo "Current: ${{ steps.version.outputs.current }}"
