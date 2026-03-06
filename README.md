@@ -67,6 +67,7 @@ The following are always excluded from sync:
 
 | Command | Description |
 |---------|-------------|
+| `Cursor Sync: Sync Now` | Automatically determine and execute the right sync action (push, pull, or both) |
 | `Cursor Sync: Configure GitHub` | Set or update your GitHub Personal Access Token |
 | `Cursor Sync: Push Now` | Upload local settings to the private Gist |
 | `Cursor Sync: Pull Now` | Download settings from the Gist and apply locally |
@@ -78,11 +79,13 @@ The following are always excluded from sync:
 
 ## Sidebar
 
-The **Cursor Sync** view in the activity bar provides:
+The **Cursor Sync** view in the activity bar provides a rich webview panel:
 
-- **Status** — Last sync time and direction; click to open detailed status.
-- **Actions** — Push Now, Pull Now, Export, Import.
-- **Configuration** — Configure GitHub (token setup).
+- **Status card** — Always visible at the top. Shows whether settings are synced, last sync time as a relative timestamp (e.g. "5m ago"), sync direction (push/pull), and the number of tracked files.
+- **Sync Now** — A primary button that automatically determines the right action (push, pull, or both) and executes it. Also available as a toolbar icon in the view title bar.
+- **Actions** — Quick-access grid with Push, Pull, Export, and Import buttons.
+- **History** — Scrollable list of past sync operations (up to 50 entries) showing direction, trigger type (manual or auto), file count, success/failure status, and relative timestamps.
+- **Configure GitHub** — Token setup link at the bottom.
 
 Commands such as Resolve Conflicts and Reset are available from the Command Palette when applicable.
 
