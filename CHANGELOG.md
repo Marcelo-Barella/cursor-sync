@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0
+
+- feat: replace the TreeView sidebar with a Webview-based panel featuring a rich HTML/CSS interface that adapts to any VS Code theme.
+- feat: add an always-visible status card at the top of the sidebar showing sync state, last sync time (relative), sync direction, and tracked file count.
+- feat: add a history panel listing up to 50 past sync operations with direction, trigger type, file count, success/failure indicator, and relative timestamps.
+- feat: add `Cursor Sync: Sync Now` command that automatically determines whether to push, pull, or both based on local and remote changes.
+- feat: Sync Now is available as a sidebar button, a view title toolbar icon, and a Command Palette entry.
+- feat: action grid in sidebar provides quick access to Push, Pull, Export, and Import.
+
 ## v0.3.2
 
 - feat: scheduled auto-sync now performs pull-push instead of push-only. The scheduler fetches the remote Gist manifest and compares file checksums against local state to determine whether to pull, push, both, or skip.

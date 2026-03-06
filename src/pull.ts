@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
-import { loadSyncState, saveSyncState, getLogger } from "./diagnostics.js";
+import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
 import { resolveSyncRoots, gistFileNameToSyncKey } from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflicts } from "./conflicts.js";
@@ -111,6 +111,14 @@ async function doPull(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull failed: ${gistResult.error.category} - ${gistResult.error.message}`
     );
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: 0,
+      success: false,
+      error: gistResult.error.message,
+    });
     sendEvent(context, "sync_failed", {
       direction: "pull",
       reason: gistResult.error.category,
@@ -263,6 +271,14 @@ async function doPull(
       "Pull failed: file write error. Changes have been rolled back."
     );
     logger.appendLine(`[${new Date().toISOString()}] Pull failed: FILE_SYSTEM_ERROR`);
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: 0,
+      success: false,
+      error: "File write error",
+    });
     sendEvent(context, "sync_failed", { direction: "pull", reason: "FILE_SYSTEM_ERROR", trigger });
     return false;
   }
@@ -284,6 +300,13 @@ async function doPull(
   await saveSyncState(context, newState);
   clearConflicts();
 
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "pull",
+    trigger,
+    fileCount: filesToWrite.length,
+    success: true,
+  });
   sendEvent(context, "sync_completed", {
     direction: "pull",
     file_count: filesToWrite.length,

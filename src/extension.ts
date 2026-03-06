@@ -8,6 +8,7 @@ import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { executeReset } from "./reset.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
+import { determineSyncAction } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
 import { initializeSidebar } from "./sidebar.js";
 import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
@@ -68,9 +69,17 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.syncNow", () =>
+      executeSyncNow(context)
+    )
+  );
+
   const sidebarProvider = initializeSidebar(context);
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("cursorSync.sidebar", sidebarProvider)
+    vscode.window.registerWebviewViewProvider("cursorSync.sidebar", sidebarProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
 
   updateConfiguredContext(context);
@@ -90,6 +99,49 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   stopScheduler();
+}
+
+async function executeSyncNow(context: vscode.ExtensionContext): Promise<void> {
+  const logger = getLogger();
+  logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
+
+  try {
+    const result = await determineSyncAction(context);
+    switch (result.action) {
+      case "none":
+        vscode.window.showInformationMessage("Already in sync, nothing to do.");
+        break;
+      case "pull":
+        await executePull(context);
+        break;
+      case "push":
+        await executePush(context);
+        break;
+      case "pull-push": {
+        const pullOk = await executePull(context);
+        if (pullOk) {
+          await executePush(context);
+        }
+        break;
+      }
+      case "conflict":
+        vscode.window.showWarningMessage(
+          `${result.keys.length} conflict(s) detected. Resolve them first.`
+        );
+        vscode.commands.executeCommand("cursorSync.resolveConflicts");
+        break;
+      case "error":
+        vscode.window.showErrorMessage(`Sync failed: ${result.reason}`);
+        break;
+    }
+  } catch (err) {
+    logger.appendLine(
+      `[${new Date().toISOString()}] Sync Now failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+    vscode.window.showErrorMessage(
+      `Sync failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }
 
 async function updateConfiguredContext(

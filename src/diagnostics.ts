@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { SyncState } from "./types.js";
+import type { SyncState, SyncHistoryEntry } from "./types.js";
+
+const MAX_HISTORY_ENTRIES = 50;
 
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -86,4 +88,35 @@ export async function clearSyncState(
   } catch {
     // Ignore if file doesn't exist
   }
+}
+
+function getSyncHistoryPath(context: vscode.ExtensionContext): string {
+  return path.join(context.globalStorageUri.fsPath, "sync-history.json");
+}
+
+export async function loadSyncHistory(
+  context: vscode.ExtensionContext
+): Promise<SyncHistoryEntry[]> {
+  const filePath = getSyncHistoryPath(context);
+  try {
+    const data = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(data) as SyncHistoryEntry[];
+  } catch {
+    return [];
+  }
+}
+
+export async function addSyncHistoryEntry(
+  context: vscode.ExtensionContext,
+  entry: SyncHistoryEntry
+): Promise<void> {
+  const history = await loadSyncHistory(context);
+  history.unshift(entry);
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history.length = MAX_HISTORY_ENTRIES;
+  }
+  const filePath = getSyncHistoryPath(context);
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(history, null, 2), "utf-8");
 }

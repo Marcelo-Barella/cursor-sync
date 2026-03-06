@@ -5,7 +5,7 @@ import { packageFiles, computeChecksum } from "./packaging.js";
 import { GistClient } from "./gist.js";
 import { requireToken, validateStoredToken } from "./auth.js";
 import { withRetry } from "./retry.js";
-import { loadSyncState, saveSyncState, getLogger } from "./diagnostics.js";
+import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
 import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForKey } from "./conflicts.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
@@ -129,6 +129,14 @@ async function doPush(
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
       );
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: 0,
+        success: false,
+        error: result.error.message,
+      });
       sendEvent(context, "sync_failed", {
         direction: "push",
         reason: result.error.category,
@@ -164,6 +172,14 @@ async function doPush(
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
       );
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: 0,
+        success: false,
+        error: result.error.message,
+      });
       sendEvent(context, "sync_failed", {
         direction: "push",
         reason: result.error.category,
@@ -190,6 +206,13 @@ async function doPush(
   clearConflicts();
 
   const fileCount = packaged.size;
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "push",
+    trigger,
+    fileCount,
+    success: true,
+  });
   sendEvent(context, "sync_completed", {
     direction: "push",
     file_count: fileCount,
