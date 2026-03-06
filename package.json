@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -128,7 +128,7 @@
         "cursorSync.schedule.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable periodic auto-sync"
+          "description": "Enable periodic auto-sync (pull and push)"
         },
         "cursorSync.schedule.intervalMin": {
           "type": "number",

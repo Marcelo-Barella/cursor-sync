@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.2
+
+- feat: scheduled auto-sync now performs pull-push instead of push-only. The scheduler fetches the remote Gist manifest and compares file checksums against local state to determine whether to pull, push, both, or skip.
+- feat: `executePull` accepts a `trigger` option; scheduled pulls bypass safe mode confirmation.
+- feat: sync is skipped when no changes are detected on either side, and conflicts on the same file block the scheduled sync with a logged warning.
+
 ## v0.3.1
 
 - feat: add `cursorSync.syncExtensions.autoInstall` (default `true`) to automatically install extensions from the synced list on pull.
