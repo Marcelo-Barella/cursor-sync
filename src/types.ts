@@ -81,3 +81,12 @@ export interface ResolvedConflict {
   relativeSyncKey: string;
   resolution: ConflictResolution;
 }
+
+export interface SyncHistoryEntry {
+  timestamp: string;
+  direction: "push" | "pull";
+  trigger: "manual" | "scheduled";
+  fileCount: number;
+  success: boolean;
+  error?: string;
+}

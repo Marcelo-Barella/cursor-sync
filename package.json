@@ -34,32 +34,27 @@
       "cursorSync": [
         {
           "id": "cursorSync.sidebar",
-          "name": "Cursor Sync"
+          "name": "Cursor Sync",
+          "type": "webview"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "cursorSync.sidebar",
-        "contents": "Sync your Cursor settings and assets across devices using a private GitHub Gist.\n\n[Configure GitHub](command:cursorSync.configureGithub)\n\nTo get started, you'll need a GitHub Personal Access Token with the `gist` scope.",
-        "when": "!cursorSync.configured"
-      }
-    ],
     "menus": {
-      "view/item/context": [
+      "view/title": [
         {
-          "command": "cursorSync.push",
-          "when": "view == cursorSync.sidebar && viewItem == statusItem",
-          "group": "inline"
-        },
-        {
-          "command": "cursorSync.pull",
-          "when": "view == cursorSync.sidebar && viewItem == statusItem",
-          "group": "inline"
+          "command": "cursorSync.syncNow",
+          "when": "view == cursorSync.sidebar && cursorSync.configured",
+          "group": "navigation"
         }
       ]
     },
     "commands": [
+      {
+        "command": "cursorSync.syncNow",
+        "title": "Cursor Sync: Sync Now",
+        "icon": "$(sync)",
+        "enablement": "cursorSync.configured"
+      },
       {
         "command": "cursorSync.configureGithub",
         "title": "Cursor Sync: Configure GitHub"
