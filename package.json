@@ -128,7 +128,7 @@
         "cursorSync.schedule.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable periodic auto-sync"
+          "description": "Enable periodic auto-sync (pull and push)"
         },
         "cursorSync.schedule.intervalMin": {
           "type": "number",

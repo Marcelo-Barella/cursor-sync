@@ -1,3 +1,51 @@
+export class TreeItem {
+  label: string;
+  description?: string;
+  collapsibleState?: number;
+  command?: { command: string; title: string };
+  iconPath?: unknown;
+  tooltip?: unknown;
+  contextValue?: string;
+  constructor(label: string, collapsibleState?: number) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+}
+
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2,
+}
+
+export class ThemeIcon {
+  constructor(public id: string, public color?: unknown) {}
+}
+
+export class ThemeColor {
+  constructor(public id: string) {}
+}
+
+export class MarkdownString {
+  value = "";
+  appendMarkdown(val: string): this {
+    this.value += val;
+    return this;
+  }
+}
+
+export class EventEmitter<T> {
+  private listeners: Array<(e: T) => void> = [];
+  event: (listener: (e: T) => void) => { dispose: () => void } = (listener) => {
+    this.listeners.push(listener);
+    return { dispose: () => {} };
+  };
+  fire(data: T): void {
+    for (const l of this.listeners) l(data);
+  }
+  dispose(): void {}
+}
+
 export const workspace = {
   getConfiguration: (_section?: string) => ({
     get: <T>(key: string, defaultValue?: T): T | undefined => {

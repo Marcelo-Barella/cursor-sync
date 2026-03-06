@@ -1,6 +1,6 @@
 # Cursor Sync
 
-Sync user-level Cursor settings and `~/.cursor` assets to a private GitHub Gist, with manual push/pull, optional scheduled push, export/import via public Gists, and configurable extension sync.
+Sync user-level Cursor settings and `~/.cursor` assets to a private GitHub Gist, with manual push/pull, optional scheduled pull-push, export/import via public Gists, and configurable extension sync.
 
 ## What Is Synced
 
@@ -92,7 +92,7 @@ Commands such as Resolve Conflicts and Reset are available from the Command Pale
 |---------|------|---------|-------------|
 | `cursorSync.enabledPaths` | `string[]` | *(see path matrix above)* | Glob patterns for included sync paths |
 | `cursorSync.excludeGlobs` | `string[]` | `[]` | Additional glob patterns to exclude |
-| `cursorSync.schedule.enabled` | `boolean` | `true` | Enable periodic auto-sync (push only) |
+| `cursorSync.schedule.enabled` | `boolean` | `true` | Enable periodic auto-sync (pull and push) |
 | `cursorSync.schedule.intervalMin` | `number` | `30` | Minutes between scheduled syncs (minimum 5) |
 | `cursorSync.maxFileSizeKB` | `number` | `512` | Skip files larger than this size in KB |
 | `cursorSync.syncProfileName` | `string` | `"default"` | Profile name written to the sync manifest |
