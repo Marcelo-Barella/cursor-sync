@@ -67,8 +67,8 @@ describe("paths", () => {
       expect(syncKeyToGistFileName("cursor-user/settings.json")).toBe(
         "cursor-user--settings.json"
       );
-      expect(syncKeyToGistFileName("dot-cursor/skills/coding/SKILL.md")).toBe(
-        "dot-cursor--skills--coding--SKILL.md"
+      expect(syncKeyToGistFileName("dot-cursor/skills/coding/template.txt")).toBe(
+        "dot-cursor--skills--coding--template.txt"
       );
     });
 
@@ -77,8 +77,8 @@ describe("paths", () => {
       expect(gistFileNameToSyncKey("cursor-user--settings.json")).toBe(
         "cursor-user/settings.json"
       );
-      expect(gistFileNameToSyncKey("dot-cursor--skills--coding--SKILL.md")).toBe(
-        "dot-cursor/skills/coding/SKILL.md"
+      expect(gistFileNameToSyncKey("dot-cursor--skills--coding--template.txt")).toBe(
+        "dot-cursor/skills/coding/template.txt"
       );
     });
   });
@@ -111,6 +111,10 @@ describe("paths", () => {
         "skill"
       );
       await fs.writeFile(
+        path.join(dotCursor, "skills", "coding", "template.txt"),
+        "template"
+      );
+      await fs.writeFile(
         path.join(dotCursor, "extensions", "ext.json"),
         "{}"
       );
@@ -135,6 +139,7 @@ describe("paths", () => {
       expect(keys).toContain("cursor-user/snippets/ts.json");
       expect(keys).toContain("dot-cursor/rules/test.mdc");
       expect(keys).toContain("dot-cursor/skills/coding/SKILL.md");
+      expect(keys).toContain("dot-cursor/skills/coding/template.txt");
 
       expect(keys).not.toContain("dot-cursor/extensions/ext.json");
       expect(keys).not.toContain("dot-cursor/logs/app.log");

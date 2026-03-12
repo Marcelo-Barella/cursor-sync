@@ -21,7 +21,7 @@ Files included from this root (configurable via `cursorSync.enabledPaths`):
 ### Cursor User Data (`~/.cursor`)
 
 Files included from this root:
-- `skills/**/SKILL.md`
+- `skills/**`
 - `skills-cursor/**/SKILL.md`
 - `commands/**/*.md`
 - `rules/*.mdc`

@@ -55,7 +55,7 @@ export const workspace = {
           "keybindings.json",
           "snippets/**",
           "extensions.json",
-          "skills/**/SKILL.md",
+          "skills/**",
           "skills-cursor/**/SKILL.md",
           "commands/**/*.md",
           "rules/*.mdc",

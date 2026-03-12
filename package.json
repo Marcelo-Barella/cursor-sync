@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -106,7 +106,7 @@
             "keybindings.json",
             "snippets/**",
             "extensions.json",
-            "skills/**/SKILL.md",
+            "skills/**",
             "commands/**/*.md",
             "rules/*.mdc"
           ],
