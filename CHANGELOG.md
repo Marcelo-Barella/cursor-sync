@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.1
+
+- feat: broaden default skills sync path from `skills/**/SKILL.md` to `skills/**` so all files under the skills directory are synced, not just SKILL.md files.
+
 ## v0.4.0
 
 - feat: replace the TreeView sidebar with a Webview-based panel featuring a rich HTML/CSS interface that adapts to any VS Code theme.
