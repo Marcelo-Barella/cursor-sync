@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.0
+
+- feat: add `Cursor Sync: Export Agent Transcripts to Public Gist` command to export agent transcript `.jsonl` files from selected Cursor projects to a public Gist.
+- feat: add `Cursor Sync: Import Agent Transcripts from Public Gist` command with mandatory project targeting -- the importer maps each source project from the export to a local Cursor project, ensuring transcripts land under the correct `agent-transcripts/` directory.
+- feat: add `cursorSync.transcripts.enabled` setting (default `false`) as an opt-in gate for transcript export/import; export warns about sensitive data in transcripts.
+- feat: add `cursorSync.transcripts.maxFileSizeKB` setting (default `2048`) for transcript-specific file size limits.
+- feat: project discovery enumerates `~/.cursor/projects/` with human-readable labels for cross-device mapping.
+
 ## v0.4.0
 
 - feat: replace the TreeView sidebar with a Webview-based panel featuring a rich HTML/CSS interface that adapts to any VS Code theme.
