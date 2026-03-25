@@ -4,6 +4,7 @@ import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { executeExport } from "./export.js";
 import { executeImport } from "./import.js";
+import { executeExportTranscripts, executeImportTranscripts } from "./transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { executeReset } from "./reset.js";
@@ -66,6 +67,18 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.import", () =>
       executeImport(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.exportTranscripts", () =>
+      executeExportTranscripts(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.importTranscripts", () =>
+      executeImportTranscripts(context)
     )
   );
 
