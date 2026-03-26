@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2
+
+- feat: agent transcript export/import with mandatory project targeting on import. Export discovers `~/.cursor/projects/*/agent-transcripts/*.jsonl`, builds a public Gist with a manifest, and import maps each source project to a local project folder before writing.
+- feat: commands `Cursor Sync: Export Agent Transcripts` and `Cursor Sync: Import Agent Transcripts` (see `cursorSync.transcripts.enabled`, default off; `cursorSync.transcripts.maxFileSizeKB`).
+
+## v0.4.1
+
+- feat: default skills sync path widened from `skills/**/SKILL.md` to `skills/**` so more skill files under the skills tree are included.
+
 ## v0.4.0
 
 - feat: replace the TreeView sidebar with a Webview-based panel featuring a rich HTML/CSS interface that adapts to any VS Code theme.
