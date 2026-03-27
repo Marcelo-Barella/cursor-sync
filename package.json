@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -91,6 +91,14 @@
       {
         "command": "cursorSync.import",
         "title": "Cursor Sync: Import Settings from Public Gist"
+      },
+      {
+        "command": "cursorSync.exportTranscripts",
+        "title": "Cursor Sync: Export Agent Transcripts to Public Gist"
+      },
+      {
+        "command": "cursorSync.importTranscripts",
+        "title": "Cursor Sync: Import Agent Transcripts from Public Gist"
       }
     ],
     "configuration": {
@@ -155,6 +163,16 @@
           "type": "boolean",
           "default": false,
           "description": "On pull, automatically uninstall extensions that are installed locally but not in the synced list (use with caution)"
+        },
+        "cursorSync.transcripts.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable agent transcript export/import (opt-in; transcripts may contain sensitive data)"
+        },
+        "cursorSync.transcripts.maxFileSizeKB": {
+          "type": "number",
+          "default": 2048,
+          "description": "Skip transcript files larger than this size in KB"
         }
       }
     }
