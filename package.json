@@ -209,7 +209,7 @@
         "cursorSync.syncProfileName": {
           "type": "string",
           "default": "default",
-          "description": "Profile name written to manifest"
+          "description": "Logical sync profile label in manifest.json (not Cursor IDE profile switching)"
         },
         "cursorSync.safeMode": {
           "type": "boolean",

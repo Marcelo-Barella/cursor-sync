@@ -98,7 +98,7 @@ Commands such as Resolve Conflicts and Reset are available from the Command Pale
 | `cursorSync.schedule.enabled` | `boolean` | `true` | Enable periodic auto-sync (pull and push) |
 | `cursorSync.schedule.intervalMin` | `number` | `30` | Minutes between scheduled syncs (minimum 5) |
 | `cursorSync.maxFileSizeKB` | `number` | `512` | Skip files larger than this size in KB |
-| `cursorSync.syncProfileName` | `string` | `"default"` | Profile name written to the sync manifest |
+| `cursorSync.syncProfileName` | `string` | `"default"` | Logical profile label stored in `manifest.json` (see [Sync profiles](#sync-profiles)) |
 | `cursorSync.safeMode` | `boolean` | `true` | Require confirmation before pull overwrites local files |
 | `cursorSync.syncExtensions.autoInstall` | `boolean` | `true` | On pull, auto-install extensions that are in the synced list but not installed locally |
 | `cursorSync.syncExtensions.autoUninstall` | `boolean` | `false` | On pull, auto-uninstall extensions that are installed locally but not in the synced list (use with caution) |
@@ -129,6 +129,16 @@ On push, the extension generates an `extensions.json` file listing all installed
 - Extensions installed locally but not in the synced list: if **Auto-uninstall** is enabled, they are uninstalled; if disabled, you are prompted to confirm removal.
 
 Extensions are installed at the latest available version; the synced list records versions for reference only.
+
+## Sync profiles
+
+Cursor Sync does **not** yet switch or manage Cursor IDE user profiles (the in-app profile picker). It does support a **logical sync profile** via `cursorSync.syncProfileName`:
+
+- On push/export, the name is written to `manifest.json` as `syncProfileName`.
+- On pull, if the remote manifest profile differs from your local setting, you get an informational notice; the pull still proceeds.
+- Use **different profile names** together with **separate Gists** (separate tokens or reset and push to a new Gist) when you want isolated backups—for example `work` vs `personal`.
+
+Full multi-profile UX (create/switch profiles from the extension) is tracked in [GitHub issue #10](https://github.com/Marcelo-Barella/cursor-sync/issues/10).
 
 ## Security
 

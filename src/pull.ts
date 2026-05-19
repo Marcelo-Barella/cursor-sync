@@ -152,6 +152,17 @@ async function doPull(
     return false;
   }
 
+  const config = vscode.workspace.getConfiguration("cursorSync");
+  const localProfile = config.get<string>("syncProfileName") ?? "default";
+  const remoteProfile = manifest.syncProfileName ?? "default";
+  if (remoteProfile !== localProfile) {
+    const message =
+      `Remote sync profile "${remoteProfile}" differs from local "${localProfile}". ` +
+      "Pull will continue; use matching profile names and separate Gists for distinct profiles.";
+    vscode.window.showInformationMessage(message);
+    logger.appendLine(`[${new Date().toISOString()}] Profile name mismatch: remote=${remoteProfile} local=${localProfile}`);
+  }
+
   const remoteChecksums: Record<string, string> = {};
   for (const [key, entry] of Object.entries(manifest.files)) {
     remoteChecksums[key] = entry.checksum;
@@ -207,7 +218,6 @@ async function doPull(
     filesToWrite.push({ absolutePath, syncKey, content });
   }
 
-  const config = vscode.workspace.getConfiguration("cursorSync");
   const safeMode = config.get<boolean>("safeMode") ?? true;
 
   if (trigger === "manual" && safeMode && filesToWrite.length > 0) {

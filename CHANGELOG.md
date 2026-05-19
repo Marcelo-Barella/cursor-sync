@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- docs: document logical sync profiles (`cursorSync.syncProfileName`) and limitations vs Cursor IDE user profiles ([#10](https://github.com/Marcelo-Barella/cursor-sync/issues/10)).
+- feat: show an informational notice on pull when the remote manifest profile name differs from the local setting.
+
 ## v0.4.9
 
 - feat: add default sync glob `vsix/**` under the Cursor `User` directory so packaged `.vsix` files are backed up with settings; each `.vsix` may be up to 50 MiB regardless of `cursorSync.maxFileSizeKB`.
