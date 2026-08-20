@@ -21,6 +21,7 @@ import {
 import { executeImportChatFromGist } from "./import-gist-chat.js";
 import { executeSetChatEncryptionPassword } from "./chat-encryption-auth.js";
 import {
+  consumePendingAuthCallback,
   executeEnterAppAuthCode,
   executeLoginToCursorSync,
   registerAppAuthUriHandler,
@@ -55,6 +56,9 @@ let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = getLogger();
+
+  context.subscriptions.push(registerAppAuthUriHandler(context));
+  consumePendingAuthCallback(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.refreshImportedTranscripts", () => {
@@ -97,8 +101,6 @@ export function activate(context: vscode.ExtensionContext): void {
       executeEnterAppAuthCode(context)
     )
   );
-
-  context.subscriptions.push(registerAppAuthUriHandler(context));
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.push", () =>

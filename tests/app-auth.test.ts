@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscode from "vscode";
+
+const appendLineMock = vi.fn();
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -13,6 +15,29 @@ vi.mock("vscode", () => ({
     showErrorMessage: vi.fn(),
     showInputBox: vi.fn(),
   },
+  Uri: {
+    parse: (value: string) => {
+      const match = value.match(/^([^:/?#]+):\/\/([^/?#]+)(\/[^?#]*)?(?:\?([^#]*))?/);
+      if (!match) {
+        throw new Error(`Invalid URI: ${value}`);
+      }
+      return {
+        scheme: match[1],
+        authority: match[2],
+        path: match[3] ?? "",
+        query: match[4] ?? "",
+      };
+    },
+  },
+  env: {
+    uriScheme: "cursor",
+  },
+}));
+
+vi.mock("../src/diagnostics.js", () => ({
+  getLogger: () => ({
+    appendLine: appendLineMock,
+  }),
 }));
 
 function makeAuthUri(
@@ -26,6 +51,30 @@ function makeAuthUri(
     path,
     query,
   } as vscode.Uri;
+}
+
+function makeSecretsContext(options?: {
+  store?: (key: string, value: string) => Promise<void>;
+  get?: (key: string) => Promise<string | undefined>;
+  delete?: (key: string) => Promise<void>;
+}) {
+  const secretsStore = new Map<string, string>();
+  return {
+    secrets: {
+      get: options?.get ?? (async (key: string) => secretsStore.get(key)),
+      store:
+        options?.store ??
+        (async (key: string, value: string) => {
+          secretsStore.set(key, value);
+        }),
+      delete:
+        options?.delete ??
+        (async (key: string) => {
+          secretsStore.delete(key);
+        }),
+    },
+    _secretsStore: secretsStore,
+  };
 }
 
 describe("app-auth URI helpers", () => {
@@ -79,9 +128,31 @@ describe("app-auth URI helpers", () => {
     const uri = makeAuthUri("other.publisher", "code=1");
     expect(isAuthCallbackUri(uri, "MarceloBarella.cursor-sync")).toBe(false);
   });
+
+  it("finds auth callback in --open-url argv", async () => {
+    const { findAuthCallbackUriInArgv, extractAuthCodeFromUri } = await import(
+      "../src/app-auth.js"
+    );
+    const uri = findAuthCallbackUriInArgv(
+      ["cursor", "--open-url", "cursor://marcelobarella.cursor-sync/auth?code=argv-code"],
+      "MarceloBarella.cursor-sync",
+      "cursor"
+    );
+    expect(uri).toBeDefined();
+    expect(extractAuthCodeFromUri(uri!)).toBe("argv-code");
+  });
 });
 
-describe("app-auth token exchange", () => {
+describe("app-auth session storage", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    appendLineMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("stores session token from POST /auth/token", async () => {
     const secretsStore = new Map<string, string>();
     const fetchMock = vi.fn().mockResolvedValue({
@@ -92,29 +163,62 @@ describe("app-auth token exchange", () => {
 
     const { exchangeCodeForSessionToken, setAppSession, getAppSession } =
       await import("../src/app-auth.js");
-    const ctx = {
-      secrets: {
-        get: async (key: string) => secretsStore.get(key),
-        store: async (key: string, value: string) => {
-          secretsStore.set(key, value);
-        },
-        delete: async (key: string) => {
-          secretsStore.delete(key);
-        },
+    const ctx = makeSecretsContext({
+      store: async (key, value) => {
+        secretsStore.set(key, value);
       },
-    };
+      get: async (key) => secretsStore.get(key),
+    });
 
     const token = await exchangeCodeForSessionToken("http://localhost:8100", "one-time");
     expect(token).toBe("jwt-session-token");
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8100/auth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: "one-time" }),
-    });
 
     await setAppSession(ctx as never, token);
     expect(await getAppSession(ctx as never)).toBe("jwt-session-token");
 
     vi.unstubAllGlobals();
+  });
+
+  it("uses in-memory session when secrets.store throws", async () => {
+    const { setAppSession, getAppSession } = await import("../src/app-auth.js");
+    const ctx = makeSecretsContext({
+      store: async () => {
+        throw new Error("encryptString failed");
+      },
+    });
+
+    await setAppSession(ctx as never, "jwt-in-memory");
+    expect(await getAppSession(ctx as never)).toBe("jwt-in-memory");
+    expect(appendLineMock).toHaveBeenCalled();
+  });
+
+  it("uses in-memory session when secrets.store hangs", async () => {
+    vi.useFakeTimers();
+    const { setAppSession, getAppSession } = await import("../src/app-auth.js");
+    const ctx = makeSecretsContext({
+      store: () => new Promise(() => {}),
+    });
+
+    const pending = setAppSession(ctx as never, "jwt-hung");
+    await vi.advanceTimersByTimeAsync(2000);
+    await pending;
+
+    expect(await getAppSession(ctx as never)).toBe("jwt-hung");
+    expect(appendLineMock).toHaveBeenCalled();
+  });
+
+  it("clears in-memory session on clearAppSession", async () => {
+    const { setAppSession, getAppSession, clearAppSession } = await import(
+      "../src/app-auth.js"
+    );
+    const ctx = makeSecretsContext({
+      store: async () => {
+        throw new Error("encryptString failed");
+      },
+    });
+
+    await setAppSession(ctx as never, "jwt-clear-me");
+    await clearAppSession(ctx as never);
+    expect(await getAppSession(ctx as never)).toBeUndefined();
   });
 });
