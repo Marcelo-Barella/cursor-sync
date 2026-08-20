@@ -33,14 +33,20 @@ async function withSecretStorageTimeout<T>(
   }
 }
 
+function logAppSessionLoginSucceeded(): void {
+  const logger = getLogger();
+  logger.appendLine(`[${new Date().toISOString()}] App session login succeeded`);
+  logger.show();
+}
+
 function retainInMemoryAppSession(token: string, detail: string): void {
   const logger = getLogger();
   inMemoryAppSession = token;
   logger.appendLine(
-    `[${new Date().toISOString()}] SecretStorage unavailable or hung for app session (${detail}); session kept in-memory only for this window`
+    `[${new Date().toISOString()}] App session SecretStorage store did not complete (${detail}); session kept in extension memory for this window only and will not survive restart`
   );
   vscode.window.showInformationMessage(
-    "Logged in for this window only. SecretStorage is unavailable, so the session will not persist after reload."
+    "Logged in for this window only. The session will not persist after reload."
   );
 }
 
@@ -135,7 +141,7 @@ export async function buildAuthRedirectUri(
     `${vscode.env.uriScheme}://${context.extension.id}/auth`
   );
   const externalUri = await vscode.env.asExternalUri(callbackUri);
-  return externalUri.toString();
+  return externalUri.with({ authority: context.extension.id }).toString();
 }
 
 export async function exchangeCodeForSessionToken(
@@ -181,13 +187,20 @@ export async function setAppSession(
   context: vscode.ExtensionContext,
   token: string
 ): Promise<void> {
+  const logger = getLogger();
+  logger.appendLine(
+    `[${new Date().toISOString()}] App session: storing to SecretStorage (${APP_SESSION_SECRET})...`
+  );
   try {
     await withSecretStorageTimeout(context.secrets.store(APP_SESSION_SECRET, token));
+    logger.appendLine(
+      `[${new Date().toISOString()}] App session: SecretStorage store completed`
+    );
     inMemoryAppSession = undefined;
   } catch (err) {
     const detail =
       err instanceof SecretStorageTimeoutError
-        ? "timed out"
+        ? "timed out waiting for SecretStorage (keyring prompt may be open)"
         : err instanceof Error
           ? err.message
           : String(err);
@@ -223,12 +236,13 @@ async function completeLoginWithCode(
     const token = await exchangeCodeForSessionToken(getAppApiUrl(), code);
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
+    logAppSessionLoginSucceeded();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
-    logger.appendLine(`[${new Date().toISOString()}] App session login succeeded`);
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(`[${new Date().toISOString()}] App session login failed: ${message}`);
+    logger.show();
     vscode.window.showErrorMessage(`Login failed: ${message}`);
     return false;
   } finally {

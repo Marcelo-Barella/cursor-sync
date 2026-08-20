@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscode from "vscode";
 
 const appendLineMock = vi.fn();
+const showMock = vi.fn();
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -21,22 +22,41 @@ vi.mock("vscode", () => ({
       if (!match) {
         throw new Error(`Invalid URI: ${value}`);
       }
-      return {
+      const uri = {
         scheme: match[1],
         authority: match[2],
         path: match[3] ?? "",
         query: match[4] ?? "",
+        toString() {
+          const query = this.query ? `?${this.query}` : "";
+          return `${this.scheme}://${this.authority}${this.path}${query}`;
+        },
+        with(parts: { authority?: string; scheme?: string; path?: string; query?: string }) {
+          return {
+            ...this,
+            scheme: parts.scheme ?? this.scheme,
+            authority: parts.authority ?? this.authority,
+            path: parts.path ?? this.path,
+            query: parts.query ?? this.query,
+            toString: this.toString,
+            with: this.with,
+          };
+        },
       };
+      return uri;
     },
   },
   env: {
     uriScheme: "cursor",
+    asExternalUri: async (uri: { with: (parts: { authority?: string }) => unknown; toString: () => string }) =>
+      uri.with({ authority: "marcelobarella.cursor-sync" }),
   },
 }));
 
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({
     appendLine: appendLineMock,
+    show: showMock,
   }),
 }));
 
@@ -141,12 +161,21 @@ describe("app-auth URI helpers", () => {
     expect(uri).toBeDefined();
     expect(extractAuthCodeFromUri(uri!)).toBe("argv-code");
   });
+
+  it("buildAuthRedirectUri preserves context.extension.id authority casing", async () => {
+    const { buildAuthRedirectUri } = await import("../src/app-auth.js");
+    const redirectUri = await buildAuthRedirectUri({
+      extension: { id: "MarceloBarella.cursor-sync" },
+    } as never);
+    expect(redirectUri).toBe("cursor://MarceloBarella.cursor-sync/auth");
+  });
 });
 
 describe("app-auth session storage", () => {
   beforeEach(() => {
     vi.resetModules();
     appendLineMock.mockReset();
+    showMock.mockReset();
   });
 
   afterEach(() => {
@@ -175,6 +204,12 @@ describe("app-auth session storage", () => {
 
     await setAppSession(ctx as never, token);
     expect(await getAppSession(ctx as never)).toBe("jwt-session-token");
+    expect(appendLineMock).toHaveBeenCalledWith(
+      expect.stringContaining("App session: storing to SecretStorage")
+    );
+    expect(appendLineMock).toHaveBeenCalledWith(
+      expect.stringContaining("App session: SecretStorage store completed")
+    );
 
     vi.unstubAllGlobals();
   });
