@@ -2,18 +2,25 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { getAppApiUrl, getAppSession } from "./app-auth.js";
+import {
+  getR2Object,
+  getR2StorageCredentials,
+  putR2Object,
+} from "./app-r2-storage.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
-import { computeChecksum, packageFiles } from "./packaging.js";
+import { packageFiles } from "./packaging.js";
 import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
 import type { Manifest, ManifestFileEntry } from "./types.js";
 
 export const APP_CONFIGS_PAYLOAD_SCHEMA_VERSION = 1 as const;
 
 export interface AppConfigsPayloadFile {
-  content: string;
+  content?: string;
   encoding?: "base64";
+  checksum?: string;
+  sizeBytes?: number;
 }
 
 export interface AppConfigsPayloadV1 {
@@ -118,6 +125,27 @@ export async function putAppConfigs(
   return (await response.json()) as AppConfigsResponse;
 }
 
+export function buildMetadataOnlyPayload(
+  manifest: Manifest,
+  files: Record<string, AppConfigsPayloadFile>
+): AppConfigsPayloadV1 {
+  const metadataFiles: Record<string, AppConfigsPayloadFile> = {};
+  for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
+    const source = files[syncKey];
+    metadataFiles[syncKey] = {
+      checksum: source?.checksum ?? manifestEntry.checksum,
+      sizeBytes: source?.sizeBytes ?? manifestEntry.sizeBytes,
+      ...(manifestEntry.encoding ? { encoding: manifestEntry.encoding } : {}),
+    };
+  }
+
+  return {
+    schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
+    manifest,
+    files: metadataFiles,
+  };
+}
+
 export async function buildLocalAppConfigsPayload(): Promise<AppConfigsPayloadV1> {
   const extensionsJson = generateExtensionsJson();
   const cursorUserRoot = resolveSyncRoots().cursorUser;
@@ -134,6 +162,8 @@ export async function buildLocalAppConfigsPayload(): Promise<AppConfigsPayloadV1
   for (const [syncKey, entry] of packaged) {
     payloadFiles[syncKey] = {
       content: entry.content,
+      checksum: entry.checksum,
+      sizeBytes: entry.sizeBytes,
       ...(entry.encoding ? { encoding: entry.encoding } : {}),
     };
   }
@@ -162,15 +192,34 @@ function syncKeyToAbsolutePath(
   return undefined;
 }
 
-function decodePayloadFile(
-  syncKey: string,
+function decodePayloadFileContent(
   file: AppConfigsPayloadFile,
   manifestEntry: ManifestFileEntry
-): Buffer {
+): Buffer | undefined {
+  if (file.content === undefined) {
+    return undefined;
+  }
   if (manifestEntry.encoding === "base64" || file.encoding === "base64") {
     return Buffer.from(file.content, "base64");
   }
   return Buffer.from(file.content, "utf-8");
+}
+
+async function resolveRemoteFileContent(
+  context: vscode.ExtensionContext,
+  syncKey: string,
+  file: AppConfigsPayloadFile,
+  manifestEntry: ManifestFileEntry
+): Promise<Buffer | undefined> {
+  const credentials = await getR2StorageCredentials(context);
+  if (credentials) {
+    const remote = await getR2Object(credentials, syncKey);
+    if (remote) {
+      return remote;
+    }
+  }
+
+  return decodePayloadFileContent(file, manifestEntry);
 }
 
 function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
@@ -194,7 +243,32 @@ export async function executePushAppConfigs(
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
   try {
-    const payload = await buildLocalAppConfigsPayload();
+    const localPayload = await buildLocalAppConfigsPayload();
+    const credentials = await getR2StorageCredentials(context);
+    if (!credentials) {
+      return false;
+    }
+
+    for (const [syncKey, file] of Object.entries(localPayload.files)) {
+      const manifestEntry = localPayload.manifest.files[syncKey];
+      if (!manifestEntry || file.content === undefined) {
+        continue;
+      }
+      const encoding =
+        manifestEntry.encoding === "base64" || file.encoding === "base64"
+          ? "base64"
+          : "utf-8";
+      const body =
+        encoding === "base64"
+          ? Buffer.from(file.content, "base64")
+          : Buffer.from(file.content, "utf-8");
+      await putR2Object(credentials, syncKey, body);
+    }
+
+    const payload = buildMetadataOnlyPayload(
+      localPayload.manifest,
+      localPayload.files
+    );
     const result = await putAppConfigs(context, payload);
     if (!result) {
       return false;
@@ -254,10 +328,20 @@ export async function executePullAppConfigs(
         continue;
       }
 
+      const content = await resolveRemoteFileContent(
+        context,
+        syncKey,
+        file,
+        manifestEntry
+      );
+      if (!content) {
+        continue;
+      }
+
       filesToWrite.push({
         absolutePath,
         syncKey,
-        content: decodePayloadFile(syncKey, file, manifestEntry),
+        content,
       });
     }
 

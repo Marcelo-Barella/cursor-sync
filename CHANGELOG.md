@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v0.8.4
+
+### Added
+- **App configs R2 storage**: after app login, mint scoped temporary R2 credentials via `POST /v1/storage/credentials` and read/write config file bytes with SigV4 (`aws4fetch`, session token, region `auto`).
+
+### Changed
+- **Push App Configs** uploads file bytes to R2 under the scoped user prefix; `PUT /configs` stores schemaVersion, manifest, and per-file metadata only (checksum, size, encoding).
+- **Pull App Configs** downloads file bytes from R2; legacy payloads that still include `files[].content` are used as a fallback when an object is missing.
+
 ## v0.8.3
 
 ### Added

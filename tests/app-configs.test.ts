@@ -89,10 +89,19 @@ vi.mock("../src/rollback.js", () => ({
 }));
 
 const getAppSessionMock = vi.hoisted(() => vi.fn());
+const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
+const putR2ObjectMock = vi.hoisted(() => vi.fn());
+const getR2ObjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
   getAppApiUrl: () => "http://localhost:8100",
   getAppSession: getAppSessionMock,
+}));
+
+vi.mock("../src/app-r2-storage.js", () => ({
+  getR2StorageCredentials: getR2StorageCredentialsMock,
+  putR2Object: putR2ObjectMock,
+  getR2Object: getR2ObjectMock,
 }));
 
 function makeContext(): vscode.ExtensionContext {
@@ -113,6 +122,21 @@ describe("app-configs API", () => {
     showInformationMessageMock.mockReset();
     showQuickPickMock.mockReset();
     getAppSessionMock.mockReset();
+    getR2StorageCredentialsMock.mockReset();
+    putR2ObjectMock.mockReset();
+    getR2ObjectMock.mockReset();
+    getR2StorageCredentialsMock.mockResolvedValue({
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      bucket: "sync-bucket",
+      region: "auto",
+      prefix: "users/user-1/",
+      accessKeyId: "AKIA",
+      secretAccessKey: "secret",
+      sessionToken: "session-token",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+    putR2ObjectMock.mockResolvedValue(undefined);
+    getR2ObjectMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -236,5 +260,121 @@ describe("hasAppSession", () => {
     getAppSessionMock.mockResolvedValue(undefined);
     const { hasAppSession } = await import("../src/app-configs.js");
     expect(await hasAppSession(makeContext())).toBe(false);
+  });
+});
+
+describe("app-configs R2 sync", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    appendLineMock.mockReset();
+    showErrorMessageMock.mockReset();
+    showInformationMessageMock.mockReset();
+    showQuickPickMock.mockReset();
+    getAppSessionMock.mockReset();
+    getR2StorageCredentialsMock.mockReset();
+    putR2ObjectMock.mockReset();
+    getR2ObjectMock.mockReset();
+    getR2StorageCredentialsMock.mockResolvedValue({
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      bucket: "sync-bucket",
+      region: "auto",
+      prefix: "users/user-1/",
+      accessKeyId: "AKIA",
+      secretAccessKey: "secret",
+      sessionToken: "session-token",
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    });
+    putR2ObjectMock.mockResolvedValue(undefined);
+    getR2ObjectMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns false when pushAppConfigs cannot mint storage credentials", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-token");
+    getR2StorageCredentialsMock.mockResolvedValue(undefined);
+    const { executePushAppConfigs } = await import("../src/app-configs.js");
+
+    const ok = await executePushAppConfigs(makeContext());
+
+    expect(ok).toBe(false);
+    expect(putR2ObjectMock).not.toHaveBeenCalled();
+  });
+
+  it("push uploads bytes to R2 and PUTs metadata-only payload", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-token");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
+        updated_at: "2026-01-02T00:00:00.000Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { executePushAppConfigs } = await import("../src/app-configs.js");
+    const ok = await executePushAppConfigs(makeContext());
+
+    expect(ok).toBe(true);
+    expect(putR2ObjectMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prefix: "users/user-1/" }),
+      "cursor-user/settings.json",
+      Buffer.from('{"x":1}')
+    );
+    const putCall = fetchMock.mock.calls.find(
+      (call) => call[1]?.method === "PUT"
+    );
+    expect(putCall).toBeDefined();
+    const body = JSON.parse(putCall![1].body as string);
+    expect(body.payload.files["cursor-user/settings.json"]).toEqual({
+      checksum: "abc",
+      sizeBytes: 7,
+    });
+    expect(body.payload.files["cursor-user/settings.json"].content).toBeUndefined();
+  });
+
+  it("pull prefers R2 bytes and falls back to legacy payload content", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-token");
+    getR2ObjectMock.mockResolvedValue(undefined);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        payload: {
+          schemaVersion: 1,
+          manifest: {
+            schemaVersion: 1,
+            syncProfileName: "default",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            sourceMachineId: "machine",
+            sourceOS: "linux",
+            files: {
+              "cursor-user/settings.json": {
+                checksum: "abc",
+                sizeBytes: 7,
+              },
+            },
+          },
+          files: {
+            "cursor-user/settings.json": {
+              content: '{"legacy":true}',
+              checksum: "abc",
+              sizeBytes: 7,
+            },
+          },
+        },
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { executePullAppConfigs } = await import("../src/app-configs.js");
+    const ok = await executePullAppConfigs(makeContext());
+
+    expect(ok).toBe(true);
+    expect(getR2ObjectMock).toHaveBeenCalled();
   });
 });
