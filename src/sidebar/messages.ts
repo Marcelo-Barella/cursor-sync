@@ -2,7 +2,17 @@ import * as vscode from "vscode";
 import { clearImports } from "./import-history.js";
 
 export type SidebarMessage =
-  | { command: "syncNow" | "push" | "pull" | "export" | "import" | "configure" }
+  | {
+      command:
+        | "syncNow"
+        | "push"
+        | "pull"
+        | "export"
+        | "import"
+        | "configure"
+        | "loginToApp"
+        | "enterAppAuthCode";
+    }
   | { command: "chats:listLocal" }
   | { command: "chats:listImports" }
   | { command: "chats:listBundles" }
@@ -38,6 +48,12 @@ export async function dispatchSidebarMessage(
       break;
     case "configure":
       await vscode.commands.executeCommand("cursorSync.configureGithub");
+      break;
+    case "loginToApp":
+      await vscode.commands.executeCommand("cursorSync.loginToApp");
+      break;
+    case "enterAppAuthCode":
+      await vscode.commands.executeCommand("cursorSync.enterAppAuthCode");
       break;
     case "chats:listLocal": {
       const { listLocalConversations } = await import("./chats-tab.js");

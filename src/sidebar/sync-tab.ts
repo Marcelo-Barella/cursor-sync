@@ -143,7 +143,14 @@ export function renderSyncPane(state: SyncTabState): string {
   </div>
 
   <div class="section">
-    <button class="configure-btn" data-command="configure">
+    <div class="section-header">Account</div>
+    <button class="configure-btn" data-command="loginToApp">
+      <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
+    </button>
+    <button class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
+      <span class="codicon codicon-key"></span> Enter Login Code
+    </button>
+    <button class="configure-btn" data-command="configure" style="margin-top:8px">
       <span class="codicon codicon-github-alt"></span> Configure GitHub
     </button>
   </div>

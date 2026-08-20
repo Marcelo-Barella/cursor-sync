@@ -20,6 +20,11 @@ import {
 } from "./export-gist-chat.js";
 import { executeImportChatFromGist } from "./import-gist-chat.js";
 import { executeSetChatEncryptionPassword } from "./chat-encryption-auth.js";
+import {
+  executeEnterAppAuthCode,
+  executeLoginToCursorSync,
+  registerAppAuthUriHandler,
+} from "./app-auth.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
@@ -80,6 +85,20 @@ export function activate(context: vscode.ExtensionContext): void {
       configureGithub(context)
     )
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.loginToApp", () =>
+      executeLoginToCursorSync(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.enterAppAuthCode", () =>
+      executeEnterAppAuthCode(context)
+    )
+  );
+
+  context.subscriptions.push(registerAppAuthUriHandler(context));
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.push", () =>

@@ -95,6 +95,14 @@
         "title": "Cursor Sync: Configure GitHub"
       },
       {
+        "command": "cursorSync.loginToApp",
+        "title": "Cursor Sync: Log in to Cursor Sync"
+      },
+      {
+        "command": "cursorSync.enterAppAuthCode",
+        "title": "Cursor Sync: Enter Login Code"
+      },
+      {
         "command": "cursorSync.push",
         "title": "Cursor Sync: Push Now",
         "icon": "$(cloud-upload)",
@@ -334,6 +342,11 @@
           "type": "boolean",
           "default": true,
           "description": "When true, chat gist exports (chat-bundle.json / chat-bundles.json) are encrypted with your chat encryption password before upload."
+        },
+        "cursorSync.appApiUrl": {
+          "type": "string",
+          "default": "http://localhost:8100",
+          "description": "Base URL for Cursor Sync app login (email/password flow and session token exchange)."
         }
       }
     }
