@@ -17,7 +17,9 @@ export function extractAuthCodeFromUri(uri: vscode.Uri): string | undefined {
 }
 
 export function isAuthCallbackUri(uri: vscode.Uri, extensionId: string): boolean {
-  return uri.authority === extensionId && uri.path === "/auth";
+  return (
+    uri.authority.toLowerCase() === extensionId.toLowerCase() && uri.path === "/auth"
+  );
 }
 
 export async function buildAuthRedirectUri(

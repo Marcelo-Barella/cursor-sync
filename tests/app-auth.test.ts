@@ -60,6 +60,13 @@ describe("app-auth URI helpers", () => {
     expect(isAuthCallbackUri(uri, extensionId)).toBe(true);
   });
 
+  it("matches auth callback when authority casing differs", async () => {
+    const { isAuthCallbackUri } = await import("../src/app-auth.js");
+    const extensionId = "MarceloBarella.cursor-sync";
+    const uri = makeAuthUri("marcelobarella.cursor-sync", "code=1");
+    expect(isAuthCallbackUri(uri, extensionId)).toBe(true);
+  });
+
   it("rejects wrong path", async () => {
     const { isAuthCallbackUri } = await import("../src/app-auth.js");
     const extensionId = "MarceloBarella.cursor-sync";

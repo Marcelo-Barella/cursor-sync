@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -18,7 +18,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onView:cursorSync.sidebar"
+    "onView:cursorSync.sidebar",
+    "onUri"
   ],
   "main": "./dist/extension.js",
   "contributes": {
