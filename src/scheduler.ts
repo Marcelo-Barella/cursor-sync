@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
+import { getAppSession } from "./app-auth.js";
 import { executePush, isPushLocked } from "./push.js";
 import { executePull, isPullLocked } from "./pull.js";
 import { GistClient } from "./gist.js";
@@ -20,6 +21,12 @@ const MAX_JITTER_MS = 60_000;
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let jitterTimeout: ReturnType<typeof setTimeout> | undefined;
+
+export async function shouldSkipGistPushForAppSession(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  return !!(await getAppSession(context));
+}
 
 export type SyncAction =
   | { action: "none" }
@@ -206,6 +213,13 @@ export async function scheduledTick(
       }
 
       case "push": {
+        if (await shouldSkipGistPushForAppSession(context)) {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped (app session active)`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
+          break;
+        }
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local changes detected, pushing`
         );
@@ -219,6 +233,13 @@ export async function scheduledTick(
         );
         const pullOk = await executePull(context, { trigger: "scheduled" });
         if (!pullOk) {
+          break;
+        }
+        if (await shouldSkipGistPushForAppSession(context)) {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped after pull (app session active)`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
           break;
         }
         await executePush(context, { trigger: "scheduled" });

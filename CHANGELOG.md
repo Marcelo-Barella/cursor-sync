@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v0.8.3
+
+### Added
+- **App configs sync**: `cursorSync.pullAppConfigs` and `cursorSync.pushAppConfigs` GET/PUT `/configs` on the Cursor Sync app API using the app session JWT (`Authorization: Bearer`).
+- App configs payload mirrors Gist sync shape (`schemaVersion: 1`, `manifest`, `files`).
+
+### Changed
+- Scheduled sync and **Sync Now** skip Gist push when an app session JWT is present (in-memory or SecretStorage); use app config commands instead.
+
 ## v0.8.0
 
 ### Added

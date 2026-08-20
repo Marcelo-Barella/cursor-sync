@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -102,6 +102,14 @@
       {
         "command": "cursorSync.enterAppAuthCode",
         "title": "Cursor Sync: Enter Login Code"
+      },
+      {
+        "command": "cursorSync.pullAppConfigs",
+        "title": "Cursor Sync: Pull App Configs"
+      },
+      {
+        "command": "cursorSync.pushAppConfigs",
+        "title": "Cursor Sync: Push App Configs"
       },
       {
         "command": "cursorSync.push",
@@ -347,7 +355,7 @@
         "cursorSync.appApiUrl": {
           "type": "string",
           "default": "http://localhost:8100",
-          "description": "Base URL for Cursor Sync app login (email/password flow and session token exchange)."
+          "description": "Base URL for Cursor Sync app login and config sync (email/password flow, session token exchange, and configs API)."
         }
       }
     }

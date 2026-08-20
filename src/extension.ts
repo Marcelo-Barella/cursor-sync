@@ -26,12 +26,16 @@ import {
   executeLoginToCursorSync,
   registerAppAuthUriHandler,
 } from "./app-auth.js";
+import {
+  executePullAppConfigs,
+  executePushAppConfigs,
+} from "./app-configs.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { executeReset } from "./reset.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
-import { determineSyncAction } from "./scheduler.js";
+import { determineSyncAction, shouldSkipGistPushForAppSession } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
 import {
   buildSyncDebugFailure,
@@ -99,6 +103,18 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.enterAppAuthCode", () =>
       executeEnterAppAuthCode(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.pullAppConfigs", () =>
+      executePullAppConfigs(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.pushAppConfigs", () =>
+      executePushAppConfigs(context)
     )
   );
 
@@ -313,11 +329,29 @@ export async function executeSyncNow(
         await executePull(context);
         break;
       case "push":
+        if (await shouldSkipGistPushForAppSession(context)) {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Sync Now: Gist push skipped (app session active)`
+          );
+          vscode.window.showInformationMessage(
+            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
+          );
+          break;
+        }
         await executePush(context);
         break;
       case "pull-push": {
         const pullOk = await executePull(context);
         if (pullOk) {
+          if (await shouldSkipGistPushForAppSession(context)) {
+            logger.appendLine(
+              `[${new Date().toISOString()}] Sync Now: Gist push skipped after pull (app session active)`
+            );
+            vscode.window.showInformationMessage(
+              "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
+            );
+            break;
+          }
           await executePush(context);
         }
         break;

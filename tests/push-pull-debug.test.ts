@@ -49,7 +49,8 @@ function mockContext(): import("vscode").ExtensionContext {
       keys: vi.fn().mockReturnValue([]),
     },
     secrets: {
-      get: async () => "ghp_test_token",
+      get: async (key: string) =>
+        key === "cursorSync.githubPAT" ? "ghp_test_token" : undefined,
       store: async () => {},
       delete: async () => {},
       onDidChange: () => ({ dispose: () => {} }),

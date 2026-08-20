@@ -10,6 +10,7 @@ const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const isPushLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const isPullLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
+const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
 vi.mock("node:fs/promises", () => ({
@@ -40,6 +41,10 @@ vi.mock("../src/pull.js", () => ({
   isPullLocked: isPullLockedMock,
 }));
 
+vi.mock("../src/app-auth.js", () => ({
+  getAppSession: getAppSessionMock,
+}));
+
 function mockContext(): import("vscode").ExtensionContext {
   return {
     globalStorageUri: { fsPath: "/tmp/cursor-sync-test" },
@@ -49,7 +54,8 @@ function mockContext(): import("vscode").ExtensionContext {
       keys: vi.fn().mockReturnValue([]),
     },
     secrets: {
-      get: async () => "ghp_test_token",
+      get: async (key: string) =>
+        key === "cursorSync.githubPAT" ? "ghp_test_token" : undefined,
       store: async () => {},
       delete: async () => {},
       onDidChange: () => ({ dispose: () => {} }),
@@ -777,5 +783,31 @@ describe("scheduled sync debug wiring", () => {
 
     expect(determineSpy).not.toHaveBeenCalled();
     expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
+  });
+
+  it("skips scheduled Gist push when app session is active", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-session");
+    const scheduler = await import("../src/scheduler.js");
+    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
+      action: "push",
+    });
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(executePushMock).not.toHaveBeenCalled();
+  });
+
+  it("skips scheduled Gist push after pull when app session is active", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-session");
+    const scheduler = await import("../src/scheduler.js");
+    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
+      action: "pull-push",
+    });
+    executePullMock.mockResolvedValue(true);
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(executePullMock).toHaveBeenCalled();
+    expect(executePushMock).not.toHaveBeenCalled();
   });
 });
