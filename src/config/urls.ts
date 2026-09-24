@@ -2,15 +2,19 @@ import * as vscode from "vscode";
 
 export const DEFAULT_PRODUCTION_API_URL = "https://api.sync.bergamota.dev";
 export const DEFAULT_PRODUCTION_WEBSITE_URL = "https://sync.bergamota.dev";
+export const STAGING_API_URL = "https://api-staging.sync.bergamota.dev";
+export const STAGING_WEBSITE_URL = "https://staging.sync.bergamota.dev";
 export const LOCAL_API_URL = "http://localhost:8100";
 export const LOCAL_WEBSITE_URL = "http://localhost:3000";
+
+export const DEFAULT_DEVELOPER_ENVIRONMENT = "staging" as const;
 
 export const LEGACY_APP_API_URL_KEY = "appApiUrl";
 export const DEVELOPER_API_URL_KEY = "developer.apiUrl";
 export const DEVELOPER_WEBSITE_URL_KEY = "developer.websiteUrl";
 export const DEVELOPER_ENVIRONMENT_KEY = "developer.environment";
 
-export type DeveloperEnvironment = "production" | "local" | "custom";
+export type DeveloperEnvironment = "production" | "staging" | "local" | "custom";
 
 const CONFIG_SECTION = "cursorSync";
 
@@ -41,11 +45,14 @@ function readUserConfiguredString(key: string): string | undefined {
 function readEnvironment(): DeveloperEnvironment {
   const raw = vscode.workspace
     .getConfiguration(CONFIG_SECTION)
-    .get<string>(DEVELOPER_ENVIRONMENT_KEY, "production");
-  if (raw === "local" || raw === "custom") {
+    .get<string>(DEVELOPER_ENVIRONMENT_KEY, DEFAULT_DEVELOPER_ENVIRONMENT);
+  if (raw === "local" || raw === "custom" || raw === "staging") {
     return raw;
   }
-  return "production";
+  if (raw === "production") {
+    return "production";
+  }
+  return DEFAULT_DEVELOPER_ENVIRONMENT;
 }
 
 export function normalizeHttpUrl(
@@ -119,6 +126,10 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
     return LOCAL_API_URL;
   }
 
+  if (inputs.environment === "staging") {
+    return STAGING_API_URL;
+  }
+
   if (inputs.environment === "custom") {
     const { url, usedFallback } = normalizeHttpUrl(
       inputs.explicitApiUrl,
@@ -136,6 +147,10 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
 export function resolveAppWebsiteUrlFromInputs(inputs: UrlResolutionInputs): string {
   if (inputs.environment === "local") {
     return LOCAL_WEBSITE_URL;
+  }
+
+  if (inputs.environment === "staging") {
+    return STAGING_WEBSITE_URL;
   }
 
   if (inputs.environment === "custom") {

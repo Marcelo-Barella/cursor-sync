@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_PRODUCTION_API_URL,
   DEFAULT_PRODUCTION_WEBSITE_URL,
+  STAGING_API_URL,
+  STAGING_WEBSITE_URL,
+  DEFAULT_DEVELOPER_ENVIRONMENT,
   LOCAL_API_URL,
   LOCAL_WEBSITE_URL,
   normalizeHttpUrl,
@@ -71,6 +74,10 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     expect(resolveAppApiUrlFromInputs(inputs({ environment: "local" }))).toBe(LOCAL_API_URL);
   });
 
+  it("uses staging preset", () => {
+    expect(resolveAppApiUrlFromInputs(inputs({ environment: "staging" }))).toBe(STAGING_API_URL);
+  });
+
   it("uses custom explicit API URL", () => {
     expect(
       resolveAppApiUrlFromInputs(
@@ -129,6 +136,12 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
     );
   });
 
+  it("uses staging website preset", () => {
+    expect(resolveAppWebsiteUrlFromInputs(inputs({ environment: "staging" }))).toBe(
+      STAGING_WEBSITE_URL
+    );
+  });
+
   it("uses custom explicit website URL", () => {
     expect(
       resolveAppWebsiteUrlFromInputs(
@@ -148,7 +161,7 @@ describe("config/urls live configuration", () => {
   });
 
   it("reads updated settings on each getAppApiUrl call without re-activation", async () => {
-    let environment = "production";
+    let environment: string | undefined = DEFAULT_DEVELOPER_ENVIRONMENT;
     const inspectValues: Record<string, string | undefined> = {};
 
     vi.doMock("vscode", () => ({
@@ -156,7 +169,7 @@ describe("config/urls live configuration", () => {
         getConfiguration: () => ({
           get: (key: string, defaultValue?: string) => {
             if (key === "developer.environment") {
-              return environment;
+              return environment ?? defaultValue;
             }
             return defaultValue;
           },
@@ -172,13 +185,19 @@ describe("config/urls live configuration", () => {
       },
     }));
 
-    const { getAppApiUrl } = await import("../src/config/urls.js");
-    expect(getAppApiUrl()).toBe(DEFAULT_PRODUCTION_API_URL);
+    const { getAppApiUrl, DEFAULT_DEVELOPER_ENVIRONMENT: defaultEnv } = await import(
+      "../src/config/urls.js"
+    );
+    expect(defaultEnv).toBe("staging");
+    expect(getAppApiUrl()).toBe(STAGING_API_URL);
 
     environment = "local";
     expect(getAppApiUrl()).toBe(LOCAL_API_URL);
 
     environment = "production";
+    expect(getAppApiUrl()).toBe(DEFAULT_PRODUCTION_API_URL);
+
+    environment = undefined;
     inspectValues["appApiUrl"] = "http://localhost:8100";
     expect(getAppApiUrl()).toBe(LOCAL_API_URL);
   });

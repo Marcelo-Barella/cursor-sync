@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4",
+  "version": "0.8.4-staging.1",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -368,21 +368,22 @@
           "type": "string",
           "enum": [
             "production",
+            "staging",
             "local",
             "custom"
           ],
-          "default": "production",
-          "description": "Target Cursor Sync app environment. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
+          "default": "staging",
+          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging.sync.bergamota.dev and https://staging.sync.bergamota.dev. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
         },
         "cursorSync.developer.apiUrl": {
           "type": "string",
           "default": "https://api.sync.bergamota.dev",
-          "description": "Base URL for session token exchange, configs API, and R2 credential minting. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production** and **local** presets unless migrating from deprecated cursorSync.appApiUrl."
+          "description": "Base URL for session token exchange, configs API, and R2 credential minting. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production**, **staging**, and **local** presets unless migrating from deprecated cursorSync.appApiUrl."
         },
         "cursorSync.developer.websiteUrl": {
           "type": "string",
           "default": "https://sync.bergamota.dev",
-          "description": "Sign-in website opened in the browser for Cursor Sync login. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production** and **local** presets."
+          "description": "Sign-in website opened in the browser for Cursor Sync login. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production**, **staging**, and **local** presets."
         }
       }
     }
