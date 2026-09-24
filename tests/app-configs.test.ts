@@ -94,8 +94,11 @@ const putR2ObjectMock = vi.hoisted(() => vi.fn());
 const getR2ObjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
-  getAppApiUrl: () => "http://localhost:8100",
   getAppSession: getAppSessionMock,
+}));
+
+vi.mock("../src/config/urls.js", () => ({
+  getAppApiUrl: () => "http://localhost:8100",
 }));
 
 vi.mock("../src/app-r2-storage.js", () => ({

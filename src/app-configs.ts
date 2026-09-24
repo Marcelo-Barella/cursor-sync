@@ -1,7 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { getAppApiUrl, getAppSession } from "./app-auth.js";
+import { getAppSession } from "./app-auth.js";
+import { getAppApiUrl } from "./config/urls.js";
 import {
   getR2Object,
   getR2StorageCredentials,
@@ -54,7 +55,7 @@ export async function requireAppSession(
 }
 
 function appConfigsBaseUrl(): string {
-  return getAppApiUrl().replace(/\/$/, "");
+  return getAppApiUrl();
 }
 
 function authHeaders(session: string): Record<string, string> {

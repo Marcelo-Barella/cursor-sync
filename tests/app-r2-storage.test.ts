@@ -12,8 +12,11 @@ vi.mock("vscode", () => ({
 const getAppSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
-  getAppApiUrl: () => "http://localhost:8100",
   getAppSession: getAppSessionMock,
+}));
+
+vi.mock("../src/config/urls.js", () => ({
+  getAppApiUrl: () => "http://localhost:8100",
 }));
 
 const awsFetchMock = vi.hoisted(() => vi.fn());

@@ -1,6 +1,7 @@
 import { AwsClient } from "aws4fetch";
 import * as vscode from "vscode";
-import { getAppApiUrl, getAppSession } from "./app-auth.js";
+import { getAppSession } from "./app-auth.js";
+import { getAppApiUrl } from "./config/urls.js";
 
 export interface R2StorageCredentials {
   endpoint: string;
@@ -20,7 +21,7 @@ let cachedCredentials: R2StorageCredentials | undefined;
 let cachedForSession: string | undefined;
 
 function appStorageBaseUrl(): string {
-  return getAppApiUrl().replace(/\/$/, "");
+  return getAppApiUrl();
 }
 
 function isCredentialsExpired(credentials: R2StorageCredentials): boolean {

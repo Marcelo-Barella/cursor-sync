@@ -9,6 +9,19 @@ function readPackageJson(): Record<string, any> {
   return JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
+function configurationProperties(pkg: Record<string, unknown>): Record<string, unknown> {
+  const configuration = pkg.contributes?.configuration;
+  if (!configuration) {
+    return {};
+  }
+  if (Array.isArray(configuration)) {
+    return configuration.reduce<Record<string, unknown>>((merged, section) => {
+      return { ...merged, ...(section.properties ?? {}) };
+    }, {});
+  }
+  return (configuration as { properties?: Record<string, unknown> }).properties ?? {};
+}
+
 describe("package menu contributions", () => {
   it("declares the current-chat bundle export command", () => {
     const pkg = readPackageJson();
@@ -80,7 +93,7 @@ describe("package menu contributions", () => {
 
   it("declares chat gist encryption setting default true", () => {
     const pkg = readPackageJson();
-    expect(pkg.contributes.configuration.properties["cursorSync.chatGist.encrypt"]).toEqual({
+    expect(configurationProperties(pkg)["cursorSync.chatGist.encrypt"]).toEqual({
       type: "boolean",
       default: true,
       description: expect.stringMatching(/encrypt/i),

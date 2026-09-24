@@ -56,6 +56,8 @@ import {
 } from "./chat-import-activate-watcher.js";
 import { flushPendingSidebarWriteback } from "./chat-import-sidebar-writeback.js";
 import { executeInstallSkillTransportChat } from "./install-skill-transport-chat.js";
+import { clearR2CredentialsCache } from "./app-r2-storage.js";
+import { registerDeveloperUrlConfigurationListener } from "./config/urls.js";
 let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -292,6 +294,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
   context.subscriptions.push(configListener);
+
+  context.subscriptions.push(
+    registerDeveloperUrlConfigurationListener(() => {
+      clearR2CredentialsCache();
+    })
+  );
 
   void notifyPendingStateBundleIfAny(context);
 

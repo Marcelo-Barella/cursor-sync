@@ -232,7 +232,8 @@
         "title": "Cursor Sync: Install Skill - Transport Chat"
       }
     ],
-    "configuration": {
+    "configuration": [
+      {
       "title": "Cursor Sync",
       "properties": {
         "cursorSync.enabledPaths": {
@@ -355,10 +356,37 @@
         "cursorSync.appApiUrl": {
           "type": "string",
           "default": "http://localhost:8100",
-          "description": "Base URL for Cursor Sync app login and config sync (email/password flow, session token exchange, and configs API)."
+          "markdownDeprecationMessage": "Deprecated. Use **Cursor Sync: Developer › Api Url** (`cursorSync.developer.apiUrl`) instead.",
+          "description": "Deprecated. Use cursorSync.developer.apiUrl."
+        }
+      }
+    },
+    {
+      "title": "Cursor Sync: Developer",
+      "properties": {
+        "cursorSync.developer.environment": {
+          "type": "string",
+          "enum": [
+            "production",
+            "local",
+            "custom"
+          ],
+          "default": "production",
+          "description": "Target Cursor Sync app environment. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
+        },
+        "cursorSync.developer.apiUrl": {
+          "type": "string",
+          "default": "https://api.sync.bergamota.dev",
+          "description": "Base URL for session token exchange, configs API, and R2 credential minting. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production** and **local** presets unless migrating from deprecated cursorSync.appApiUrl."
+        },
+        "cursorSync.developer.websiteUrl": {
+          "type": "string",
+          "default": "https://sync.bergamota.dev",
+          "description": "Sign-in website opened in the browser for Cursor Sync login. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production** and **local** presets."
         }
       }
     }
+  ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

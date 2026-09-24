@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
+import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
+
+export { getAppApiUrl } from "./config/urls.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
@@ -55,13 +58,6 @@ let pendingAuthCallbackUri: vscode.Uri | undefined;
 let appAuthActivateReady = false;
 const consumedAuthCodes = new Set<string>();
 let inFlightAuthCode: string | undefined;
-
-export function getAppApiUrl(): string {
-  return (
-    vscode.workspace.getConfiguration("cursorSync").get<string>("appApiUrl") ??
-    "http://localhost:8100"
-  );
-}
 
 export function extractAuthCodeFromUri(uri: vscode.Uri): string | undefined {
   const params = new URLSearchParams(uri.query);
@@ -293,8 +289,8 @@ export async function executeLoginToCursorSync(
   const logger = getLogger();
   try {
     const redirectUri = await buildAuthRedirectUri(context);
-    const apiBase = getAppApiUrl().replace(/\/$/, "");
-    const loginUrl = `${apiBase}/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const websiteBase = getAppWebsiteUrl();
+    const loginUrl = `${websiteBase}/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
     const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
     if (!opened) {
       vscode.window.showErrorMessage("Could not open the system browser for login.");
