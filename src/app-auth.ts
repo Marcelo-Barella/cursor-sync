@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
@@ -59,10 +60,78 @@ let appAuthActivateReady = false;
 const consumedAuthCodes = new Set<string>();
 let inFlightAuthCode: string | undefined;
 
+const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
+export { AUTH_STATE_TTL_MS };
+
+let pendingAuthState: { nonce: string; expiresAtMs: number } | undefined;
+
+export function generateAuthStateNonce(byteLength = 32): string {
+  return randomBytes(byteLength).toString("base64url");
+}
+
+export function storePendingAuthState(nonce: string, nowMs = Date.now()): void {
+  pendingAuthState = { nonce, expiresAtMs: nowMs + AUTH_STATE_TTL_MS };
+}
+
+export type AuthStateVerificationResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
+export function verifyAndConsumeAuthState(
+  receivedState: string | undefined,
+  nowMs = Date.now()
+): AuthStateVerificationResult {
+  const pending = pendingAuthState;
+  pendingAuthState = undefined;
+
+  if (!receivedState || receivedState.trim().length === 0) {
+    return { ok: false, message: "Login callback did not include state." };
+  }
+
+  if (!pending) {
+    return { ok: false, message: "No login in progress. Start sign-in again." };
+  }
+
+  if (nowMs > pending.expiresAtMs) {
+    return { ok: false, message: "Login state expired. Start sign-in again." };
+  }
+
+  if (receivedState.trim() !== pending.nonce) {
+    return { ok: false, message: "Login state did not match. Start sign-in again." };
+  }
+
+  return { ok: true };
+}
+
+export function buildSignInUrl(
+  websiteBase: string,
+  redirectUri: string,
+  state: string
+): string {
+  const base = websiteBase.replace(/\/+$/, "");
+  const params = new URLSearchParams({
+    redirect_uri: redirectUri,
+    state,
+  });
+  return `${base}/sign-in?${params.toString()}`;
+}
+
 export function extractAuthCodeFromUri(uri: vscode.Uri): string | undefined {
   const params = new URLSearchParams(uri.query);
   const code = params.get("code");
   return code && code.trim().length > 0 ? code.trim() : undefined;
+}
+
+export function extractAuthStateFromUri(uri: vscode.Uri): string | undefined {
+  const params = new URLSearchParams(uri.query);
+  const state = params.get("state");
+  return state && state.trim().length > 0 ? state.trim() : undefined;
+}
+
+export function extractAuthTokenFromUri(uri: vscode.Uri): string | undefined {
+  const params = new URLSearchParams(uri.query);
+  const token = params.get("token");
+  return token && token.trim().length > 0 ? token.trim() : undefined;
 }
 
 export function isAuthCallbackUri(uri: vscode.Uri, extensionId: string): boolean {
@@ -82,6 +151,9 @@ export function parseAuthCallbackUriFromString(
       return undefined;
     }
     if (!isAuthCallbackUri(uri, extensionId)) {
+      return undefined;
+    }
+    if (extractAuthTokenFromUri(uri)) {
       return undefined;
     }
     if (!extractAuthCodeFromUri(uri)) {
@@ -130,11 +202,15 @@ export function findAuthCallbackUriInArgv(
   return undefined;
 }
 
+export function formatAuthCallbackUri(uriScheme: string, extensionId: string): string {
+  return `${uriScheme}://${extensionId}/auth`;
+}
+
 export async function buildAuthRedirectUri(
   context: vscode.ExtensionContext
 ): Promise<string> {
   const callbackUri = vscode.Uri.parse(
-    `${vscode.env.uriScheme}://${context.extension.id}/auth`
+    formatAuthCallbackUri(vscode.env.uriScheme, context.extension.id)
   );
   const externalUri = await vscode.env.asExternalUri(callbackUri);
   return externalUri.with({ authority: context.extension.id }).toString();
@@ -255,6 +331,17 @@ function handleAuthCallbackUri(
   if (!isAuthCallbackUri(uri, context.extension.id)) {
     return;
   }
+  if (extractAuthTokenFromUri(uri)) {
+    vscode.window.showErrorMessage(
+      "Login callback must not include a token in the URL. Complete sign-in with the one-time code flow."
+    );
+    return;
+  }
+  const stateResult = verifyAndConsumeAuthState(extractAuthStateFromUri(uri));
+  if (!stateResult.ok) {
+    vscode.window.showErrorMessage(stateResult.message);
+    return;
+  }
   const code = extractAuthCodeFromUri(uri);
   if (!code) {
     vscode.window.showErrorMessage("Login callback did not include a code.");
@@ -289,8 +376,10 @@ export async function executeLoginToCursorSync(
   const logger = getLogger();
   try {
     const redirectUri = await buildAuthRedirectUri(context);
+    const state = generateAuthStateNonce();
+    storePendingAuthState(state);
     const websiteBase = getAppWebsiteUrl();
-    const loginUrl = `${websiteBase}/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const loginUrl = buildSignInUrl(websiteBase, redirectUri, state);
     const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
     if (!opened) {
       vscode.window.showErrorMessage("Could not open the system browser for login.");
