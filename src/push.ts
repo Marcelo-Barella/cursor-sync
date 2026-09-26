@@ -24,8 +24,6 @@ import type { SyncState } from "./types.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
-export { isPushLocked } from "./sync-operation.js";
-
 export async function executePush(
   context: vscode.ExtensionContext,
   options?: { trigger?: PushTrigger }

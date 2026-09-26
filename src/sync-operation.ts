@@ -4,14 +4,6 @@ export function isSyncOperationActive(): boolean {
   return syncOperationActive;
 }
 
-export function isPushLocked(): boolean {
-  return syncOperationActive;
-}
-
-export function isPullLocked(): boolean {
-  return syncOperationActive;
-}
-
 export function tryBeginSyncOperation(): boolean {
   if (syncOperationActive) {
     return false;

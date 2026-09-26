@@ -27,8 +27,6 @@ import type { SyncState, Manifest } from "./types.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
-export { isPullLocked } from "./sync-operation.js";
-
 export async function executePull(
   context: vscode.ExtensionContext,
   options?: { trigger?: PullTrigger }

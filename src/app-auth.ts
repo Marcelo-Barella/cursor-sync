@@ -216,14 +216,6 @@ export async function buildAuthRedirectUri(
   return externalUri.with({ authority: context.extension.id }).toString();
 }
 
-function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
-  const base = apiBase.replace(/\/$/, "");
-  const detail = err instanceof Error ? err.message : String(err);
-  return new Error(
-    `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
-  );
-}
-
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string
@@ -237,7 +229,10 @@ export async function exchangeCodeForSessionToken(
       body: JSON.stringify({ code }),
     });
   } catch (err) {
-    throw formatTokenExchangeNetworkError(base, err);
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
+    );
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
