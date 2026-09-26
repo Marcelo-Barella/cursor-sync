@@ -27,21 +27,32 @@ import type { SyncState, Manifest } from "./types.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
+export type PullOptions = {
+  trigger?: PullTrigger;
+  skipOperationLock?: boolean;
+};
+
 export { isPullLocked } from "./sync-operation.js";
 
 export async function executePull(
   context: vscode.ExtensionContext,
-  options?: { trigger?: PullTrigger }
+  options?: PullOptions
 ): Promise<boolean> {
   const trigger = options?.trigger ?? "manual";
-  const logger = getLogger();
+  const skipOperationLock = options?.skipOperationLock === true;
 
-  if (!tryBeginSyncOperation()) {
-    vscode.window.showWarningMessage("A sync operation is already in progress.");
-    return false;
+  if (!skipOperationLock) {
+    if (!tryBeginSyncOperation()) {
+      const { recoverSyncOperationLatch } = await import("./sync-operation.js");
+      await recoverSyncOperationLatch(context, { force: true });
+      if (!tryBeginSyncOperation()) {
+        vscode.window.showWarningMessage("A sync operation is already in progress.");
+        return false;
+      }
+    }
+    updateStatusBar("syncing");
   }
 
-  updateStatusBar("syncing");
   let failed = false;
   try {
     const success = await doPull(context, trigger);
@@ -51,9 +62,11 @@ export async function executePull(
     failed = true;
     throw err;
   } finally {
-    endSyncOperation();
-    await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
-    refreshSidebar();
+    if (!skipOperationLock) {
+      endSyncOperation();
+      await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+      refreshSidebar();
+    }
   }
 }
 

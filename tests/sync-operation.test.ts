@@ -4,12 +4,13 @@ import {
   isPullLocked,
   isPushLocked,
   isSyncOperationActive,
+  resetSyncOperation,
   tryBeginSyncOperation,
 } from "../src/sync-operation.js";
 
 describe("sync-operation lock", () => {
   afterEach(() => {
-    endSyncOperation();
+    resetSyncOperation();
   });
 
   it("exposes a single shared lock for push and pull", () => {

@@ -63,26 +63,40 @@ let inFlightAuthCode: string | undefined;
 const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export { AUTH_STATE_TTL_MS };
 
-let pendingAuthState: { nonce: string; expiresAtMs: number } | undefined;
+export interface PendingAuthHandoff {
+  nonce: string;
+  expiresAtMs: number;
+  redirectUri: string;
+}
+
+let pendingAuthHandoff: PendingAuthHandoff | undefined;
 
 export function generateAuthStateNonce(byteLength = 32): string {
   return randomBytes(byteLength).toString("base64url");
 }
 
-export function storePendingAuthState(nonce: string, nowMs = Date.now()): void {
-  pendingAuthState = { nonce, expiresAtMs: nowMs + AUTH_STATE_TTL_MS };
+export function storePendingAuthHandoff(
+  redirectUri: string,
+  nonce: string,
+  nowMs = Date.now()
+): void {
+  pendingAuthHandoff = {
+    nonce,
+    expiresAtMs: nowMs + AUTH_STATE_TTL_MS,
+    redirectUri,
+  };
 }
 
 export type AuthStateVerificationResult =
-  | { ok: true }
+  | { ok: true; redirectUri: string }
   | { ok: false; message: string };
 
-export function verifyAndConsumeAuthState(
+export function verifyAndConsumeAuthHandoff(
   receivedState: string | undefined,
   nowMs = Date.now()
 ): AuthStateVerificationResult {
-  const pending = pendingAuthState;
-  pendingAuthState = undefined;
+  const pending = pendingAuthHandoff;
+  pendingAuthHandoff = undefined;
 
   if (!receivedState || receivedState.trim().length === 0) {
     return { ok: false, message: "Login callback did not include state." };
@@ -100,7 +114,7 @@ export function verifyAndConsumeAuthState(
     return { ok: false, message: "Login state did not match. Start sign-in again." };
   }
 
-  return { ok: true };
+  return { ok: true, redirectUri: pending.redirectUri };
 }
 
 export function buildSignInUrl(
@@ -206,6 +220,19 @@ export function formatAuthCallbackUri(uriScheme: string, extensionId: string): s
   return `${uriScheme}://${extensionId}/auth`;
 }
 
+export function formatOAuthRedirectUri(uri: vscode.Uri): string {
+  if (!uri.query) {
+    return uri.toString();
+  }
+  const params = new URLSearchParams(uri.query);
+  if (!params.has("windowId")) {
+    return uri.toString();
+  }
+  params.delete("windowId");
+  const query = params.toString();
+  return uri.with({ query }).toString();
+}
+
 export async function buildAuthRedirectUri(
   context: vscode.ExtensionContext
 ): Promise<string> {
@@ -213,7 +240,7 @@ export async function buildAuthRedirectUri(
     formatAuthCallbackUri(vscode.env.uriScheme, context.extension.id)
   );
   const externalUri = await vscode.env.asExternalUri(callbackUri);
-  return externalUri.with({ authority: context.extension.id }).toString();
+  return formatOAuthRedirectUri(externalUri);
 }
 
 function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
@@ -226,15 +253,20 @@ function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
 
 export async function exchangeCodeForSessionToken(
   apiBase: string,
-  code: string
+  code: string,
+  redirectUri?: string
 ): Promise<string> {
   const base = apiBase.replace(/\/$/, "");
+  const body: { code: string; redirect_uri?: string } = { code };
+  if (redirectUri && redirectUri.trim().length > 0) {
+    body.redirect_uri = redirectUri;
+  }
   let response: Response;
   try {
     response = await fetch(`${base}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify(body),
     });
   } catch (err) {
     throw formatTokenExchangeNetworkError(base, err);
@@ -311,7 +343,8 @@ export async function clearAppSession(
 
 async function completeLoginWithCode(
   context: vscode.ExtensionContext,
-  code: string
+  code: string,
+  redirectUri?: string
 ): Promise<boolean> {
   if (consumedAuthCodes.has(code)) {
     return true;
@@ -323,7 +356,7 @@ async function completeLoginWithCode(
   const logger = getLogger();
   inFlightAuthCode = code;
   try {
-    const token = await exchangeCodeForSessionToken(getAppApiUrl(), code);
+    const token = await exchangeCodeForSessionToken(getAppApiUrl(), code, redirectUri);
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
     logAppSessionLoginSucceeded();
@@ -355,7 +388,7 @@ function handleAuthCallbackUri(
     );
     return;
   }
-  const stateResult = verifyAndConsumeAuthState(extractAuthStateFromUri(uri));
+  const stateResult = verifyAndConsumeAuthHandoff(extractAuthStateFromUri(uri));
   if (!stateResult.ok) {
     vscode.window.showErrorMessage(stateResult.message);
     return;
@@ -365,7 +398,7 @@ function handleAuthCallbackUri(
     vscode.window.showErrorMessage("Login callback did not include a code.");
     return;
   }
-  void completeLoginWithCode(context, code);
+  void completeLoginWithCode(context, code, stateResult.redirectUri);
 }
 
 export function consumePendingAuthCallback(context: vscode.ExtensionContext): void {
@@ -392,12 +425,17 @@ export async function executeLoginToCursorSync(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
+  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
+  await releaseSyncLatchForAuthRetry(context);
   try {
     const redirectUri = await buildAuthRedirectUri(context);
     const state = generateAuthStateNonce();
-    storePendingAuthState(state);
+    storePendingAuthHandoff(redirectUri, state);
     const websiteBase = getAppWebsiteUrl();
     const loginUrl = buildSignInUrl(websiteBase, redirectUri, state);
+    logger.appendLine(
+      `[${new Date().toISOString()}] App login redirect_uri=${redirectUri}`
+    );
     const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
     if (!opened) {
       vscode.window.showErrorMessage("Could not open the system browser for login.");
@@ -424,6 +462,8 @@ export async function executeLoginToCursorSync(
 export async function executeEnterAppAuthCode(
   context: vscode.ExtensionContext
 ): Promise<void> {
+  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
+  await releaseSyncLatchForAuthRetry(context);
   const code = await vscode.window.showInputBox({
     prompt: "Paste the one-time login code from the browser",
     ignoreFocusOut: true,

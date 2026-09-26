@@ -24,21 +24,32 @@ import type { SyncState } from "./types.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
+export type PushOptions = {
+  trigger?: PushTrigger;
+  skipOperationLock?: boolean;
+};
+
 export { isPushLocked } from "./sync-operation.js";
 
 export async function executePush(
   context: vscode.ExtensionContext,
-  options?: { trigger?: PushTrigger }
+  options?: PushOptions
 ): Promise<boolean> {
   const trigger = options?.trigger ?? "manual";
-  const logger = getLogger();
+  const skipOperationLock = options?.skipOperationLock === true;
 
-  if (!tryBeginSyncOperation()) {
-    vscode.window.showWarningMessage("A sync operation is already in progress.");
-    return false;
+  if (!skipOperationLock) {
+    if (!tryBeginSyncOperation()) {
+      const { recoverSyncOperationLatch } = await import("./sync-operation.js");
+      await recoverSyncOperationLatch(context, { force: true });
+      if (!tryBeginSyncOperation()) {
+        vscode.window.showWarningMessage("A sync operation is already in progress.");
+        return false;
+      }
+    }
+    updateStatusBar("syncing");
   }
 
-  updateStatusBar("syncing");
   let failed = false;
   try {
     const success = await doPush(context, trigger);
@@ -48,9 +59,11 @@ export async function executePush(
     failed = true;
     throw err;
   } finally {
-    endSyncOperation();
-    await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
-    refreshSidebar();
+    if (!skipOperationLock) {
+      endSyncOperation();
+      await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+      refreshSidebar();
+    }
   }
 }
 
