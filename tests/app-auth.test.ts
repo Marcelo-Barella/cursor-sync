@@ -409,6 +409,17 @@ describe("app-auth session storage", () => {
     vi.unstubAllGlobals();
   });
 
+  it("surfaces network failures as connectivity errors, not auth rejection", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+
+    const { exchangeCodeForSessionToken } = await import("../src/app-auth.js");
+    await expect(
+      exchangeCodeForSessionToken("https://api-staging.sync.bergamota.dev", "code")
+    ).rejects.toThrow(/Could not reach Cursor Sync API/);
+
+    vi.unstubAllGlobals();
+  });
+
   it("completeLoginWithCode exchanges code against configured apiUrl", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

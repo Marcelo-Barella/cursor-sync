@@ -9,6 +9,11 @@ import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./
 import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForKey } from "./conflicts.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import {
+  tryBeginSyncOperation,
+  endSyncOperation,
+} from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -19,11 +24,7 @@ import type { SyncState } from "./types.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
-let pushLock = false;
-
-export function isPushLocked(): boolean {
-  return pushLock;
-}
+export { isPushLocked } from "./sync-operation.js";
 
 export async function executePush(
   context: vscode.ExtensionContext,
@@ -32,24 +33,24 @@ export async function executePush(
   const trigger = options?.trigger ?? "manual";
   const logger = getLogger();
 
-  if (pushLock) {
+  if (!tryBeginSyncOperation()) {
     vscode.window.showWarningMessage("A sync operation is already in progress.");
     return false;
   }
 
-  pushLock = true;
   updateStatusBar("syncing");
+  let failed = false;
   try {
     const success = await doPush(context, trigger);
-    updateStatusBar(success ? "ok" : "error", new Date());
-    refreshSidebar();
+    failed = !success;
     return success;
   } catch (err) {
-    updateStatusBar("error", new Date());
-    refreshSidebar();
+    failed = true;
     throw err;
   } finally {
-    pushLock = false;
+    endSyncOperation();
+    await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+    refreshSidebar();
   }
 }
 

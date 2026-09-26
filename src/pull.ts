@@ -11,6 +11,11 @@ import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflic
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
 import { findMissingExtensions, findExtraExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import {
+  tryBeginSyncOperation,
+  endSyncOperation,
+} from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -22,11 +27,7 @@ import type { SyncState, Manifest } from "./types.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
-let pullLock = false;
-
-export function isPullLocked(): boolean {
-  return pullLock;
-}
+export { isPullLocked } from "./sync-operation.js";
 
 export async function executePull(
   context: vscode.ExtensionContext,
@@ -35,24 +36,24 @@ export async function executePull(
   const trigger = options?.trigger ?? "manual";
   const logger = getLogger();
 
-  if (pullLock) {
+  if (!tryBeginSyncOperation()) {
     vscode.window.showWarningMessage("A sync operation is already in progress.");
     return false;
   }
 
-  pullLock = true;
   updateStatusBar("syncing");
+  let failed = false;
   try {
     const success = await doPull(context, trigger);
-    updateStatusBar(success ? "ok" : "error", new Date());
-    refreshSidebar();
+    failed = !success;
     return success;
   } catch (err) {
-    updateStatusBar("error", new Date());
-    refreshSidebar();
+    failed = true;
     throw err;
   } finally {
-    pullLock = false;
+    endSyncOperation();
+    await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+    refreshSidebar();
   }
 }
 

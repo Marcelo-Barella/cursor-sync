@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.1",
+  "version": "0.8.4-staging.2",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -355,7 +355,7 @@
         },
         "cursorSync.appApiUrl": {
           "type": "string",
-          "default": "http://localhost:8100",
+          "default": "",
           "markdownDeprecationMessage": "Deprecated. Use **Cursor Sync: Developer › Api Url** (`cursorSync.developer.apiUrl`) instead.",
           "description": "Deprecated. Use cursorSync.developer.apiUrl."
         }

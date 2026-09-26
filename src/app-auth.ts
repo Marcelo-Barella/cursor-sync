@@ -216,18 +216,36 @@ export async function buildAuthRedirectUri(
   return externalUri.with({ authority: context.extension.id }).toString();
 }
 
+function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
+  const base = apiBase.replace(/\/$/, "");
+  const detail = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
+  );
+}
+
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string
 ): Promise<string> {
   const base = apiBase.replace(/\/$/, "");
-  const response = await fetch(`${base}/auth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+  } catch (err) {
+    throw formatTokenExchangeNetworkError(base, err);
+  }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    if (response.status === 404) {
+      throw new Error(
+        `Cursor Sync API not found at ${base}/auth/token (HTTP 404). Check Developer environment and API URL settings.`
+      );
+    }
     throw new Error(
       `Token exchange failed (${response.status})${text ? `: ${text}` : ""}`
     );

@@ -7,8 +7,20 @@ import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
 ): Promise<SyncTabState> {
+  const { isSyncOperationActive } = await import("../sync-operation.js");
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
+
+  if (isSyncOperationActive()) {
+    return {
+      status: "syncing",
+      lastSyncTime: syncState?.lastSyncTimestamp,
+      lastSyncDirection: syncState?.lastSyncDirection,
+      fileCount: syncState ? Object.keys(syncState.localChecksums).length : 0,
+      gistId: syncState?.gistId,
+      history,
+    };
+  }
 
   if (!syncState) {
     return {
