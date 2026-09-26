@@ -2,21 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-const isPushLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
-const isPullLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
+const isSyncOperationActiveMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
 vi.mock("../src/push.js", () => ({
   executePush: executePushMock,
-  isPushLocked: isPushLockedMock,
 }));
 
 vi.mock("../src/pull.js", () => ({
   executePull: executePullMock,
-  isPullLocked: isPullLockedMock,
 }));
+
+vi.mock("../src/sync-operation.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/sync-operation.js")>();
+  return {
+    ...actual,
+    isSyncOperationActive: isSyncOperationActiveMock,
+  };
+});
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
@@ -56,8 +61,7 @@ describe("scheduler app session routing", () => {
     executePushMock.mockClear();
     executePullMock.mockClear();
     getAppSessionMock.mockReset().mockResolvedValue(undefined);
-    isPushLockedMock.mockReturnValue(false);
-    isPullLockedMock.mockReturnValue(false);
+    isSyncOperationActiveMock.mockReturnValue(false);
   });
 
   it("routes scheduled push through executePush when app session is active", async () => {

@@ -7,8 +7,9 @@ import {
   fetchAppConfigs,
   notifyAppStorageConflicts,
 } from "./app-configs.js";
-import { executePush, isPushLocked } from "./push.js";
-import { executePull, isPullLocked } from "./pull.js";
+import { executePush } from "./push.js";
+import { executePull } from "./pull.js";
+import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
@@ -191,7 +192,7 @@ export async function scheduledTick(
 ): Promise<void> {
   const logger = getLogger();
 
-  if (isPushLocked() || isPullLocked()) {
+  if (isSyncOperationActive()) {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync skipped: operation in progress`
     );
