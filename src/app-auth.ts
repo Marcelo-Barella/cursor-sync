@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 import { releaseSyncLatchForAuthRetry } from "./sync-operation.js";
+import { refreshSidebar } from "./sidebar/index.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
@@ -413,7 +414,6 @@ async function completeLoginWithCode(
     await setAppSession(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
-    const { refreshSidebar } = await import("./sidebar/index.js");
     refreshSidebar();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;
