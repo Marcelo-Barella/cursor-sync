@@ -69,6 +69,8 @@ export interface PendingAuthHandoff {
   redirectUri: string;
 }
 
+const PENDING_AUTH_HANDOFF_STATE_KEY = "cursorSync.appAuth.pendingHandoff";
+
 let pendingAuthHandoff: PendingAuthHandoff | undefined;
 
 export function generateAuthStateNonce(byteLength = 32): string {
@@ -78,13 +80,49 @@ export function generateAuthStateNonce(byteLength = 32): string {
 export function storePendingAuthHandoff(
   redirectUri: string,
   nonce: string,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  context?: vscode.ExtensionContext
 ): void {
   pendingAuthHandoff = {
     nonce,
     expiresAtMs: nowMs + AUTH_STATE_TTL_MS,
     redirectUri,
   };
+  if (context) {
+    void context.globalState.update(PENDING_AUTH_HANDOFF_STATE_KEY, pendingAuthHandoff);
+  }
+}
+
+export function readPersistedAuthHandoff(
+  context: vscode.ExtensionContext,
+  nowMs = Date.now()
+): PendingAuthHandoff | undefined {
+  const fromMemory = pendingAuthHandoff;
+  if (fromMemory && nowMs <= fromMemory.expiresAtMs) {
+    return fromMemory;
+  }
+  const fromDisk = context.globalState.get<PendingAuthHandoff>(PENDING_AUTH_HANDOFF_STATE_KEY);
+  if (!fromDisk || nowMs > fromDisk.expiresAtMs) {
+    return undefined;
+  }
+  return fromDisk;
+}
+
+export async function clearPersistedAuthHandoff(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  pendingAuthHandoff = undefined;
+  await context.globalState.update(PENDING_AUTH_HANDOFF_STATE_KEY, undefined);
+}
+
+export async function resolveAuthRedirectUriForCodeExchange(
+  context: vscode.ExtensionContext
+): Promise<string> {
+  const handoff = readPersistedAuthHandoff(context);
+  if (handoff) {
+    return handoff.redirectUri;
+  }
+  return buildAuthRedirectUri(context);
 }
 
 export type AuthStateVerificationResult =
@@ -382,6 +420,7 @@ async function completeLoginWithCode(
     const token = await exchangeCodeForSessionToken(getAppApiUrl(), code, redirectUri);
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
+    await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;
@@ -453,7 +492,7 @@ export async function executeLoginToCursorSync(
   try {
     const redirectUri = await buildAuthRedirectUri(context);
     const state = generateAuthStateNonce();
-    storePendingAuthHandoff(redirectUri, state);
+    storePendingAuthHandoff(redirectUri, state, Date.now(), context);
     const websiteBase = getAppWebsiteUrl();
     const loginUrl = buildSignInUrl(websiteBase, redirectUri, state);
     logger.appendLine(
@@ -500,7 +539,8 @@ export async function executeEnterAppAuthCode(
   if (!code) {
     return;
   }
-  await completeLoginWithCode(context, code.trim());
+  const redirectUri = await resolveAuthRedirectUriForCodeExchange(context);
+  await completeLoginWithCode(context, code.trim(), redirectUri);
 }
 
 export function registerAppAuthUriHandler(

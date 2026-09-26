@@ -268,6 +268,10 @@ describe("app-auth sign-in URL and state", () => {
     const { executeLoginToCursorSync } = await import("../src/app-auth.js");
     await executeLoginToCursorSync({
       extension: { id: "MarceloBarella.cursor-sync" },
+      globalState: {
+        get: () => undefined,
+        update: async () => {},
+      },
       secrets: {
         get: async () => undefined,
         store: async () => {},
@@ -489,6 +493,51 @@ describe("app-auth session storage", () => {
         method: "POST",
         body: JSON.stringify({
           code: "exchange-me",
+          redirect_uri: testRedirectUri,
+        }),
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("executeEnterAppAuthCode exchanges pasted code with persisted redirect_uri", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: "jwt-paste" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const vscode = await import("vscode");
+    vi.spyOn(vscode.window, "showInputBox").mockResolvedValue("paste-code-123");
+
+    const handoffStore = new Map<string, unknown>();
+    const ctx = makeSecretsContext();
+    const extCtx = {
+      ...ctx,
+      extension: { id: "MarceloBarella.cursor-sync" },
+      globalState: {
+        get: (key: string) => handoffStore.get(key),
+        update: async (key: string, value: unknown) => {
+          handoffStore.set(key, value);
+        },
+      },
+      subscriptions: [] as unknown[],
+    };
+
+    const { storePendingAuthHandoff, executeEnterAppAuthCode } = await import(
+      "../src/app-auth.js"
+    );
+    storePendingAuthHandoff(testRedirectUri, "browser-state", Date.now(), extCtx as never);
+
+    await executeEnterAppAuthCode(extCtx as never);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.sync.bergamota.dev/auth/token",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          code: "paste-code-123",
           redirect_uri: testRedirectUri,
         }),
       })
