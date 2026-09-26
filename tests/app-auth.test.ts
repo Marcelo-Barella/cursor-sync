@@ -12,7 +12,7 @@ const getAppWebsiteUrlMock = vi.hoisted(() =>
   vi.fn(() => "https://sync.bergamota.dev")
 );
 
-const testRedirectUri = "cursor://marcelobarella.cursor-sync/auth";
+const testRedirectUri = "cursor://MarceloBarella.cursor-sync/auth";
 
 vi.mock("../src/config/urls.js", () => ({
   getAppApiUrl: getAppApiUrlMock,
@@ -194,18 +194,35 @@ describe("app-auth URI helpers", () => {
     const redirectUri = await buildAuthRedirectUri({
       extension: { id: "MarceloBarella.cursor-sync" },
     } as never);
-    expect(redirectUri).toBe("cursor://marcelobarella.cursor-sync/auth");
+    expect(redirectUri).toBe("cursor://MarceloBarella.cursor-sync/auth");
   });
 
-  it("formatOAuthRedirectUri strips windowId from callback URIs", async () => {
+  it("formatOAuthRedirectUri strips windowId and canonicalizes extension authority", async () => {
     const { formatOAuthRedirectUri } = await import("../src/app-auth.js");
     const vscode = await import("vscode");
     const uri = vscode.Uri.parse(
       "cursor://marcelobarella.cursor-sync/auth?windowId=42&state=keep"
     );
-    expect(formatOAuthRedirectUri(uri)).toBe(
-      "cursor://marcelobarella.cursor-sync/auth?state=keep"
+    expect(formatOAuthRedirectUri(uri, "MarceloBarella.cursor-sync")).toBe(
+      "cursor://MarceloBarella.cursor-sync/auth?state=keep"
     );
+  });
+
+  it("isAuthCallbackUri accepts /auth with optional trailing slash", async () => {
+    const { isAuthCallbackUri } = await import("../src/app-auth.js");
+    const vscode = await import("vscode");
+    expect(
+      isAuthCallbackUri(
+        vscode.Uri.parse("cursor://MarceloBarella.cursor-sync/auth/"),
+        "MarceloBarella.cursor-sync"
+      )
+    ).toBe(true);
+    expect(
+      isAuthCallbackUri(
+        vscode.Uri.parse("vscode://marcelobarella.cursor-sync/auth"),
+        "MarceloBarella.cursor-sync"
+      )
+    ).toBe(true);
   });
 
   it("rejects callback URIs that include token query params", async () => {
@@ -264,7 +281,7 @@ describe("app-auth sign-in URL and state", () => {
     const parsed = new URL(opened);
     expect(parsed.pathname).toBe("/sign-in");
     expect(parsed.searchParams.get("redirect_uri")).toBe(
-      "cursor://marcelobarella.cursor-sync/auth"
+      "cursor://MarceloBarella.cursor-sync/auth"
     );
     expect(parsed.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
   });

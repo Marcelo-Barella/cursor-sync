@@ -148,9 +148,23 @@ export function extractAuthTokenFromUri(uri: vscode.Uri): string | undefined {
   return token && token.trim().length > 0 ? token.trim() : undefined;
 }
 
+export function isAllowedOAuthRedirectScheme(scheme: string): boolean {
+  const normalized = scheme.toLowerCase();
+  return normalized === "cursor" || normalized === "vscode";
+}
+
+export function normalizeAuthCallbackPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed.length === 0 ? "/auth" : trimmed;
+}
+
 export function isAuthCallbackUri(uri: vscode.Uri, extensionId: string): boolean {
+  if (!isAllowedOAuthRedirectScheme(uri.scheme)) {
+    return false;
+  }
   return (
-    uri.authority.toLowerCase() === extensionId.toLowerCase() && uri.path === "/auth"
+    uri.authority.toLowerCase() === extensionId.toLowerCase() &&
+    normalizeAuthCallbackPath(uri.path) === "/auth"
   );
 }
 
@@ -161,7 +175,7 @@ export function parseAuthCallbackUriFromString(
 ): vscode.Uri | undefined {
   try {
     const uri = vscode.Uri.parse(value);
-    if (uri.scheme !== uriScheme) {
+    if (!isAllowedOAuthRedirectScheme(uri.scheme)) {
       return undefined;
     }
     if (!isAuthCallbackUri(uri, extensionId)) {
@@ -220,17 +234,26 @@ export function formatAuthCallbackUri(uriScheme: string, extensionId: string): s
   return `${uriScheme}://${extensionId}/auth`;
 }
 
-export function formatOAuthRedirectUri(uri: vscode.Uri): string {
-  if (!uri.query) {
-    return uri.toString();
+export function formatOAuthRedirectUri(uri: vscode.Uri, extensionId: string): string {
+  let normalized = uri;
+  if (uri.query) {
+    const params = new URLSearchParams(uri.query);
+    if (params.has("windowId")) {
+      params.delete("windowId");
+      const query = params.toString();
+      normalized = uri.with({ query });
+    }
   }
-  const params = new URLSearchParams(uri.query);
-  if (!params.has("windowId")) {
-    return uri.toString();
+  if (
+    isAllowedOAuthRedirectScheme(normalized.scheme) &&
+    normalized.authority.toLowerCase() === extensionId.toLowerCase()
+  ) {
+    normalized = normalized.with({
+      authority: extensionId,
+      path: normalizeAuthCallbackPath(normalized.path),
+    });
   }
-  params.delete("windowId");
-  const query = params.toString();
-  return uri.with({ query }).toString();
+  return normalized.toString();
 }
 
 export async function buildAuthRedirectUri(
@@ -240,7 +263,7 @@ export async function buildAuthRedirectUri(
     formatAuthCallbackUri(vscode.env.uriScheme, context.extension.id)
   );
   const externalUri = await vscode.env.asExternalUri(callbackUri);
-  return formatOAuthRedirectUri(externalUri);
+  return formatOAuthRedirectUri(externalUri, context.extension.id);
 }
 
 function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
