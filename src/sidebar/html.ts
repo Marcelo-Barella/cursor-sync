@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { hasAppSession } from "../app-configs.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
 import type { SyncTabState } from "./sync-tab.js";
 import { renderSyncPane } from "./sync-tab.js";
@@ -7,8 +8,26 @@ import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
 ): Promise<SyncTabState> {
+  const { isSyncOperationActive } = await import("../sync-operation.js");
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
+  const appSessionActive = await hasAppSession(context);
+
+  const base = {
+    history,
+    appSessionActive,
+  };
+
+  if (isSyncOperationActive()) {
+    return {
+      status: "syncing",
+      lastSyncTime: syncState?.lastSyncTimestamp,
+      lastSyncDirection: syncState?.lastSyncDirection,
+      fileCount: syncState ? Object.keys(syncState.localChecksums).length : 0,
+      gistId: syncState?.gistId,
+      ...base,
+    };
+  }
 
   if (!syncState) {
     return {
@@ -17,7 +36,7 @@ export async function buildSyncTabState(
       lastSyncDirection: undefined,
       fileCount: 0,
       gistId: undefined,
-      history,
+      ...base,
     };
   }
 
@@ -27,7 +46,7 @@ export async function buildSyncTabState(
     lastSyncDirection: syncState.lastSyncDirection,
     fileCount: Object.keys(syncState.localChecksums).length,
     gistId: syncState.gistId,
-    history,
+    ...base,
   };
 }
 

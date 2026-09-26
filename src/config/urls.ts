@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 export const DEFAULT_PRODUCTION_API_URL = "https://api.sync.bergamota.dev";
 export const DEFAULT_PRODUCTION_WEBSITE_URL = "https://sync.bergamota.dev";
-export const STAGING_API_URL = "https://api-staging.sync.bergamota.dev";
+export const STAGING_API_URL = "https://api-staging-sync.bergamota.dev";
 export const STAGING_WEBSITE_URL = "https://staging.sync.bergamota.dev";
 export const LOCAL_API_URL = "http://localhost:8100";
 export const LOCAL_WEBSITE_URL = "http://localhost:3000";
@@ -111,17 +111,6 @@ export function resolveUrlResolutionInputs(): UrlResolutionInputs {
 }
 
 export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string {
-  if (inputs.explicitApiUrl === undefined && inputs.legacyApiUrl !== undefined) {
-    const { url, usedFallback } = normalizeHttpUrl(
-      inputs.legacyApiUrl,
-      DEFAULT_PRODUCTION_API_URL
-    );
-    if (usedFallback) {
-      warnInvalidApi(inputs.legacyApiUrl, DEFAULT_PRODUCTION_API_URL);
-    }
-    return url;
-  }
-
   if (inputs.environment === "local") {
     return LOCAL_API_URL;
   }
@@ -131,12 +120,11 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
   }
 
   if (inputs.environment === "custom") {
-    const { url, usedFallback } = normalizeHttpUrl(
-      inputs.explicitApiUrl,
-      DEFAULT_PRODUCTION_API_URL
-    );
-    if (usedFallback && inputs.explicitApiUrl !== undefined) {
-      warnInvalidApi(inputs.explicitApiUrl, DEFAULT_PRODUCTION_API_URL);
+    const raw =
+      inputs.explicitApiUrl !== undefined ? inputs.explicitApiUrl : inputs.legacyApiUrl;
+    const { url, usedFallback } = normalizeHttpUrl(raw, DEFAULT_PRODUCTION_API_URL);
+    if (usedFallback && raw !== undefined) {
+      warnInvalidApi(raw, DEFAULT_PRODUCTION_API_URL);
     }
     return url;
   }
