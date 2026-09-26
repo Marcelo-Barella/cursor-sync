@@ -20,7 +20,7 @@ vi.mock("../src/auth.js", () => ({
 
 vi.mock("../src/sync-operation.js", () => ({
   tryBeginSyncOperation: () => true,
-  endSyncOperation: () => {},
+  resetSyncOperation: () => {},
 }));
 
 vi.mock("../src/statusbar.js", () => ({

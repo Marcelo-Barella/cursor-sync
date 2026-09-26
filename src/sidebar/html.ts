@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
+import { isSyncOperationActive } from "../sync-operation.js";
+import type { SyncTabState } from "./sync-tab.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { buildSyncTabStateFromInputs } from "./sync-tab-state.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
@@ -9,8 +11,7 @@ import { getSidebarThemeController } from "./sidebar-theme-controller.js";
 
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
-): Promise<import("./sync-tab.js").SyncTabState> {
-  const { isSyncOperationActive } = await import("../sync-operation.js");
+): Promise<SyncTabState> {
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);

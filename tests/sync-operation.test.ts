@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  endSyncOperation,
-  isPullLocked,
-  isPushLocked,
   isSyncOperationActive,
   resetSyncOperation,
   tryBeginSyncOperation,
@@ -13,15 +10,13 @@ describe("sync-operation lock", () => {
     resetSyncOperation();
   });
 
-  it("exposes a single shared lock for push and pull", () => {
+  it("tracks a single shared sync operation latch", () => {
     expect(tryBeginSyncOperation()).toBe(true);
     expect(isSyncOperationActive()).toBe(true);
-    expect(isPushLocked()).toBe(true);
-    expect(isPullLocked()).toBe(true);
     expect(tryBeginSyncOperation()).toBe(false);
-    endSyncOperation();
+    resetSyncOperation();
     expect(isSyncOperationActive()).toBe(false);
     expect(tryBeginSyncOperation()).toBe(true);
-    endSyncOperation();
+    resetSyncOperation();
   });
 });

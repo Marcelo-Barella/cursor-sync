@@ -12,7 +12,8 @@ import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
 import {
   tryBeginSyncOperation,
-  endSyncOperation,
+  recoverSyncOperationLatch,
+  resetSyncOperation,
 } from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
@@ -34,8 +35,6 @@ export type PushOptions = {
   skipOperationLock?: boolean;
 };
 
-export { isPushLocked } from "./sync-operation.js";
-
 export async function executePush(
   context: vscode.ExtensionContext,
   options?: PushOptions
@@ -45,7 +44,6 @@ export async function executePush(
 
   if (!skipOperationLock) {
     if (!tryBeginSyncOperation()) {
-      const { recoverSyncOperationLatch } = await import("./sync-operation.js");
       await recoverSyncOperationLatch(context, { force: true });
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
@@ -70,7 +68,7 @@ export async function executePush(
     throw err;
   } finally {
     if (!skipOperationLock) {
-      endSyncOperation();
+      resetSyncOperation();
       await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
       refreshSidebar();
     }

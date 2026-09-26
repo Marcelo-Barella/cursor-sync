@@ -196,8 +196,7 @@ describe("app-auth URI helpers", () => {
     );
     const uri = findAuthCallbackUriInArgv(
       ["cursor", "--open-url", "cursor://marcelobarella.cursor-sync/auth?code=argv-code"],
-      "MarceloBarella.cursor-sync",
-      "cursor"
+      "MarceloBarella.cursor-sync"
     );
     expect(uri).toBeDefined();
     expect(extractAuthCodeFromUri(uri!)).toBe("argv-code");
@@ -243,8 +242,7 @@ describe("app-auth URI helpers", () => {
     const { parseAuthCallbackUriFromString } = await import("../src/app-auth.js");
     const uri = parseAuthCallbackUriFromString(
       "cursor://MarceloBarella.cursor-sync/auth?code=abc&token=jwt-leak",
-      "MarceloBarella.cursor-sync",
-      "cursor"
+      "MarceloBarella.cursor-sync"
     );
     expect(uri).toBeUndefined();
   });

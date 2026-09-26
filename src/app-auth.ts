@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl, isTrustedAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
-
-export { getAppApiUrl } from "./config/urls.js";
+import { releaseSyncLatchForAuthRetry } from "./sync-operation.js";
+import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
+import { refreshSidebar } from "./sidebar/index.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
@@ -208,8 +209,7 @@ export function isAuthCallbackUri(uri: vscode.Uri, extensionId: string): boolean
 
 export function parseAuthCallbackUriFromString(
   value: string,
-  extensionId: string,
-  uriScheme: string
+  extensionId: string
 ): vscode.Uri | undefined {
   try {
     const uri = vscode.Uri.parse(value);
@@ -233,8 +233,7 @@ export function parseAuthCallbackUriFromString(
 
 export function findAuthCallbackUriInArgv(
   argv: readonly string[],
-  extensionId: string,
-  uriScheme: string
+  extensionId: string
 ): vscode.Uri | undefined {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -244,7 +243,7 @@ export function findAuthCallbackUriInArgv(
     if (arg === "--open-url" && i + 1 < argv.length) {
       const next = argv[i + 1];
       if (next) {
-        const uri = parseAuthCallbackUriFromString(next, extensionId, uriScheme);
+        const uri = parseAuthCallbackUriFromString(next, extensionId);
         if (uri) {
           return uri;
         }
@@ -253,14 +252,13 @@ export function findAuthCallbackUriInArgv(
     if (arg.startsWith("--open-url=")) {
       const uri = parseAuthCallbackUriFromString(
         arg.slice("--open-url=".length),
-        extensionId,
-        uriScheme
+        extensionId
       );
       if (uri) {
         return uri;
       }
     }
-    const uri = parseAuthCallbackUriFromString(arg, extensionId, uriScheme);
+    const uri = parseAuthCallbackUriFromString(arg, extensionId);
     if (uri) {
       return uri;
     }
@@ -304,14 +302,6 @@ export async function buildAuthRedirectUri(
   return formatOAuthRedirectUri(externalUri, context.extension.id);
 }
 
-function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
-  const base = apiBase.replace(/\/$/, "");
-  const detail = err instanceof Error ? err.message : String(err);
-  return new Error(
-    `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
-  );
-}
-
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string,
@@ -330,7 +320,10 @@ export async function exchangeCodeForSessionToken(
       body: JSON.stringify(body),
     });
   } catch (err) {
-    throw formatTokenExchangeNetworkError(base, err);
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
+    );
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -477,11 +470,7 @@ export function consumePendingAuthCallback(context: vscode.ExtensionContext): vo
     return;
   }
 
-  const argvUri = findAuthCallbackUriInArgv(
-    process.argv,
-    context.extension.id,
-    vscode.env.uriScheme
-  );
+  const argvUri = findAuthCallbackUriInArgv(process.argv, context.extension.id);
   if (argvUri) {
     handleAuthCallbackUri(context, argvUri);
   }
@@ -491,7 +480,6 @@ export async function executeLoginToCursorSync(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
-  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
   await releaseSyncLatchForAuthRetry(context);
   try {
     const redirectUri = await buildAuthRedirectUri(context);
@@ -534,7 +522,6 @@ export async function executeLoginToCursorSync(
 export async function executeEnterAppAuthCode(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
   await releaseSyncLatchForAuthRetry(context);
   const code = await vscode.window.showInputBox({
     prompt: "Paste the one-time login code from the browser",
