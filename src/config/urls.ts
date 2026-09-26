@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 export const DEFAULT_PRODUCTION_API_URL = "https://api.sync.bergamota.dev";
 export const DEFAULT_PRODUCTION_WEBSITE_URL = "https://sync.bergamota.dev";
-export const STAGING_API_URL = "https://api-staging.sync.bergamota.dev";
+export const STAGING_API_URL = "https://api-staging-sync.bergamota.dev";
 export const STAGING_WEBSITE_URL = "https://staging.sync.bergamota.dev";
 export const LOCAL_API_URL = "http://localhost:8100";
 export const LOCAL_WEBSITE_URL = "http://localhost:3000";

@@ -414,7 +414,7 @@ describe("app-auth session storage", () => {
 
     const { exchangeCodeForSessionToken } = await import("../src/app-auth.js");
     await expect(
-      exchangeCodeForSessionToken("https://api-staging.sync.bergamota.dev", "code")
+      exchangeCodeForSessionToken("https://api-staging-sync.bergamota.dev", "code")
     ).rejects.toThrow(/Could not reach Cursor Sync API/);
 
     vi.unstubAllGlobals();
