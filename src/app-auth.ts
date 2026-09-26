@@ -131,10 +131,16 @@ export type AuthStateVerificationResult =
 
 export function verifyAndConsumeAuthHandoff(
   receivedState: string | undefined,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  context?: vscode.ExtensionContext
 ): AuthStateVerificationResult {
-  const pending = pendingAuthHandoff;
+  const pending = context
+    ? readPersistedAuthHandoff(context, nowMs)
+    : pendingAuthHandoff;
   pendingAuthHandoff = undefined;
+  if (context?.globalState) {
+    void context.globalState.update(PENDING_AUTH_HANDOFF_STATE_KEY, undefined);
+  }
 
   if (!receivedState || receivedState.trim().length === 0) {
     return { ok: false, message: "Login callback did not include state." };
@@ -450,7 +456,11 @@ function handleAuthCallbackUri(
     );
     return;
   }
-  const stateResult = verifyAndConsumeAuthHandoff(extractAuthStateFromUri(uri));
+  const stateResult = verifyAndConsumeAuthHandoff(
+    extractAuthStateFromUri(uri),
+    Date.now(),
+    context
+  );
   if (!stateResult.ok) {
     vscode.window.showErrorMessage(stateResult.message);
     return;
