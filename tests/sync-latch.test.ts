@@ -59,7 +59,10 @@ describe("sync latch recovery", () => {
 
   it("executeSyncNow clears latch after a prior stuck lock", async () => {
     const syncOp = await import("../src/sync-operation.js");
+    const startedAt = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => startedAt);
     syncOp.tryBeginSyncOperation();
+    vi.spyOn(Date, "now").mockImplementation(() => startedAt + 10 * 60 * 1000 + 1);
 
     const determineSyncActionMock = vi.fn().mockResolvedValue({ action: "error", reason: "no_token" });
     vi.doMock("../src/scheduler.js", () => ({

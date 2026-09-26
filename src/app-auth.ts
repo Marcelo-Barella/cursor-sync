@@ -500,7 +500,11 @@ export async function executeEnterAppAuthCode(
   if (!code) {
     return;
   }
-  await completeLoginWithCode(context, code.trim());
+  const redirectUri =
+    pendingAuthHandoff && Date.now() <= pendingAuthHandoff.expiresAtMs
+      ? pendingAuthHandoff.redirectUri
+      : undefined;
+  await completeLoginWithCode(context, code.trim(), redirectUri);
 }
 
 export function registerAppAuthUriHandler(

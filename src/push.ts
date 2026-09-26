@@ -41,7 +41,7 @@ export async function executePush(
   if (!skipOperationLock) {
     if (!tryBeginSyncOperation()) {
       const { recoverSyncOperationLatch } = await import("./sync-operation.js");
-      await recoverSyncOperationLatch(context, { force: true });
+      await recoverSyncOperationLatch(context);
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
         return false;

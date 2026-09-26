@@ -338,7 +338,7 @@ export async function executeSyncNow(
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
   if (!tryBeginSyncOperation()) {
-    await recoverSyncOperationLatch(context, { force: true });
+    await recoverSyncOperationLatch(context);
     if (!tryBeginSyncOperation()) {
       vscode.window.showWarningMessage("A sync operation is already in progress.");
       await refreshSyncStatusBar(context);
