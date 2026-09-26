@@ -9,14 +9,6 @@ export function isSyncOperationActive(): boolean {
   return syncOperationActive;
 }
 
-export function isPushLocked(): boolean {
-  return syncOperationActive;
-}
-
-export function isPullLocked(): boolean {
-  return syncOperationActive;
-}
-
 export function isSyncOperationStale(nowMs = Date.now()): boolean {
   return (
     syncOperationActive &&
@@ -28,10 +20,6 @@ export function isSyncOperationStale(nowMs = Date.now()): boolean {
 export function resetSyncOperation(): void {
   syncOperationActive = false;
   syncOperationStartedAt = undefined;
-}
-
-export function endSyncOperation(): void {
-  resetSyncOperation();
 }
 
 export function tryBeginSyncOperation(options?: { recoverStale?: boolean }): boolean {
@@ -47,6 +35,15 @@ export function tryBeginSyncOperation(options?: { recoverStale?: boolean }): boo
   return true;
 }
 
+async function refreshSyncUiAfterLatchChange(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  await refreshSyncStatusBar(context);
+  refreshSidebar();
+}
+
 export async function recoverSyncOperationLatch(
   context: vscode.ExtensionContext,
   options?: { force?: boolean }
@@ -56,10 +53,7 @@ export async function recoverSyncOperationLatch(
   }
   if (options?.force || isSyncOperationStale()) {
     resetSyncOperation();
-    const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
-    const { refreshSidebar } = await import("./sidebar/index.js");
-    await refreshSyncStatusBar(context);
-    refreshSidebar();
+    await refreshSyncUiAfterLatchChange(context);
     return true;
   }
   return false;
@@ -69,8 +63,5 @@ export async function releaseSyncLatchForAuthRetry(
   context: vscode.ExtensionContext
 ): Promise<void> {
   resetSyncOperation();
-  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
-  const { refreshSidebar } = await import("./sidebar/index.js");
-  await refreshSyncStatusBar(context);
-  refreshSidebar();
+  await refreshSyncUiAfterLatchChange(context);
 }

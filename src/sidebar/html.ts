@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
+import { isSyncOperationActive } from "../sync-operation.js";
 import type { SyncTabState } from "./sync-tab.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
@@ -8,7 +9,6 @@ import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
 ): Promise<SyncTabState> {
-  const { isSyncOperationActive } = await import("../sync-operation.js");
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
