@@ -422,6 +422,8 @@ async function completeLoginWithCode(
     await setAppSession(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
+    const { refreshSidebar } = await import("./sidebar/index.js");
+    refreshSidebar();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;
   } catch (err) {

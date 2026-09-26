@@ -11,12 +11,17 @@ const getAppApiUrlMock = vi.hoisted(() => vi.fn(() => "https://api.sync.bergamot
 const getAppWebsiteUrlMock = vi.hoisted(() =>
   vi.fn(() => "https://sync.bergamota.dev")
 );
+const refreshSidebarMock = vi.hoisted(() => vi.fn());
 
 const testRedirectUri = "cursor://MarceloBarella.cursor-sync/auth";
 
 vi.mock("../src/config/urls.js", () => ({
   getAppApiUrl: getAppApiUrlMock,
   getAppWebsiteUrl: getAppWebsiteUrlMock,
+}));
+
+vi.mock("../src/sidebar/index.js", () => ({
+  refreshSidebar: refreshSidebarMock,
 }));
 
 vi.mock("vscode", () => ({
@@ -485,6 +490,7 @@ describe("app-auth session storage", () => {
       makeAuthUri("MarceloBarella.cursor-sync", "code=exchange-me&state=state-ok")
     );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => expect(refreshSidebarMock).toHaveBeenCalled());
 
     expect(getAppApiUrlMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -532,6 +538,7 @@ describe("app-auth session storage", () => {
 
     await executeEnterAppAuthCode(extCtx as never);
 
+    expect(refreshSidebarMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.sync.bergamota.dev/auth/token",
       expect.objectContaining({
