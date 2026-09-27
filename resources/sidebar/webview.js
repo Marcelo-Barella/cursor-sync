@@ -60,9 +60,29 @@
     return (b / (1024 * 1024)).toFixed(1) + " MB";
   }
 
+  function applyTheme(effective, preference) {
+    if (effective === "light" || effective === "dark") {
+      document.documentElement.setAttribute("data-theme", effective);
+    }
+    document.querySelectorAll(".theme-segment").forEach(function (btn) {
+      var pref = btn.getAttribute("data-theme-preference");
+      var active = pref === preference;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
   document.addEventListener("click", function (ev) {
     var t = ev.target;
     var el = t && t.nodeType === 1 ? t : t && t.parentElement;
+    var themeBtn = el && el.closest ? el.closest(".theme-segment[data-theme-preference]") : null;
+    if (themeBtn) {
+      var pref = themeBtn.getAttribute("data-theme-preference");
+      if (pref) {
+        post("settings:set", { key: "appearance.theme", value: pref });
+      }
+      return;
+    }
     var tabBtn = el && el.closest ? el.closest(".tab-btn[data-tab]") : null;
     if (tabBtn) {
       switchTab(tabBtn.getAttribute("data-tab"));
@@ -269,12 +289,27 @@
       if (el5) el5.innerHTML = '<div class="empty-state">No import history</div>';
     }
 
+    if (msg.type === "theme:apply") {
+      applyTheme(msg.effective, msg.preference);
+      return;
+    }
+
     if (msg.type === "settings:current") {
       var vals = msg.values;
       if (!vals) return;
+      if (vals.appearanceTheme) {
+        document.querySelectorAll(".theme-segment").forEach(function (btn) {
+          var pref = btn.getAttribute("data-theme-preference");
+          var active = pref === vals.appearanceTheme;
+          btn.classList.toggle("active", active);
+          btn.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+      }
       Object.keys(vals).forEach(function (k) {
         var settingsKey =
-          k === "activateDefault"
+          k === "appearanceTheme"
+            ? null
+            : k === "activateDefault"
             ? "chatImport.activateDefault"
             : k === "activateStrict"
               ? "chatImport.activateStrict"

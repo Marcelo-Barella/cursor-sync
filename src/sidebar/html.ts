@@ -4,6 +4,8 @@ import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
 import type { SyncTabState } from "./sync-tab.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
+import { renderSidebarAppearanceTokenCss } from "./sidebar-appearance-tokens.js";
+import { getSidebarThemeController } from "./sidebar-theme-controller.js";
 
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
@@ -65,23 +67,26 @@ export async function renderSidebarHtml(
   const settingsValues = readSettingsValues();
   const syncPaneHtml = renderSyncPane(state);
   const settingsPaneHtml = renderSettingsPane(settingsValues);
+  const appearanceTokenCss = renderSidebarAppearanceTokenCss();
+  const initialTheme = getSidebarThemeController().getResolvedTheme();
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(context.extensionUri, "resources", "sidebar", "webview.js")
   );
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="${initialTheme}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
+    ${appearanceTokenCss}
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif);
       font-size: 13px;
-      color: #edecec;
-      background: #14120b;
+      color: var(--cs-ink);
+      background: var(--cs-ground);
       padding: 0;
       line-height: 1.5;
       min-height: 100vh;
@@ -90,8 +95,8 @@ export async function renderSidebarHtml(
     /* ── Tab Bar ── */
     .tab-bar {
       display: flex;
-      border-bottom: 1px solid rgba(237, 236, 236, 0.08);
-      background: #0f0e0c;
+      border-bottom: 1px solid var(--cs-hairline);
+      background: var(--cs-surface-sunken);
       padding: 0 8px;
       gap: 2px;
       position: sticky;
@@ -105,17 +110,17 @@ export async function renderSidebarHtml(
       cursor: pointer;
       background: transparent;
       border: none;
-      color: rgba(237, 236, 236, 0.4);
+      color: var(--cs-ink-40);
       border-bottom: 2px solid transparent;
       margin-bottom: -1px;
       transition: color 0.15s ease, border-color 0.15s ease;
       letter-spacing: 0.01em;
     }
     .tab-btn:hover {
-      color: rgba(237, 236, 236, 0.7);
+      color: var(--cs-ink-70);
     }
     .tab-btn.active {
-      color: #edecec;
+      color: var(--cs-ink);
       border-bottom-color: #34d399;
     }
 
@@ -132,15 +137,15 @@ export async function renderSidebarHtml(
       display: flex;
       align-items: center;
       gap: 14px;
-      border: 1px solid rgba(237, 236, 236, 0.06);
-      background: #1c1a13;
+      border: 1px solid var(--cs-hairline-soft);
+      background: var(--cs-surface);
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
     .status-card:hover {
-      border-color: rgba(237, 236, 236, 0.12);
+      border-color: var(--cs-hairline-strong);
     }
     .status-card.synced {
-      background: linear-gradient(135deg, rgba(52, 211, 153, 0.06) 0%, #1c1a13 100%);
+      background: linear-gradient(135deg, rgba(52, 211, 153, 0.06) 0%, var(--cs-surface) 100%);
       border-color: rgba(52, 211, 153, 0.15);
     }
     .status-card.synced:hover {
@@ -148,7 +153,7 @@ export async function renderSidebarHtml(
       box-shadow: 0 0 20px rgba(52, 211, 153, 0.08);
     }
     .status-card.not-synced {
-      background: linear-gradient(135deg, rgba(245, 158, 11, 0.06) 0%, #1c1a13 100%);
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.06) 0%, var(--cs-surface) 100%);
       border-color: rgba(245, 158, 11, 0.15);
     }
     .status-card.not-synced:hover {
@@ -156,7 +161,7 @@ export async function renderSidebarHtml(
       box-shadow: 0 0 20px rgba(245, 158, 11, 0.08);
     }
     .status-card.syncing {
-      background: linear-gradient(135deg, rgba(125, 211, 252, 0.06) 0%, #1c1a13 100%);
+      background: linear-gradient(135deg, rgba(125, 211, 252, 0.06) 0%, var(--cs-surface) 100%);
       border-color: rgba(125, 211, 252, 0.15);
     }
     .status-card.syncing:hover {
@@ -164,7 +169,7 @@ export async function renderSidebarHtml(
       box-shadow: 0 0 20px rgba(125, 211, 252, 0.08);
     }
     .status-card.error {
-      background: linear-gradient(135deg, rgba(248, 113, 113, 0.06) 0%, #1c1a13 100%);
+      background: linear-gradient(135deg, rgba(248, 113, 113, 0.06) 0%, var(--cs-surface) 100%);
       border-color: rgba(248, 113, 113, 0.15);
     }
     .status-card.error:hover {
@@ -223,17 +228,17 @@ export async function renderSidebarHtml(
     }
     .status-meta {
       font-size: 11px;
-      color: rgba(237, 236, 236, 0.32);
+      color: var(--cs-ink-32);
       display: flex;
       align-items: center;
       gap: 6px;
       flex-wrap: wrap;
     }
-    .status-meta .codicon { font-size: 11px; color: rgba(237, 236, 236, 0.22); }
+    .status-meta .codicon { font-size: 11px; color: var(--cs-ink-22); }
 
     .file-count {
       font-size: 11px;
-      color: rgba(237, 236, 236, 0.22);
+      color: var(--cs-ink-22);
       margin-top: 3px;
     }
 
@@ -246,8 +251,8 @@ export async function renderSidebarHtml(
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      background: #ededec;
-      color: #0c0c0a;
+      background: var(--cs-btn-primary-bg);
+      color: var(--cs-btn-primary-fg);
       margin-bottom: 16px;
       display: flex;
       align-items: center;
@@ -255,12 +260,12 @@ export async function renderSidebarHtml(
       gap: 8px;
       letter-spacing: -0.01em;
       transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 2px 8px var(--cs-shadow-soft);
     }
     .sync-now-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(237, 236, 236, 0.1);
-      background: rgba(237, 236, 236, 0.88);
+      box-shadow: 0 4px 16px var(--cs-shadow-strong), 0 0 0 1px var(--cs-ink-10);
+      background: var(--cs-btn-primary-hover);
     }
     .sync-now-btn:active {
       transform: translateY(0);
@@ -275,7 +280,7 @@ export async function renderSidebarHtml(
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1.2px;
-      color: rgba(237, 236, 236, 0.32);
+      color: var(--cs-ink-32);
       margin-bottom: 8px;
       padding: 0 2px;
     }
@@ -288,13 +293,13 @@ export async function renderSidebarHtml(
     }
     .action-btn {
       padding: 9px 12px;
-      border: 1px solid rgba(237, 236, 236, 0.06);
+      border: 1px solid var(--cs-hairline-soft);
       border-radius: 8px;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
-      background: #1c1a13;
-      color: rgba(237, 236, 236, 0.55);
+      background: var(--cs-surface);
+      color: var(--cs-ink-55);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -302,12 +307,12 @@ export async function renderSidebarHtml(
       transition: all 0.15s ease;
     }
     .action-btn:hover {
-      background: #22201a;
-      border-color: rgba(237, 236, 236, 0.12);
-      color: #edecec;
+      background: var(--cs-surface-hover);
+      border-color: var(--cs-hairline-strong);
+      color: var(--cs-ink);
     }
     .action-btn:active {
-      background: #1a1812;
+      background: var(--cs-surface-active);
       transform: scale(0.98);
     }
     .action-btn .codicon {
@@ -329,13 +334,13 @@ export async function renderSidebarHtml(
       border-radius: 6px;
       font-size: 12px;
       gap: 8px;
-      background: #0f0e0c;
+      background: var(--cs-surface-sunken);
       border: 1px solid transparent;
       transition: all 0.15s ease;
     }
     .history-entry:hover {
-      background: #22201a;
-      border-color: rgba(237, 236, 236, 0.06);
+      background: var(--cs-surface-hover);
+      border-color: var(--cs-hairline-soft);
     }
     .history-entry-left {
       display: flex;
@@ -350,9 +355,9 @@ export async function renderSidebarHtml(
       min-width: 0;
       flex-shrink: 1;
     }
-    .history-dir { font-weight: 500; color: rgba(237, 236, 236, 0.55); }
-    .history-detail { color: rgba(237, 236, 236, 0.32); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .history-time { color: rgba(237, 236, 236, 0.22); font-size: 11px; white-space: nowrap; }
+    .history-dir { font-weight: 500; color: var(--cs-ink-55); }
+    .history-detail { color: var(--cs-ink-32); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-time { color: var(--cs-ink-22); font-size: 11px; white-space: nowrap; }
 
     .status-dot {
       width: 8px;
@@ -377,15 +382,15 @@ export async function renderSidebarHtml(
       letter-spacing: 0.3px;
     }
     .badge-auto {
-      background: rgba(237, 236, 236, 0.05);
-      color: rgba(237, 236, 236, 0.32);
-      border: 1px solid rgba(237, 236, 236, 0.12);
+      background: var(--cs-ink-05);
+      color: var(--cs-ink-32);
+      border: 1px solid var(--cs-hairline-strong);
     }
 
     .empty-state {
       text-align: center;
       padding: 20px 8px;
-      color: rgba(237, 236, 236, 0.22);
+      color: var(--cs-ink-22);
       font-size: 12px;
       font-style: italic;
     }
@@ -394,13 +399,13 @@ export async function renderSidebarHtml(
     .configure-btn {
       width: 100%;
       padding: 9px 12px;
-      border: 1px dashed rgba(237, 236, 236, 0.08);
+      border: 1px dashed var(--cs-hairline);
       border-radius: 8px;
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       background: transparent;
-      color: rgba(237, 236, 236, 0.32);
+      color: var(--cs-ink-32);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -421,9 +426,9 @@ export async function renderSidebarHtml(
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #161614; }
-    ::-webkit-scrollbar-thumb { background: #2a2a28; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3a3a37; }
+    ::-webkit-scrollbar-track { background: var(--cs-scroll-track); }
+    ::-webkit-scrollbar-thumb { background: var(--cs-scroll-thumb); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--cs-scroll-thumb-hover); }
 
     /* ── Chats Tab ── */
     .chats-section { margin-bottom: 16px; }
@@ -432,7 +437,7 @@ export async function renderSidebarHtml(
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1.2px;
-      color: rgba(237, 236, 236, 0.32);
+      color: var(--cs-ink-32);
       margin-bottom: 8px;
       padding: 0 2px;
       display: flex;
@@ -448,25 +453,25 @@ export async function renderSidebarHtml(
       border-radius: 6px;
       font-size: 12px;
       gap: 8px;
-      background: #0f0e0c;
+      background: var(--cs-surface-sunken);
       border: 1px solid transparent;
       transition: all 0.15s ease;
     }
     .chat-row:hover {
-      background: #22201a;
-      border-color: rgba(237, 236, 236, 0.06);
+      background: var(--cs-surface-hover);
+      border-color: var(--cs-hairline-soft);
     }
     .chat-row-info { flex: 1; min-width: 0; }
     .chat-row-title {
       font-weight: 500;
-      color: rgba(237, 236, 236, 0.8);
+      color: var(--cs-ink-80);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .chat-row-meta {
       font-size: 11px;
-      color: rgba(237, 236, 236, 0.3);
+      color: var(--cs-ink-30);
       margin-top: 2px;
       white-space: nowrap;
       overflow: hidden;
@@ -479,12 +484,12 @@ export async function renderSidebarHtml(
     }
     .chat-action-btn {
       padding: 3px 6px;
-      border: 1px solid rgba(237, 236, 236, 0.06);
+      border: 1px solid var(--cs-hairline-soft);
       border-radius: 4px;
       font-size: 10px;
       cursor: pointer;
       background: transparent;
-      color: rgba(237, 236, 236, 0.4);
+      color: var(--cs-ink-40);
       transition: all 0.15s ease;
     }
     .chat-action-btn:hover {
@@ -495,7 +500,7 @@ export async function renderSidebarHtml(
     .progress-card {
       padding: 10px 12px;
       border-radius: 8px;
-      background: #1c1a13;
+      background: var(--cs-surface);
       border: 1px solid rgba(125, 211, 252, 0.15);
       font-size: 12px;
     }
@@ -505,11 +510,11 @@ export async function renderSidebarHtml(
       margin-bottom: 4px;
     }
     .progress-message {
-      color: rgba(237, 236, 236, 0.6);
+      color: var(--cs-ink-60);
     }
     .progress-bar-track {
       height: 3px;
-      background: rgba(237, 236, 236, 0.1);
+      background: var(--cs-ink-10);
       border-radius: 2px;
       margin-top: 8px;
       overflow: hidden;
@@ -522,12 +527,12 @@ export async function renderSidebarHtml(
     }
     .clear-btn {
       padding: 2px 8px;
-      border: 1px solid rgba(237, 236, 236, 0.08);
+      border: 1px solid var(--cs-hairline);
       border-radius: 4px;
       font-size: 10px;
       cursor: pointer;
       background: transparent;
-      color: rgba(237, 236, 236, 0.32);
+      color: var(--cs-ink-32);
       transition: all 0.15s ease;
     }
     .clear-btn:hover {
@@ -546,7 +551,7 @@ export async function renderSidebarHtml(
     }
     .settings-label {
       font-size: 12px;
-      color: rgba(237, 236, 236, 0.7);
+      color: var(--cs-ink-70);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -556,10 +561,10 @@ export async function renderSidebarHtml(
     .settings-input {
       width: 64px;
       padding: 4px 8px;
-      border: 1px solid rgba(237, 236, 236, 0.1);
+      border: 1px solid var(--cs-ink-10);
       border-radius: 4px;
-      background: #1c1a13;
-      color: #edecec;
+      background: var(--cs-surface);
+      color: var(--cs-ink);
       font-size: 12px;
       text-align: right;
     }
@@ -576,6 +581,49 @@ export async function renderSidebarHtml(
       width: 14px;
       height: 14px;
       cursor: pointer;
+    }
+    .settings-row-theme {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .settings-label-static {
+      cursor: default;
+      flex: none;
+    }
+    .settings-hint {
+      font-size: 11px;
+      color: var(--cs-ink-32);
+      line-height: 1.45;
+      padding: 0 4px 4px;
+    }
+    .theme-segmented {
+      display: flex;
+      gap: 4px;
+      padding: 3px;
+      border-radius: 8px;
+      background: var(--cs-segment-bg);
+      border: 1px solid var(--cs-hairline-soft);
+    }
+    .theme-segment {
+      flex: 1;
+      padding: 6px 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: var(--cs-ink-40);
+      transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .theme-segment:hover {
+      color: var(--cs-ink-70);
+    }
+    .theme-segment.active {
+      background: var(--cs-segment-active-bg);
+      color: var(--cs-segment-active-fg);
+      box-shadow: 0 1px 3px var(--cs-shadow-soft);
     }
   </style>
 </head>

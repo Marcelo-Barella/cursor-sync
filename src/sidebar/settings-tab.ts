@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
 import { escapeHtml } from "./sync-tab.js";
+import {
+  readAppearanceThemePreference,
+  type AppearanceThemePreference,
+} from "./appearance-theme.js";
 
 export interface SettingsTabValues {
+  appearanceTheme: AppearanceThemePreference;
   activateDefault: boolean;
   activateStrict: boolean;
   bridgeWaitResultSeconds: number;
@@ -12,6 +17,7 @@ export interface SettingsTabValues {
 export function readSettingsValues(): SettingsTabValues {
   const cfg = vscode.workspace.getConfiguration("cursorSync");
   return {
+    appearanceTheme: readAppearanceThemePreference(),
     activateDefault: cfg.get<boolean>("chatImport.activateDefault", false),
     activateStrict: cfg.get<boolean>("chatImport.activateStrict", false),
     bridgeWaitResultSeconds: cfg.get<number>("chatImport.bridgeWaitResultSeconds", 0),
@@ -38,7 +44,26 @@ export function renderSettingsPane(values: SettingsTabValues): string {
     </div>`;
   }
 
+  function themeSegment(value: AppearanceThemePreference, label: string): string {
+    const active = values.appearanceTheme === value ? " active" : "";
+    return `<button type="button" class="theme-segment${active}" data-theme-preference="${value}" aria-pressed="${values.appearanceTheme === value}">${label}</button>`;
+  }
+
   return `<div id="settings-pane" class="tab-pane" style="display:none">
+  <div class="section">
+    <div class="section-header">Appearance</div>
+    <div class="settings-list">
+      <div class="settings-row settings-row-theme">
+        <span class="settings-label settings-label-static">Sidebar theme</span>
+        <div class="theme-segmented" role="group" aria-label="Sidebar theme">
+          ${themeSegment("system", "System")}
+          ${themeSegment("dark", "Dark")}
+          ${themeSegment("light", "Light")}
+        </div>
+      </div>
+      <p class="settings-hint">System follows your Cursor color theme and updates when you switch themes.</p>
+    </div>
+  </div>
   <div class="section">
     <div class="section-header">Chat Import</div>
     <div class="settings-list">

@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.5",
+  "version": "0.8.4-staging.6",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -358,6 +358,26 @@
           "default": "",
           "markdownDeprecationMessage": "Deprecated. Use **Cursor Sync: Developer › Api Url** (`cursorSync.developer.apiUrl`) instead.",
           "description": "Deprecated. Use cursorSync.developer.apiUrl."
+        }
+      }
+    },
+    {
+      "title": "Cursor Sync: Appearance",
+      "properties": {
+        "cursorSync.appearance.theme": {
+          "type": "string",
+          "enum": [
+            "system",
+            "dark",
+            "light"
+          ],
+          "default": "system",
+          "enumDescriptions": [
+            "Match the Cursor / VS Code color theme and update when it changes.",
+            "Always use the dark sidebar theme.",
+            "Always use the light sidebar theme."
+          ],
+          "description": "Color theme for the Cursor Sync sidebar webview."
         }
       }
     },
