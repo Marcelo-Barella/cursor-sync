@@ -91,6 +91,7 @@ describe("dispatchSidebarMessage - settings:get", () => {
     expect(typeof call.values.bridgeWaitResultSeconds).toBe("number");
     expect(typeof call.values.autoReloadAfterImport).toBe("boolean");
     expect(typeof call.values.pythonPath).toBe("string");
+    expect(call.values.appearanceTheme).toBe("system");
   });
 });
 

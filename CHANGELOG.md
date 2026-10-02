@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.5
+
+### Fixed
+- Sidebar **Account** pane refreshes immediately after app login (paste **Enter Login Code** and protocol callback); logged-in state no longer requires Reload Window.
+
 ## v0.8.4
 
 ### Added

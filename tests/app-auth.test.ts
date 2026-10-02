@@ -11,10 +11,17 @@ const getAppApiUrlMock = vi.hoisted(() => vi.fn(() => "https://api.sync.bergamot
 const getAppWebsiteUrlMock = vi.hoisted(() =>
   vi.fn(() => "https://sync.bergamota.dev")
 );
+const refreshSidebarMock = vi.hoisted(() => vi.fn());
+
+const testRedirectUri = "cursor://MarceloBarella.cursor-sync/auth";
 
 vi.mock("../src/config/urls.js", () => ({
   getAppApiUrl: getAppApiUrlMock,
   getAppWebsiteUrl: getAppWebsiteUrlMock,
+}));
+
+vi.mock("../src/sidebar/index.js", () => ({
+  refreshSidebar: refreshSidebarMock,
 }));
 
 vi.mock("vscode", () => ({
@@ -187,12 +194,40 @@ describe("app-auth URI helpers", () => {
     expect(extractAuthCodeFromUri(uri!)).toBe("argv-code");
   });
 
-  it("buildAuthRedirectUri preserves context.extension.id authority casing", async () => {
+  it("buildAuthRedirectUri uses asExternalUri result without rewriting authority", async () => {
     const { buildAuthRedirectUri } = await import("../src/app-auth.js");
     const redirectUri = await buildAuthRedirectUri({
       extension: { id: "MarceloBarella.cursor-sync" },
     } as never);
     expect(redirectUri).toBe("cursor://MarceloBarella.cursor-sync/auth");
+  });
+
+  it("formatOAuthRedirectUri strips windowId and canonicalizes extension authority", async () => {
+    const { formatOAuthRedirectUri } = await import("../src/app-auth.js");
+    const vscode = await import("vscode");
+    const uri = vscode.Uri.parse(
+      "cursor://marcelobarella.cursor-sync/auth?windowId=42&state=keep"
+    );
+    expect(formatOAuthRedirectUri(uri, "MarceloBarella.cursor-sync")).toBe(
+      "cursor://MarceloBarella.cursor-sync/auth?state=keep"
+    );
+  });
+
+  it("isAuthCallbackUri accepts /auth with optional trailing slash", async () => {
+    const { isAuthCallbackUri } = await import("../src/app-auth.js");
+    const vscode = await import("vscode");
+    expect(
+      isAuthCallbackUri(
+        vscode.Uri.parse("cursor://MarceloBarella.cursor-sync/auth/"),
+        "MarceloBarella.cursor-sync"
+      )
+    ).toBe(true);
+    expect(
+      isAuthCallbackUri(
+        vscode.Uri.parse("vscode://marcelobarella.cursor-sync/auth"),
+        "MarceloBarella.cursor-sync"
+      )
+    ).toBe(true);
   });
 
   it("rejects callback URIs that include token query params", async () => {
@@ -238,6 +273,15 @@ describe("app-auth sign-in URL and state", () => {
     const { executeLoginToCursorSync } = await import("../src/app-auth.js");
     await executeLoginToCursorSync({
       extension: { id: "MarceloBarella.cursor-sync" },
+      globalState: {
+        get: () => undefined,
+        update: async () => {},
+      },
+      secrets: {
+        get: async () => undefined,
+        store: async () => {},
+        delete: async () => {},
+      },
     } as never);
 
     expect(getAppWebsiteUrlMock).toHaveBeenCalled();
@@ -251,48 +295,51 @@ describe("app-auth sign-in URL and state", () => {
     expect(parsed.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it("verifyAndConsumeAuthState accepts a matching nonce once", async () => {
-    const { storePendingAuthState, verifyAndConsumeAuthState } = await import(
+  it("verifyAndConsumeAuthHandoff accepts a matching nonce once", async () => {
+    const { storePendingAuthHandoff, verifyAndConsumeAuthHandoff } = await import(
       "../src/app-auth.js"
     );
     const now = 1_700_000_000_000;
-    storePendingAuthState("expected-state", now);
-    expect(verifyAndConsumeAuthState("expected-state", now + 1000)).toEqual({ ok: true });
-    expect(verifyAndConsumeAuthState("expected-state", now + 2000)).toEqual({
+    storePendingAuthHandoff(testRedirectUri, "expected-state", now);
+    expect(verifyAndConsumeAuthHandoff("expected-state", now + 1000)).toEqual({
+      ok: true,
+      redirectUri: testRedirectUri,
+    });
+    expect(verifyAndConsumeAuthHandoff("expected-state", now + 2000)).toEqual({
       ok: false,
       message: "No login in progress. Start sign-in again.",
     });
   });
 
-  it("verifyAndConsumeAuthState rejects missing state", async () => {
-    const { storePendingAuthState, verifyAndConsumeAuthState } = await import(
+  it("verifyAndConsumeAuthHandoff rejects missing state", async () => {
+    const { storePendingAuthHandoff, verifyAndConsumeAuthHandoff } = await import(
       "../src/app-auth.js"
     );
-    storePendingAuthState("expected-state");
-    expect(verifyAndConsumeAuthState(undefined)).toEqual({
+    storePendingAuthHandoff(testRedirectUri, "expected-state");
+    expect(verifyAndConsumeAuthHandoff(undefined)).toEqual({
       ok: false,
       message: "Login callback did not include state.",
     });
   });
 
-  it("verifyAndConsumeAuthState rejects mismatched state", async () => {
-    const { storePendingAuthState, verifyAndConsumeAuthState } = await import(
+  it("verifyAndConsumeAuthHandoff rejects mismatched state", async () => {
+    const { storePendingAuthHandoff, verifyAndConsumeAuthHandoff } = await import(
       "../src/app-auth.js"
     );
-    storePendingAuthState("expected-state");
-    expect(verifyAndConsumeAuthState("other-state")).toEqual({
+    storePendingAuthHandoff(testRedirectUri, "expected-state");
+    expect(verifyAndConsumeAuthHandoff("other-state")).toEqual({
       ok: false,
       message: "Login state did not match. Start sign-in again.",
     });
   });
 
-  it("verifyAndConsumeAuthState rejects expired state", async () => {
-    const { storePendingAuthState, verifyAndConsumeAuthState, AUTH_STATE_TTL_MS } =
+  it("verifyAndConsumeAuthHandoff rejects expired state", async () => {
+    const { storePendingAuthHandoff, verifyAndConsumeAuthHandoff, AUTH_STATE_TTL_MS } =
       await import("../src/app-auth.js");
     const now = 1_700_000_000_000;
-    storePendingAuthState("expected-state", now);
+    storePendingAuthHandoff(testRedirectUri, "expected-state", now);
     expect(
-      verifyAndConsumeAuthState("expected-state", now + AUTH_STATE_TTL_MS + 1)
+      verifyAndConsumeAuthHandoff("expected-state", now + AUTH_STATE_TTL_MS + 1)
     ).toEqual({
       ok: false,
       message: "Login state expired. Start sign-in again.",
@@ -310,9 +357,9 @@ describe("app-auth sign-in URL and state", () => {
   });
 
   it("handleAuthCallbackUri rejects callback when state does not match", async () => {
-    const { storePendingAuthState, registerAppAuthUriHandler, consumePendingAuthCallback } =
+    const { storePendingAuthHandoff, registerAppAuthUriHandler, consumePendingAuthCallback } =
       await import("../src/app-auth.js");
-    storePendingAuthState("expected-state");
+    storePendingAuthHandoff(testRedirectUri, "expected-state");
     const ctx = {
       extension: { id: "MarceloBarella.cursor-sync" },
       subscriptions: [] as unknown[],
@@ -330,9 +377,9 @@ describe("app-auth sign-in URL and state", () => {
   });
 
   it("handleAuthCallbackUri rejects token in callback URL", async () => {
-    const { storePendingAuthState, registerAppAuthUriHandler, consumePendingAuthCallback } =
+    const { storePendingAuthHandoff, registerAppAuthUriHandler, consumePendingAuthCallback } =
       await import("../src/app-auth.js");
-    storePendingAuthState("expected-state");
+    storePendingAuthHandoff(testRedirectUri, "expected-state");
     const ctx = {
       extension: { id: "MarceloBarella.cursor-sync" },
       subscriptions: [] as unknown[],
@@ -409,6 +456,17 @@ describe("app-auth session storage", () => {
     vi.unstubAllGlobals();
   });
 
+  it("surfaces network failures as connectivity errors, not auth rejection", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+
+    const { exchangeCodeForSessionToken } = await import("../src/app-auth.js");
+    await expect(
+      exchangeCodeForSessionToken("https://api-staging-sync.bergamota.dev", "code")
+    ).rejects.toThrow(/Could not reach Cursor Sync API/);
+
+    vi.unstubAllGlobals();
+  });
+
   it("completeLoginWithCode exchanges code against configured apiUrl", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -416,9 +474,9 @@ describe("app-auth session storage", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { storePendingAuthState, registerAppAuthUriHandler, consumePendingAuthCallback } =
+    const { storePendingAuthHandoff, registerAppAuthUriHandler, consumePendingAuthCallback } =
       await import("../src/app-auth.js");
-    storePendingAuthState("state-ok");
+    storePendingAuthHandoff(testRedirectUri, "state-ok");
     const ctx = makeSecretsContext();
     const extCtx = {
       ...ctx,
@@ -432,13 +490,63 @@ describe("app-auth session storage", () => {
       makeAuthUri("MarceloBarella.cursor-sync", "code=exchange-me&state=state-ok")
     );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await vi.waitFor(() => expect(refreshSidebarMock).toHaveBeenCalled());
 
     expect(getAppApiUrlMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.sync.bergamota.dev/auth/token",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ code: "exchange-me" }),
+        body: JSON.stringify({
+          code: "exchange-me",
+          redirect_uri: testRedirectUri,
+        }),
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("executeEnterAppAuthCode exchanges pasted code with persisted redirect_uri", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: "jwt-paste" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const vscode = await import("vscode");
+    vi.spyOn(vscode.window, "showInputBox").mockResolvedValue("paste-code-123");
+
+    const handoffStore = new Map<string, unknown>();
+    const ctx = makeSecretsContext();
+    const extCtx = {
+      ...ctx,
+      extension: { id: "MarceloBarella.cursor-sync" },
+      globalState: {
+        get: (key: string) => handoffStore.get(key),
+        update: async (key: string, value: unknown) => {
+          handoffStore.set(key, value);
+        },
+      },
+      subscriptions: [] as unknown[],
+    };
+
+    const { storePendingAuthHandoff, executeEnterAppAuthCode } = await import(
+      "../src/app-auth.js"
+    );
+    storePendingAuthHandoff(testRedirectUri, "browser-state", Date.now(), extCtx as never);
+
+    await executeEnterAppAuthCode(extCtx as never);
+
+    expect(refreshSidebarMock).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.sync.bergamota.dev/auth/token",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          code: "paste-code-123",
+          redirect_uri: testRedirectUri,
+        }),
       })
     );
 

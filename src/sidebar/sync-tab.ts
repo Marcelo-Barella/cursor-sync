@@ -7,6 +7,35 @@ export interface SyncTabState {
   fileCount: number;
   gistId: string | undefined;
   history: SyncHistoryEntry[];
+  appSessionActive: boolean;
+}
+
+export function renderAccountSection(appSessionActive: boolean): string {
+  if (appSessionActive) {
+    return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="account-status logged-in">
+      <span class="codicon codicon-check"></span>
+      <span>Logged in to Cursor Sync</span>
+    </div>
+    <button class="configure-btn" data-command="configure" style="margin-top:8px">
+      <span class="codicon codicon-github-alt"></span> Configure GitHub
+    </button>
+  </div>`;
+  }
+
+  return `<div class="section">
+    <div class="section-header">Account</div>
+    <button class="configure-btn" data-command="loginToApp">
+      <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
+    </button>
+    <button class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
+      <span class="codicon codicon-key"></span> Enter Login Code
+    </button>
+    <button class="configure-btn" data-command="configure" style="margin-top:8px">
+      <span class="codicon codicon-github-alt"></span> Configure GitHub
+    </button>
+  </div>`;
 }
 
 export function relativeTime(isoString: string): string {
@@ -142,17 +171,6 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-header">Account</div>
-    <button class="configure-btn" data-command="loginToApp">
-      <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
-    </button>
-    <button class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
-      <span class="codicon codicon-key"></span> Enter Login Code
-    </button>
-    <button class="configure-btn" data-command="configure" style="margin-top:8px">
-      <span class="codicon codicon-github-alt"></span> Configure GitHub
-    </button>
-  </div>
+  ${renderAccountSection(state.appSessionActive)}
 </div>`;
 }

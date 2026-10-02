@@ -89,10 +89,32 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     ).toBe("https://custom.api.example");
   });
 
-  it("honors legacy appApiUrl when new key is unset", () => {
+  it("ignores legacy appApiUrl when environment preset is production", () => {
     expect(
       resolveAppApiUrlFromInputs(
         inputs({
+          legacyApiUrl: "http://localhost:8100",
+        })
+      )
+    ).toBe(DEFAULT_PRODUCTION_API_URL);
+  });
+
+  it("ignores legacy appApiUrl when environment is staging", () => {
+    expect(
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "staging",
+          legacyApiUrl: "http://localhost:8100",
+        })
+      )
+    ).toBe(STAGING_API_URL);
+  });
+
+  it("honors legacy appApiUrl in custom environment when developer.apiUrl is unset", () => {
+    expect(
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
           legacyApiUrl: "http://localhost:8100",
         })
       )
@@ -199,6 +221,6 @@ describe("config/urls live configuration", () => {
 
     environment = undefined;
     inspectValues["appApiUrl"] = "http://localhost:8100";
-    expect(getAppApiUrl()).toBe(LOCAL_API_URL);
+    expect(getAppApiUrl()).toBe(STAGING_API_URL);
   });
 });

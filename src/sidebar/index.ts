@@ -2,10 +2,17 @@ import * as vscode from "vscode";
 import { renderSidebarHtml, renderSyncPaneHtml } from "./html.js";
 import { dispatchSidebarMessage, type SidebarMessage } from "./messages.js";
 import { onChatImportProgress } from "../chat-progress-events.js";
+import {
+  disposeSidebarThemeController,
+  getSidebarThemeController,
+} from "./sidebar-theme-controller.js";
 
 let sidebarProviderInstance: SidebarProvider | undefined;
 
 export function initializeSidebar(context: vscode.ExtensionContext): SidebarProvider {
+  const themeController = getSidebarThemeController();
+  context.subscriptions.push(themeController);
+  context.subscriptions.push({ dispose: () => disposeSidebarThemeController() });
   sidebarProviderInstance = new SidebarProvider(context);
   return sidebarProviderInstance;
 }
@@ -30,7 +37,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._progressSub = onChatImportProgress((event) => {
       void webviewView.webview.postMessage({ type: "chats:progress", event });
     });
+    const themeController = getSidebarThemeController();
+    themeController.registerWebview(webviewView.webview);
     webviewView.onDidDispose(() => {
+      themeController.unregisterWebview(webviewView.webview);
       this._progressSub?.dispose();
       this._htmlInitialized = false;
     });
