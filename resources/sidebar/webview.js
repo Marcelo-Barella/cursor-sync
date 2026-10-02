@@ -60,16 +60,20 @@
     return (b / (1024 * 1024)).toFixed(1) + " MB";
   }
 
-  function applyTheme(effective, preference) {
-    if (effective === "light" || effective === "dark") {
-      document.documentElement.setAttribute("data-theme", effective);
-    }
+  function updateThemeSegments(preference) {
     document.querySelectorAll(".theme-segment").forEach(function (btn) {
       var pref = btn.getAttribute("data-theme-preference");
       var active = pref === preference;
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
+  }
+
+  function applyTheme(effective, preference) {
+    if (effective === "light" || effective === "dark") {
+      document.documentElement.setAttribute("data-theme", effective);
+    }
+    updateThemeSegments(preference);
   }
 
   document.addEventListener("click", function (ev) {
@@ -298,12 +302,7 @@
       var vals = msg.values;
       if (!vals) return;
       if (vals.appearanceTheme) {
-        document.querySelectorAll(".theme-segment").forEach(function (btn) {
-          var pref = btn.getAttribute("data-theme-preference");
-          var active = pref === vals.appearanceTheme;
-          btn.classList.toggle("active", active);
-          btn.setAttribute("aria-pressed", active ? "true" : "false");
-        });
+        updateThemeSegments(vals.appearanceTheme);
       }
       Object.keys(vals).forEach(function (k) {
         var settingsKey =

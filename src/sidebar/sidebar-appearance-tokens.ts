@@ -1,4 +1,3 @@
-/** Bergamota sidebar design tokens (ground / surface / ink / hairline) for webview themes. */
 export function renderSidebarAppearanceTokenCss(): string {
   return `
     html[data-theme="dark"] {
