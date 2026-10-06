@@ -49,10 +49,6 @@ export function isTlsOrCertError(err: unknown): boolean {
   return extractNestedCauseCodes(err).some(isTlsCauseCode);
 }
 
-/**
- * True when the API host could not be reached (not TLS misconfig or HTTP responses).
- * `TimeoutError` and bare `AbortError` are intentionally fail-closed (not offline).
- */
 export function isTransientNetworkError(err: unknown): boolean {
   if (isTlsOrCertError(err)) {
     return false;
