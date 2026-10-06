@@ -415,10 +415,8 @@ async function completeLoginWithCode(
     await setAppSession(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
-    const { refreshSidebar } = await import("./sidebar/index.js");
-    const { refreshSyncCommandContexts } = await import("./sync-context.js");
     refreshSidebar();
-    void refreshSyncCommandContexts(context);
+    void refreshSyncCommandContextsAndStatusBar(context);
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;
   } catch (err) {
