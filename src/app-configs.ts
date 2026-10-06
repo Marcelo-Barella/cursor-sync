@@ -16,7 +16,7 @@ import {
 } from "./e2e/configs-sync.js";
 import { deletePlaintextR2Objects } from "./e2e/storage-plaintext.js";
 import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
-import { loadMigrationState, saveMigrationState } from "./e2e/migration.js";
+import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
 import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { getLogger } from "./diagnostics.js";
@@ -363,6 +363,7 @@ export async function executePushAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${fileCount} files`
     );
+    await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

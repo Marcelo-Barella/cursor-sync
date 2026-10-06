@@ -7,6 +7,8 @@ import { withRetry } from "./retry.js";
 import { getLogger } from "./diagnostics.js";
 import { generateExtensionsJson } from "./extensions.js";
 import * as fs from "node:fs/promises";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 
 async function writeExtensionsFile(
   cursorUserRoot: string,
@@ -29,6 +31,12 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
   const token = await requireToken(context);
   if (!token) {
     logger.appendLine(`[${new Date().toISOString()}] Export failed: AUTH_FAILED`);
+    return;
+  }
+
+  const e2e = await requireE2eUnlocked(context);
+  if (!e2e.ok) {
+    vscode.window.showWarningMessage(e2e.message);
     return;
   }
 
@@ -65,13 +73,20 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(selectedFiles, profileName);
 
-  const gistFiles: Record<string, { content: string }> = {};
-  gistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
+  const logicalGistFiles: Record<string, { content: string }> = {};
+  logicalGistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
 
   for (const [key, value] of packaged) {
     const gistFileName = syncKeyToGistFileName(key);
-    gistFiles[gistFileName] = { content: value.content };
+    logicalGistFiles[gistFileName] = { content: value.content };
   }
+
+  const gistFiles = wrapGistFilesForUpload(
+    e2e.dek,
+    e2e.userId,
+    e2e.keyVersion,
+    logicalGistFiles
+  );
 
   const client = new GistClient(token);
   

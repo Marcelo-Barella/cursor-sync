@@ -15,6 +15,11 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { Manifest } from "./types.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import {
+  readLogicalFileFromGistMap,
+  remoteGistHasE2eMarker,
+} from "./e2e/gist-read.js";
 
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_JITTER_MS = 60_000;
@@ -93,14 +98,31 @@ export async function determineSyncAction(
     return { action: "error", reason: gistResult.error.category };
   }
 
-  const manifestFile = gistResult.data.files["manifest.json"];
-  if (!manifestFile) {
+  const gistFiles = gistResult.data.files;
+  let manifestJson: string | undefined;
+  if (remoteGistHasE2eMarker(gistFiles)) {
+    const e2e = await requireE2eUnlocked(context);
+    if (!e2e.ok) {
+      return { action: "error", reason: "e2e_locked" };
+    }
+    manifestJson = readLogicalFileFromGistMap(
+      e2e.dek,
+      e2e.userId,
+      e2e.keyVersion,
+      gistFiles,
+      "manifest.json"
+    );
+  } else {
+    manifestJson = gistFiles["manifest.json"]?.content;
+  }
+
+  if (!manifestJson) {
     return { action: "push" };
   }
 
   let manifest: Manifest;
   try {
-    manifest = JSON.parse(manifestFile.content) as Manifest;
+    manifest = JSON.parse(manifestJson) as Manifest;
   } catch {
     return { action: "push" };
   }

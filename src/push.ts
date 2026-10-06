@@ -23,6 +23,8 @@ import {
 import type { SyncState } from "./types.js";
 import { requireE2eUnlocked } from "./e2e/gate.js";
 import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
+import { encryptedGistFileNamesForLogical } from "./e2e/gist-read.js";
+import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
@@ -226,11 +228,27 @@ async function doPush(
     const existingResult = await withRetry(() => client.getGist(gistId!));
     let filesToDelete: Record<string, null> = {};
     if (existingResult.ok) {
-      const existingFiles = Object.keys(existingResult.data.files);
-      for (const existing of existingFiles) {
-        if (existing !== "manifest.json" && !gistFiles[existing]) {
-          filesToDelete[existing] = null;
+      const encNames = encryptedGistFileNamesForLogical(
+        e2e.dek,
+        Object.keys(logicalGistFiles)
+      );
+      const migration = await loadMigrationState(context);
+      const completedGist = new Set(migration?.completedPlaintextGistFiles ?? []);
+      for (const existing of Object.keys(existingResult.data.files)) {
+        if (encNames.has(existing) || gistFiles[existing]) {
+          continue;
         }
+        filesToDelete[existing] = null;
+        if (migration && migration.phase !== "completed" && !completedGist.has(existing)) {
+          completedGist.add(existing);
+        }
+      }
+      if (migration && migration.phase !== "completed") {
+        await saveMigrationState(context, {
+          ...migration,
+          completedPlaintextGistFiles: [...completedGist],
+          phase: "in_progress",
+        });
       }
     }
 
@@ -308,6 +326,7 @@ async function doPush(
   logger.appendLine(
     `[${new Date().toISOString()}] Push succeeded: ${fileCount} files`
   );
+  await tryCompleteMigration(context, "gist");
   return true;
 }
 

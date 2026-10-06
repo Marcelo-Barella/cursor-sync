@@ -12,6 +12,7 @@ import {
   decodeTranscriptArtifact,
   encodeTranscriptArtifact,
   gistFileNameToSyncKey,
+  syncKeyToGistFileName,
   parseTranscriptBundleManifest,
   summarizeTranscriptForSidebar,
   type TranscriptBundleManifest,
@@ -27,6 +28,12 @@ import {
 } from "./chat-workspace-label.js";
 import { listChatsWorkspaceDirs, type WorkspaceDir } from "./chat-export-ux.js";
 import { resolveSyncRoots } from "./paths.js";
+import {
+  assertCanReadE2eGist,
+  GIST_LOCKED_MESSAGE,
+  readLogicalFileFromGistMap,
+  remoteGistHasE2eMarker,
+} from "./e2e/gist-read.js";
 
 const {
   runSqliteScript,
@@ -150,9 +157,31 @@ async function importTranscriptsFromGist(
     throw new Error(`Could not fetch Gist "${gistId}". Check the ID and your GitHub token.`);
   }
 
+  const gistFiles = gist.files ?? {};
+  let readGistFile: (logicalFileName: string) => string | undefined;
+
+  if (remoteGistHasE2eMarker(gistFiles)) {
+    const access = await assertCanReadE2eGist(context, gistFiles);
+    if (!access.ok) {
+      throw new Error(
+        access.message === GIST_LOCKED_MESSAGE ? GIST_LOCKED_MESSAGE : access.message
+      );
+    }
+    readGistFile = (logicalFileName) =>
+      readLogicalFileFromGistMap(
+        access.dek,
+        access.userId,
+        access.keyVersion,
+        gistFiles,
+        logicalFileName
+      );
+  } else {
+    readGistFile = (logicalFileName) => gistFiles[logicalFileName]?.content;
+  }
+
   // Step 2: Parse manifest
   progress.report({ message: "Parsing manifest..." });
-  const manifestRaw = gist.files?.[TRANSCRIPT_MANIFEST_FILE_NAME]?.content;
+  const manifestRaw = readGistFile(TRANSCRIPT_MANIFEST_FILE_NAME);
   if (!manifestRaw) {
     throw new Error("Gist does not contain a transcript manifest. Export transcripts first.");
   }
@@ -166,7 +195,7 @@ async function importTranscriptsFromGist(
 
   // Step 3: Discover transcripts
   progress.report({ message: "Discovering transcripts..." });
-  const transcripts = discoverTranscripts(manifest, gist);
+  const transcripts = discoverTranscripts(manifest, readGistFile);
   if (transcripts.length === 0) {
     throw new Error("No transcript files found in Gist.");
   }
@@ -345,7 +374,7 @@ function extractGistId(input: string): string | null {
 
 function discoverTranscripts(
   manifest: TranscriptBundleManifest,
-  gist: { files?: Record<string, { content?: string }> }
+  readGistFile: (logicalFileName: string) => string | undefined
 ): DiscoveredTranscript[] {
   const transcripts: DiscoveredTranscript[] = [];
 
@@ -354,7 +383,7 @@ function discoverTranscripts(
     for (const [gistFileName, entry] of Object.entries(v1.files)) {
       if (!gistFileName.endsWith(".jsonl")) continue;
 
-      const content = gist.files?.[gistFileName]?.content;
+      const content = readGistFile(gistFileName);
       if (!content) continue;
 
       const syncKey = gistFileNameToSyncKey(gistFileName);
@@ -382,8 +411,8 @@ function discoverTranscripts(
     for (const [artifactKey, artifact] of Object.entries(v2.artifacts)) {
       if (artifact.kind !== "transcript") continue;
 
-      const gistFileName = artifactKey.replace(/\//g, "--");
-      const content = gist.files?.[gistFileName]?.content;
+      const gistFileName = syncKeyToGistFileName(artifactKey);
+      const content = readGistFile(gistFileName);
       if (!content) continue;
 
       const buf = Buffer.from(content, "utf-8");

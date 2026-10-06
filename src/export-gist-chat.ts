@@ -6,8 +6,7 @@ import { getLogger } from "./diagnostics.js";
 import { pickChatsForExport, type ChatExportSelection } from "./chat-export-ux.js";
 import { buildChatExportPayload, chatEditorExportFailureMessage } from "./chat-persistence.js";
 import { CHAT_BUNDLES_GIST_FILE_NAME } from "./chat-bundle-format.js";
-import { encryptChatGistPayload } from "./chat-gist-crypto.js";
-import { requireChatEncryptionPassword, isChatGistEncryptionEnabled } from "./chat-encryption-auth.js";
+import { encryptChatPayloadForGist } from "./e2e/chat-payload-crypto.js";
 import { resolveChatEditorExportTarget } from "./chat-editor-target.js";
 
 export { CHAT_BUNDLE_GIST_FILE_NAME, CHAT_BUNDLES_GIST_FILE_NAME } from "./chat-bundle-format.js";
@@ -43,33 +42,24 @@ export async function exportChatSelectionToGist(
           `[${new Date().toISOString()}] Chat gist export workspace=${selection.workspaceKey} count=${bundles.length}`
         );
 
-        let uploadContent = gistPayload.content;
-        let encrypted = false;
-
-        if (isChatGistEncryptionEnabled()) {
-          const password = await requireChatEncryptionPassword(context, "export");
-          if (!password) {
-            vscode.window.showWarningMessage("Chat export cancelled: encryption password required.");
-            logger.appendLine(
-              `[${new Date().toISOString()}] Chat export to Gist cancelled: no encryption password`
-            );
-            return;
-          }
-          const plaintextKind =
-            gistPayload.fileName === CHAT_BUNDLES_GIST_FILE_NAME
-              ? ("chat-bundles-collection" as const)
-              : ("chat-bundle" as const);
-          uploadContent = await encryptChatGistPayload(
+        const plaintextKind =
+          gistPayload.fileName === CHAT_BUNDLES_GIST_FILE_NAME
+            ? ("chat-bundles-collection" as const)
+            : ("chat-bundle" as const);
+        let gistFiles: Record<string, { content: string }>;
+        try {
+          gistFiles = await encryptChatPayloadForGist(
+            context,
             gistPayload.content,
-            password,
+            gistPayload.fileName,
             plaintextKind
           );
-          encrypted = true;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          vscode.window.showWarningMessage(message);
+          return;
         }
-
-        const gistFiles: Record<string, { content: string }> = {
-          [gistPayload.fileName]: { content: uploadContent },
-        };
+        const encrypted = true;
 
         const result = await withRetry(() =>
           client.createGist(gistFiles, "Cursor Sync - Chat Export")
@@ -91,7 +81,7 @@ export async function exportChatSelectionToGist(
         }
 
         const linkNote = encrypted
-          ? "Content is encrypted; decryption requires the chat encryption password configured in Cursor Sync."
+          ? "Content is encrypted with sync encryption; unlock Cursor Sync to import."
           : "Anyone with the link can open it.";
         const successMsg =
           bundles.length === 1
