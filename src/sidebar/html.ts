@@ -291,6 +291,19 @@ export async function renderSidebarHtml(
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
       filter: brightness(0.95);
     }
+    .sync-now-btn:disabled,
+    .sync-now-btn.is-disabled,
+    .action-btn:disabled,
+    .action-btn.is-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+      filter: grayscale(0.35);
+    }
+    .account-status-expired .codicon-warning {
+      color: #f59e0b;
+      margin-right: 6px;
+    }
 
     /* ── Section Headers ── */
     .section { margin-bottom: 16px; }

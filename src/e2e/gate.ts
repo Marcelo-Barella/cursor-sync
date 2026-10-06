@@ -12,7 +12,11 @@ import {
   KeysApiError,
   type KeysGateCache,
 } from "./keys-client.js";
-import { isTransientNetworkError, userFriendlyConnectivityMessage } from "./network-errors.js";
+import {
+  isTransientNetworkError,
+  logConnectivityFailure,
+  userFriendlyConnectivityMessage,
+} from "./network-errors.js";
 import type { ServerKeyMaterialResponse } from "./keys-wire.js";
 import { refreshSyncStatusBar } from "../sync-status-bar.js";
 
@@ -130,18 +134,22 @@ export async function resolveE2eGateSnapshot(
         keysCache = diskCache;
         usedOfflineKeysCache = true;
       } else {
+        const keysStatusMessage = userFriendlyConnectivityMessage(err);
+        logConnectivityFailure(keysStatusMessage);
         cachedSnapshot = {
           phase: "keys_unavailable",
           userId: claims.userId,
-          keysStatusMessage: userFriendlyConnectivityMessage(err),
+          keysStatusMessage,
         };
         return cachedSnapshot;
       }
     } else {
+      const keysStatusMessage = userFriendlyConnectivityMessage(err);
+      logConnectivityFailure(keysStatusMessage);
       cachedSnapshot = {
         phase: "keys_unavailable",
         userId: claims.userId,
-        keysStatusMessage: userFriendlyConnectivityMessage(err),
+        keysStatusMessage,
       };
       return cachedSnapshot;
     }
@@ -240,6 +248,24 @@ export function isE2eDekUnlocked(result: E2eUnlockedResult): result is E2eDekUnl
   return result.ok === true && result.kind === "dek";
 }
 
+const APP_LOGIN_REQUIRED_MESSAGE = "Log in to Cursor Sync to use encrypted sync.";
+
+/** Gist-only sync without an app session is allowed only on devices that never set up E2E. */
+export async function gistPlaintextAllowedWithoutAppSession(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  const { isAppSessionExpired } = await import("../app-auth.js");
+  if (isAppSessionExpired(context)) {
+    return false;
+  }
+  if (context.globalState.get<string>("cursorSync.e2e.lastUserId")) {
+    return false;
+  }
+  await hydrateKeysCacheFromDisk(context);
+  const cache = getCachedKeysGate();
+  return cache.presence !== "set";
+}
+
 export async function requireE2eUnlocked(
   context: vscode.ExtensionContext,
   options?: { gistSync?: boolean }
@@ -247,9 +273,12 @@ export async function requireE2eUnlocked(
   const session = await getAppSession(context);
   if (!session) {
     if (options?.gistSync) {
-      return { ok: true, kind: "gist_plaintext" };
+      if (await gistPlaintextAllowedWithoutAppSession(context)) {
+        return { ok: true, kind: "gist_plaintext" };
+      }
+      return { ok: false, message: APP_LOGIN_REQUIRED_MESSAGE };
     }
-    return { ok: false, message: "Log in to Cursor Sync to use encrypted sync." };
+    return { ok: false, message: APP_LOGIN_REQUIRED_MESSAGE };
   }
 
   const snapshot = await refreshE2eGateContext(context);

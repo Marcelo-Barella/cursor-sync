@@ -1,3 +1,5 @@
+import { getLogger } from "../diagnostics.js";
+
 const OFFLINE_CAUSE_CODES = new Set([
   "ECONNREFUSED",
   "ENOTFOUND",
@@ -23,6 +25,10 @@ export const KEYS_GET_TIMEOUT_MS = 15_000;
 
 export const API_REQUEST_TIMEOUT_MESSAGE =
   "Cursor Sync API did not respond in time. Try again later.";
+
+export function logConnectivityFailure(message: string): void {
+  getLogger().appendLine(`[${new Date().toISOString()}] ${message}`);
+}
 
 function isAbortOrTimeoutError(err: unknown): boolean {
   if (!(err instanceof Error)) {

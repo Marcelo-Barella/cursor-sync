@@ -1,10 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const appendLineMock = vi.hoisted(() => vi.fn());
+
+vi.mock("vscode", () => ({
+  window: { showInformationMessage: vi.fn(), showWarningMessage: vi.fn() },
+}));
+
+vi.mock("../src/diagnostics.js", () => ({
+  getLogger: () => ({ appendLine: appendLineMock, show: vi.fn() }),
+}));
+
 import {
   API_REQUEST_TIMEOUT_MESSAGE,
   extractNestedCauseCodes,
   isTlsOrCertError,
   isTransientNetworkError,
   userFriendlyConnectivityMessage,
+  logConnectivityFailure,
 } from "../src/e2e/network-errors.js";
 
 function errWithCause(message: string, code: string): Error {
@@ -44,6 +56,14 @@ describe("isTransientNetworkError", () => {
   it("does not classify bare AbortError as offline", () => {
     const err = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
     expect(isTransientNetworkError(err)).toBe(false);
+  });
+
+  it("logs timeout-friendly copy via logConnectivityFailure", () => {
+    appendLineMock.mockClear();
+    logConnectivityFailure(API_REQUEST_TIMEOUT_MESSAGE);
+    expect(appendLineMock).toHaveBeenCalledWith(
+      expect.stringContaining(API_REQUEST_TIMEOUT_MESSAGE)
+    );
   });
 
   it("maps TimeoutError and AbortError to friendly timeout copy (fail-closed)", () => {

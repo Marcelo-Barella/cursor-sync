@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.10
+
+### Fixed
+- Sidebar Sync Now / Push / Pull stay clickable when locked or needs setup (warning + Unlock); visible disabled styling when truly blocked.
+- Palette and command Sync Now when locked shows Unlock action; enablement without GitHub PAT when E2E gate applies.
+- `markAppSessionExpired` refreshes sidebar and status bar; session-expired Account row shows warning icon.
+- After session expiry or E2E on device, Push/Pull/Sync Now fail closed before “started” logs (no plaintext gist fallback).
+- API timeout messages also written to the Output channel.
+
 ## v0.9.0-staging.9
 
 ### Fixed

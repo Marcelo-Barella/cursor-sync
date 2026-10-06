@@ -374,6 +374,10 @@ export async function markAppSessionExpired(
     await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, true);
   }
   await clearAppSession(context);
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  refreshSidebar();
+  await refreshSyncStatusBar(context);
 }
 
 export async function clearAppSessionExpiredMark(

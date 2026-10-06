@@ -28,7 +28,7 @@ export function renderAccountSection(
   if (appSessionExpired && !appSessionActive) {
     return `<div class="section">
     <div class="section-header">Account</div>
-    <div class="account-status" style="opacity:0.9">
+    <div class="account-status account-status-expired">
       <span class="codicon codicon-warning"></span>
       <span>Session expired, log in again</span>
     </div>
@@ -202,19 +202,19 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
-  const syncDisabled =
-    state.e2ePhase !== "unlocked" && state.e2ePhase !== "no_app_session";
-  const syncDisabledTitle =
-    state.e2ePhase === "locked" || state.e2ePhase === "needs_setup"
-      ? "Unlock encrypted sync to use Push, Pull, and Sync Now."
-      : state.e2ePhase === "email_not_verified"
-        ? "Verify your email before encrypted sync is available."
-        : state.e2ePhase === "keys_unavailable"
-          ? state.keysStatusMessage ?? "Encryption key status unavailable. Retry after the rate limit."
-          : "";
-  const syncDisabledAttr = syncDisabled
-    ? ` disabled aria-disabled="true" title="${escapeHtml(syncDisabledTitle)}"`
+  const hardBlockSyncActions =
+    state.e2ePhase === "email_not_verified" || state.e2ePhase === "keys_unavailable";
+  const hardBlockTitle =
+    state.e2ePhase === "email_not_verified"
+      ? "Verify your email before encrypted sync is available."
+      : state.keysStatusMessage ?? "Encryption key status unavailable. Retry after the rate limit.";
+  const hardBlockAttr = hardBlockSyncActions
+    ? ` disabled aria-disabled="true" class="is-disabled" title="${escapeHtml(hardBlockTitle)}"`
     : "";
+  const softGatedTitle =
+    state.e2ePhase === "locked" || state.e2ePhase === "needs_setup"
+      ? ` title="${escapeHtml("Unlock encrypted sync to use Push, Pull, and Sync Now.")}"`
+      : "";
   const syncHint =
     state.e2ePhase === "no_app_session"
       ? `<p class="e2e-lock-copy" style="margin-top:8px">GitHub Gist sync works without app login. Log in to Cursor Sync for encrypted cloud sync.</p>`
@@ -237,7 +237,7 @@ export function renderSyncPane(state: SyncTabState): string {
   </div>
 
   ${syncHint}
-  <button class="sync-now-btn" data-command="syncNow"${syncDisabledAttr}>
+  <button class="sync-now-btn" data-command="syncNow"${hardBlockAttr}${softGatedTitle}>
     <span class="codicon codicon-sync"></span>
     Sync Now
   </button>
@@ -245,10 +245,10 @@ export function renderSyncPane(state: SyncTabState): string {
   <div class="section">
     <div class="section-header">Actions</div>
     <div class="action-grid">
-      <button class="action-btn" data-command="push"${syncDisabledAttr}><span class="codicon codicon-cloud-upload"></span> Push</button>
-      <button class="action-btn" data-command="pull"${syncDisabledAttr}><span class="codicon codicon-cloud-download"></span> Pull</button>
-      <button class="action-btn" data-command="export"${syncDisabledAttr}><span class="codicon codicon-export"></span> Export</button>
-      <button class="action-btn" data-command="import"${syncDisabledAttr}><span class="codicon codicon-desktop-download"></span> Import</button>
+      <button class="action-btn" data-command="push"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-upload"></span> Push</button>
+      <button class="action-btn" data-command="pull"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-download"></span> Pull</button>
+      <button class="action-btn" data-command="export"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-export"></span> Export</button>
+      <button class="action-btn" data-command="import"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>
   </div>
 

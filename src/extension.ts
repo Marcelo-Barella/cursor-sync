@@ -382,14 +382,16 @@ export async function executeSyncNow(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
-  logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
   const { requireE2eUnlocked } = await import("./e2e/gate.js");
+  const { showE2eSyncBlockedMessage } = await import("./e2e/sync-blocked-ux.js");
   const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
-    vscode.window.showWarningMessage(e2e.message);
+    await showE2eSyncBlockedMessage(e2e.message);
     return;
   }
+
+  logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
   if (!tryBeginSyncOperation()) {
     await recoverSyncOperationLatch(context, { force: true });
