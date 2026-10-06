@@ -97,13 +97,13 @@ describe("staging.17 disk classifier", () => {
     expect(result).toBe("proven_absent");
   });
 
-  it("K27: does not downgrade scan provably_absent when probe would skip", () => {
+  it("K27: strict classifier clears stale provably_absent when unsafe", () => {
     const scan = emptyScan({
       provablyAbsentKeys: new Set(["dot-cursor/skills/old/SKILL.md"]),
     });
     applyLocalPathClassificationToScan(scan, "dot-cursor/skills/old/SKILL.md", "skipped_unknown");
-    expect(scan.provablyAbsentKeys.has("dot-cursor/skills/old/SKILL.md")).toBe(true);
-    expect(scan.skippedUnknownKeys.has("dot-cursor/skills/old/SKILL.md")).toBe(false);
+    expect(scan.provablyAbsentKeys.has("dot-cursor/skills/old/SKILL.md")).toBe(false);
+    expect(scan.skippedUnknownKeys.has("dot-cursor/skills/old/SKILL.md")).toBe(true);
   });
 
   it("nested folder delete stays provably_absent after classify", async () => {
@@ -135,7 +135,7 @@ describe("staging.17 declines and per-key sync", () => {
       baseline,
       curLocal: "local-same",
       curRemote: "remote-new",
-      declines: { pullOverwriteChecksum: "local-same" },
+      declines: { pullOverwriteRemoteChecksum: "remote-new" },
     });
     expect(decision.action).toBe("noop");
   });

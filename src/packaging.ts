@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { deviceIdentitySalt } from "./os-runtime.js";
 import type { SyncFileEntry, PackagedFile, Manifest, ManifestFileEntry } from "./types.js";
 
 export type PackageFileSkip = {
@@ -72,7 +72,7 @@ export function computeChecksum(content: Buffer): string {
 }
 
 export function computeMachineId(): string {
-  const raw = `${os.hostname()}:${os.userInfo().username}`;
+  const raw = deviceIdentitySalt();
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 

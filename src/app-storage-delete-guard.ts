@@ -15,6 +15,15 @@ export const MASS_DELETE_FRACTION_WITHOUT_CONFIRM = 0.5;
 
 let lastSchedulerMassDeleteBlockSignature: string | undefined;
 let lastMassDeleteBlockedDeletionKey: string | undefined;
+let lastEvaluatedMassDeleteBlockDeletions: string[] = [];
+
+export function setLastEvaluatedMassDeleteBlockDeletions(deletions: string[]): void {
+  lastEvaluatedMassDeleteBlockDeletions = [...deletions];
+}
+
+export function getLastEvaluatedMassDeleteBlockDeletions(): string[] {
+  return lastEvaluatedMassDeleteBlockDeletions;
+}
 
 export function resetSchedulerMassDeleteBlockDedupe(): void {
   lastSchedulerMassDeleteBlockSignature = undefined;

@@ -1,7 +1,11 @@
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { baselineHasEntries } from "./app-storage-baseline.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
-import type { SyncDeclineEntry } from "./app-storage-sync-declines.js";
+import {
+  keepLocalDeclineBlocksDelete,
+  pullDeclineBlocksRemote,
+  type SyncDeclineEntry,
+} from "./app-storage-sync-declines.js";
 
 export type LocalPresence =
   | "present"
@@ -85,19 +89,19 @@ export function shouldAllowPullWriteForKey(
 function declineBlocksDecision(
   decision: SyncKeyDecision,
   declines: SyncDeclineEntry | undefined,
-  curLocal?: string
+  curLocal?: string,
+  curRemote?: string
 ): SyncKeyDecision {
   if (!declines) {
     return decision;
   }
-  if (
-    decision.action === "pull" &&
-    declines.pullOverwriteChecksum !== undefined &&
-    (curLocal ?? "") === declines.pullOverwriteChecksum
-  ) {
+  if (decision.action === "pull" && pullDeclineBlocksRemote(declines, curRemote)) {
     return { action: "noop", pullPreselected: false };
   }
-  if (decision.action === "delete_local" && declines.keepLocalAgainstRemoteDelete) {
+  if (
+    decision.action === "delete_local" &&
+    keepLocalDeclineBlocksDelete(declines, curLocal)
+  ) {
     return { action: "noop", pullPreselected: false };
   }
   return decision;
@@ -128,6 +132,16 @@ export function decideSyncKey(input: {
     return { action: "noop", pullPreselected: false };
   }
 
+  if (
+    hasBaseline &&
+    wasLocal === undefined &&
+    wasRemote !== undefined &&
+    curRemote === undefined &&
+    curLocal === undefined
+  ) {
+    return { action: "baseline_refresh", pullPreselected: false };
+  }
+
   if (!hasBaseline) {
     const remoteExists = curRemote !== undefined;
     const localExists = curLocal !== undefined;
@@ -142,7 +156,8 @@ export function decideSyncKey(input: {
       return declineBlocksDecision(
         { action: pre ? "pull" : "noop", pullPreselected: pre },
         declines,
-        curLocal
+        curLocal,
+        curRemote
       );
     }
     if (!remoteExists && localExists) {
@@ -174,7 +189,8 @@ export function decideSyncKey(input: {
     return declineBlocksDecision(
       { action: "delete_local", pullPreselected: false },
       declines,
-      curLocal
+      curLocal,
+      curRemote
     );
   }
 
@@ -199,7 +215,8 @@ export function decideSyncKey(input: {
   return declineBlocksDecision(
     { action: "pull", pullPreselected: true },
     declines,
-    curLocal
+    curLocal,
+    curRemote
   );
 }
 

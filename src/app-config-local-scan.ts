@@ -12,6 +12,12 @@ import {
 } from "./paths.js";
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { GENERATED_EXTENSIONS_SYNC_KEY } from "./app-config-extensions-align.js";
+import {
+  classifyLocalPath,
+  ensureSyncRootDirectory,
+  resolveSyncRootsRealpaths,
+} from "./app-config-disk-probe.js";
+import { pathHasUnsafeComponentBelowRoot } from "./app-config-sync-path-safety.js";
 
 export type BaselineKeyPresence = "present" | "provably_absent" | "skipped_unknown";
 
@@ -70,64 +76,17 @@ async function rootIsHealthy(rootPath: string): Promise<boolean> {
   }
 }
 
-async function checkProvableAbsence(absolutePath: string): Promise<BaselineKeyPresence> {
-  const parentDir = path.dirname(absolutePath);
-  const baseName = path.basename(absolutePath);
-  let listing: string[];
-  try {
-    listing = await fs.readdir(parentDir);
-  } catch {
-    return "skipped_unknown";
-  }
-
-  if (listing.includes(baseName)) {
-    try {
-      const st = await fs.lstat(absolutePath);
-      if (st.isFile()) {
-        return "skipped_unknown";
-      }
-      return "skipped_unknown";
-    } catch (err) {
-      return isEnoent(err) ? "provably_absent" : "skipped_unknown";
-    }
-  }
-
-  try {
-    await fs.lstat(absolutePath);
-    return "skipped_unknown";
-  } catch (err) {
-    return isEnoent(err) ? "provably_absent" : "skipped_unknown";
-  }
-}
-
-async function classifyBaselineKey(
-  context: vscode.ExtensionContext,
-  roots: SyncRoots,
-  syncKey: string,
-  enumeratedKeys: Set<string>
-): Promise<BaselineKeyPresence> {
-  if (enumeratedKeys.has(syncKey)) {
-    return "present";
-  }
-
-  const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
-  if (!absolutePath) {
-    return "skipped_unknown";
-  }
-
-  const enumConfig = getSyncEnumerationConfig(context);
-  if (isSyncKeyExcludedByConfig(syncKey, enumConfig)) {
-    return "skipped_unknown";
-  }
-
-  return checkProvableAbsence(absolutePath);
-}
-
 export async function scanLocalAppConfigFiles(
   context: vscode.ExtensionContext,
   baseline?: AppStorageBaseline
 ): Promise<LocalConfigFileScan> {
   const roots = resolveSyncRoots(process.platform, context);
+  const resolvedRoots = await resolveSyncRootsRealpaths(roots);
+  try {
+    await ensureSyncRootDirectory(roots.cursorUser);
+    await ensureSyncRootDirectory(roots.dotCursor);
+  } catch {
+  }
   const enumConfig = getSyncEnumerationConfig(context);
   const localFiles = await enumerateSyncFiles(context, roots);
   const enumeratedKeys = new Set(localFiles.map((f) => f.relativeSyncKey));
@@ -154,54 +113,12 @@ export async function scanLocalAppConfigFiles(
     } catch (err) {
       if (isEnoent(err)) {
         enoentKeys.add(key);
-        const presence = await checkProvableAbsence(file.absolutePath);
-        if (presence === "provably_absent") {
-          provablyAbsentKeys.add(key);
-        } else {
-          skippedUnknownKeys.add(key);
-          unreadableKeys.add(key);
-        }
+        skippedUnknownKeys.add(key);
+        unreadableKeys.add(key);
       } else {
         skippedUnknownKeys.add(key);
         unreadableKeys.add(key);
       }
-    }
-  }
-
-  async function markAbsentWhenAncestorDirectoryRemoved(syncKey: string): Promise<void> {
-    const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
-    if (!absolutePath) {
-      return;
-    }
-    const rootPrefix = syncKey.startsWith("dot-cursor/")
-      ? roots.dotCursor
-      : syncKey.startsWith("cursor-user/")
-        ? roots.cursorUser
-        : undefined;
-    if (!rootPrefix) {
-      return;
-    }
-    let dir = path.dirname(absolutePath);
-    while (dir.length >= rootPrefix.length && dir.startsWith(rootPrefix)) {
-      if (dir === rootPrefix) {
-        break;
-      }
-      const parentDir = path.dirname(dir);
-      const dirName = path.basename(dir);
-      try {
-        const listing = await fs.readdir(parentDir);
-        if (!listing.includes(dirName)) {
-          provablyAbsentKeys.add(syncKey);
-          enoentKeys.add(syncKey);
-          skippedUnknownKeys.delete(syncKey);
-          unreadableKeys.delete(syncKey);
-          return;
-        }
-      } catch {
-        dir = parentDir;
-        continue;
-      }
-      dir = parentDir;
     }
   }
 
@@ -245,25 +162,34 @@ export async function scanLocalAppConfigFiles(
       } catch {
       }
     }
-    if (provablyAbsentKeys.has(key) || enoentKeys.has(key)) {
-      skippedUnknownKeys.delete(key);
-      unreadableKeys.delete(key);
-      continue;
+    const absForSafety = syncKeyToAbsolutePath(key, roots);
+    if (absForSafety) {
+      const rootInfo = key.startsWith("dot-cursor/")
+        ? { rootPath: roots.dotCursor, rootReal: resolvedRoots.dotCursorReal }
+        : key.startsWith("cursor-user/")
+          ? { rootPath: roots.cursorUser, rootReal: resolvedRoots.cursorUserReal }
+          : undefined;
+      if (
+        rootInfo &&
+        (await pathHasUnsafeComponentBelowRoot(
+          absForSafety,
+          rootInfo.rootPath,
+          rootInfo.rootReal
+        ))
+      ) {
+        skippedUnknownKeys.add(key);
+        unreadableKeys.add(key);
+        continue;
+      }
     }
-    await markAbsentWhenAncestorDirectoryRemoved(key);
-    if (provablyAbsentKeys.has(key)) {
-      skippedUnknownKeys.delete(key);
-      unreadableKeys.delete(key);
-      enoentKeys.add(key);
-      continue;
-    }
-    const presence = await classifyBaselineKey(context, roots, key, enumeratedKeys);
-    if (presence === "provably_absent") {
+    const classification = await classifyLocalPath(context, key, resolvedRoots);
+    if (classification === "proven_absent") {
       provablyAbsentKeys.add(key);
       enoentKeys.add(key);
+      absentEligibleKeys.add(key);
       skippedUnknownKeys.delete(key);
       unreadableKeys.delete(key);
-    } else if (presence === "skipped_unknown") {
+    } else if (classification === "skipped_unknown") {
       skippedUnknownKeys.add(key);
       unreadableKeys.add(key);
     }

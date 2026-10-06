@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { getComposerId } from "./composer-merge.js";
@@ -202,7 +202,7 @@ export async function runSqliteQuery(
 export async function runSqliteScript(dbPath: string, script: string): Promise<void> {
   const scriptWithBusy = `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};\n${script}`;
   const sanitized = scriptWithBusy.replace(/[\ud800-\udfff]/g, "\ufffd");
-  const tmpPath = path.join(os.tmpdir(), `cursor-sync-sql-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`);
+  const tmpPath = path.join(systemTmpDir(), `cursor-sync-sql-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`);
   await fs.writeFile(tmpPath, sanitized, "utf-8");
   const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
   try {

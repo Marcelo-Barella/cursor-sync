@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -71,7 +71,7 @@ async function syncDiskLayersForOpen(
   wsCtx: WorkspaceContext
 ): Promise<boolean> {
   const tmpPath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-open-${bundle.conversationId}-${Date.now()}.json`
   );
   await fs.writeFile(tmpPath, JSON.stringify(bundle, null, 2), "utf8");

@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.18
+
+### Fixed
+- Symlink safety (F1/F2): strict `classifyLocalPath` with `realpath` roots and per-component `lstat`; no delete_remote through symlinked dirs; pull writes cannot escape sync root.
+- Scan does not list through symlink directories; removed provably_absent downgrade override.
+- Push skip toast includes symlink/skipped_unknown keys (F3); mass-delete dedupe resets on scheduler none when block set changes (F4).
+- Declines keyed to remote checksum for pull; keep-local expires on local checksum change or explicit push (F5).
+- Remote-only orphan baseline keys prune via baseline_refresh (F6); pull-push threshold-held deletes show warning not upload failure (F7).
+- Missing enabled sync roots are created on fresh devices before pull.
+
+### Changed
+- Decision table doc: excluded keys noop, symlink/missing-root/F6 rows (`docs/app-storage-sync-decisions.md`).
+- Hardcoded-path guard: structural rule (only `paths.ts` may import `os` or read `process.env`).
+
 ## v0.8.4-staging.17
 
 ### Fixed

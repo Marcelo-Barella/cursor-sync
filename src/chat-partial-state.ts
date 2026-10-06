@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
 import type { ChatBundle } from "./chat-persistence.js";
 import type { WorkspaceIdentifier } from "./chat-workspace-context.js";
@@ -418,7 +418,7 @@ export async function decodeStoreDbIndex(
   }
 
   const tmpPath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-store-index-${process.pid}-${Date.now()}.db`
   );
 

@@ -256,6 +256,15 @@ async function collectFiles(
     return;
   }
 
+  try {
+    const rootStat = await fs.lstat(rootDir);
+    if (rootStat.isSymbolicLink()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
   const allFiles = await walkDirectory(rootDir);
   for (const absPath of allFiles) {
     const rel = path.relative(rootDir, absPath).split(path.sep).join("/");
@@ -331,10 +340,19 @@ async function walkDirectory(dir: string): Promise<string[]> {
   }
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
+    let st: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      st = await fs.lstat(fullPath);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      continue;
+    }
+    if (st.isDirectory()) {
       const sub = await walkDirectory(fullPath);
       results.push(...sub);
-    } else if (entry.isFile()) {
+    } else if (st.isFile()) {
       results.push(fullPath);
     }
   }

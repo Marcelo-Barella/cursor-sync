@@ -3,8 +3,9 @@ import type * as vscode from "vscode";
 const STORAGE_KEY = "appStorage.syncDeclines.v2";
 
 export interface SyncDeclineEntry {
-  pullOverwriteChecksum?: string;
+  pullOverwriteRemoteChecksum?: string;
   keepLocalAgainstRemoteDelete?: boolean;
+  keepLocalAtChecksum?: string;
 }
 
 type DeclineStore = Record<string, SyncDeclineEntry>;
@@ -26,7 +27,25 @@ async function writeStore(
   await context.globalState.update(STORAGE_KEY, store);
 }
 
+function legacyPullOverwriteRemote(entry: SyncDeclineEntry): string | undefined {
+  const legacy = (entry as { pullOverwriteChecksum?: string }).pullOverwriteChecksum;
+  return entry.pullOverwriteRemoteChecksum ?? legacy;
+}
+
 export async function recordDeclinedPullOverwrite(
+  context: vscode.ExtensionContext,
+  syncKey: string,
+  remoteChecksum: string | undefined
+): Promise<void> {
+  const store = await readStore(context);
+  store[syncKey] = {
+    ...store[syncKey],
+    pullOverwriteRemoteChecksum: remoteChecksum ?? "",
+  };
+  await writeStore(context, store);
+}
+
+export async function recordDeclinedLocalDelete(
   context: vscode.ExtensionContext,
   syncKey: string,
   localChecksum: string | undefined
@@ -34,19 +53,8 @@ export async function recordDeclinedPullOverwrite(
   const store = await readStore(context);
   store[syncKey] = {
     ...store[syncKey],
-    pullOverwriteChecksum: localChecksum ?? "",
-  };
-  await writeStore(context, store);
-}
-
-export async function recordDeclinedLocalDelete(
-  context: vscode.ExtensionContext,
-  syncKey: string
-): Promise<void> {
-  const store = await readStore(context);
-  store[syncKey] = {
-    ...store[syncKey],
     keepLocalAgainstRemoteDelete: true,
+    keepLocalAtChecksum: localChecksum ?? "",
   };
   await writeStore(context, store);
 }
@@ -71,32 +79,40 @@ export async function clearAllSyncDeclines(
   await writeStore(context, {});
 }
 
+export function pullDeclineBlocksRemote(
+  entry: SyncDeclineEntry | undefined,
+  remoteChecksum: string | undefined
+): boolean {
+  const declined = entry ? legacyPullOverwriteRemote(entry) : undefined;
+  if (declined === undefined) {
+    return false;
+  }
+  return (remoteChecksum ?? "") === declined;
+}
+
+export function keepLocalDeclineBlocksDelete(
+  entry: SyncDeclineEntry | undefined,
+  localChecksum: string | undefined
+): boolean {
+  if (!entry?.keepLocalAgainstRemoteDelete) {
+    return false;
+  }
+  const at = entry.keepLocalAtChecksum ?? "";
+  return (localChecksum ?? "") === at;
+}
+
 export async function shouldBlockPushForDecline(
   context: vscode.ExtensionContext,
   syncKey: string,
   localChecksum: string | undefined,
-  trigger: string
+  _trigger: string
 ): Promise<boolean> {
   const store = await readStore(context);
   const entry = store[syncKey];
   if (!entry) {
     return false;
   }
-  if (entry.keepLocalAgainstRemoteDelete) {
-    return true;
-  }
-  if (entry.pullOverwriteChecksum !== undefined) {
-    const declinedAt = entry.pullOverwriteChecksum;
-    const current = localChecksum ?? "";
-    if (current !== declinedAt) {
-      return false;
-    }
-    if (trigger === "manual" || trigger === "syncNow") {
-      return false;
-    }
-    return true;
-  }
-  return false;
+  return keepLocalDeclineBlocksDelete(entry, localChecksum);
 }
 
 export async function filterPushKeysRespectingDeclines(
@@ -115,11 +131,9 @@ export async function filterPushKeysRespectingDeclines(
       continue;
     }
     if (entry.keepLocalAgainstRemoteDelete) {
-      continue;
-    }
-    if (entry.pullOverwriteChecksum !== undefined) {
+      const at = entry.keepLocalAtChecksum ?? "";
       const current = localChecksums[key] ?? "";
-      if (current !== entry.pullOverwriteChecksum) {
+      if (current !== at) {
         out.push(key);
         continue;
       }
@@ -136,14 +150,25 @@ export async function filterPushKeysRespectingDeclines(
 
 export async function pruneResolvedDeclines(
   context: vscode.ExtensionContext,
-  localChecksums: Record<string, string>
+  localChecksums: Record<string, string>,
+  remoteChecksums?: Record<string, string>
 ): Promise<void> {
   const store = await readStore(context);
   let changed = false;
   for (const [key, entry] of Object.entries(store)) {
-    if (entry.pullOverwriteChecksum !== undefined) {
+    if (entry.keepLocalAgainstRemoteDelete) {
+      const at = entry.keepLocalAtChecksum ?? "";
       const current = localChecksums[key] ?? "";
-      if (current !== entry.pullOverwriteChecksum) {
+      if (current !== at) {
+        delete store[key];
+        changed = true;
+      }
+      continue;
+    }
+    const declinedRemote = legacyPullOverwriteRemote(entry);
+    if (declinedRemote !== undefined && remoteChecksums) {
+      const curRemote = remoteChecksums[key] ?? "";
+      if (curRemote !== declinedRemote) {
         delete store[key];
         changed = true;
       }

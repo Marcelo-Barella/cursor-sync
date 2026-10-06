@@ -28,16 +28,20 @@ import {
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import {
   clearSchedulerMassDeleteBlockIfResolved,
+  getLastEvaluatedMassDeleteBlockDeletions,
   resetSchedulerMassDeleteBlockDedupe,
   evaluateEmptyRemoteManifestLocalDeletes,
   evaluateRemoteDeleteBatch,
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
+  setLastEvaluatedMassDeleteBlockDeletions,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
-  mkdirParentsWithoutSymlinks,
+  assertSafePullTarget,
+  resolveSyncRootsRealpaths,
   scanWithDiskProbes,
+  writeFileWithoutFollow,
 } from "./app-config-disk-probe.js";
 import {
   clearSyncDeclines,
@@ -623,6 +627,7 @@ export async function determineAppStorageSyncAction(
       probedScan
     );
     if (deleteDecision.schedulerBlocked && deletions.length > 0) {
+      setLastEvaluatedMassDeleteBlockDeletions(deletions);
       const reason = deleteDecision.reason ?? "Scheduled delete blocked";
       const recorded = await recordSchedulerMassDeleteBlock(
         context,
@@ -708,6 +713,7 @@ export async function determineAppStorageSyncAction(
       probedScan
     );
     if (pullDeleteDecision.schedulerBlocked && remoteDeletions.length > 0) {
+      setLastEvaluatedMassDeleteBlockDeletions(remoteDeletions);
       const reason =
         pullDeleteDecision.reason ?? "Scheduled local delete blocked";
       const recorded = await recordSchedulerMassDeleteBlock(
@@ -1105,6 +1111,25 @@ export async function executePushAppConfigs(
     const uploadFailed =
       uploadAttempted && (uploadedCount === 0 || uploadSkipped.length > 0);
     if (
+      uploadedCount === 0 &&
+      deletions.length === 0 &&
+      deletionsBeforeMassGuard.length > 0
+    ) {
+      const held = evaluateRemoteDeleteBatch(
+        deletionsBeforeMassGuard,
+        trackedForDelete,
+        trigger,
+        pushScan
+      );
+      if (held.needsModalConfirm || held.schedulerBlocked) {
+        const reason =
+          held.reason ??
+          "Remote deletes were held by the mass-delete threshold; nothing was uploaded.";
+        vscode.window.showWarningMessage(reason);
+        return true;
+      }
+    }
+    if (
       uploadFailed ||
       (uploadedCount === 0 &&
         deletions.length === 0 &&
@@ -1261,16 +1286,22 @@ export async function executePushAppConfigs(
         formatPushRemovalToast(deletedCount, destination)
       );
     }
-    if (trigger === "manual" && skippedReads.length > 0) {
-      const preview = skippedReads
-        .map((s) => s.relativeSyncKey)
-        .slice(0, 3)
-        .join(", ");
-      const suffix =
-        skippedReads.length > 3 ? ` (+${skippedReads.length - 3} more)` : "";
-      vscode.window.showInformationMessage(
-        `Push skipped ${skippedReads.length} unreadable file(s): ${preview}${suffix}`
+    if (trigger === "manual") {
+      const scanSkipped = Object.keys(localPayload.files).filter((k) =>
+        pushScan.skippedUnknownKeys.has(k)
       );
+      const skipLabels = [
+        ...skippedReads.map((s) => s.relativeSyncKey),
+        ...scanSkipped,
+      ];
+      if (skipLabels.length > 0) {
+        const preview = skipLabels.slice(0, 3).join(", ");
+        const suffix =
+          skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
+        vscode.window.showInformationMessage(
+          `Push skipped ${skipLabels.length} file(s) (unreadable or symlink): ${preview}${suffix}`
+        );
+      }
     }
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${uploadedCount} files`
@@ -1457,14 +1488,22 @@ export async function executePullAppConfigs(
       if (!selected) {
         pullCancelledByUser = true;
         for (const f of filesToWrite) {
-          await recordDeclinedPullOverwrite(context, f.syncKey, f.localChecksum);
+          await recordDeclinedPullOverwrite(
+            context,
+            f.syncKey,
+            manifest.files[f.syncKey]?.checksum
+          );
         }
         filesToWrite.length = 0;
       } else {
         const selectedKeys = new Set(selected.map((s) => s.label));
         for (const f of filesToWrite) {
           if (!selectedKeys.has(f.syncKey)) {
-            await recordDeclinedPullOverwrite(context, f.syncKey, f.localChecksum);
+            await recordDeclinedPullOverwrite(
+            context,
+            f.syncKey,
+            manifest.files[f.syncKey]?.checksum
+          );
           }
         }
         const filtered = filesToWrite.filter((f) => selectedKeys.has(f.syncKey));
@@ -1497,7 +1536,11 @@ export async function executePullAppConfigs(
         );
         for (const key of initialLocalDeletes) {
           if (!selectedKeys.has(key)) {
-            await recordDeclinedLocalDelete(context, key);
+            await recordDeclinedLocalDelete(
+              context,
+              key,
+              pullLocalScan.checksums[key]
+            );
           }
         }
         filesToDelete.length = 0;
@@ -1626,18 +1669,30 @@ export async function executePullAppConfigs(
       return false;
     }
 
+    const pullResolvedRoots = await resolveSyncRootsRealpaths(roots);
     const writtenBackups: typeof backupEntries = [];
+    const pullWriteSkipped: string[] = [];
     for (const file of filesToWrite) {
       try {
-        await mkdirParentsWithoutSymlinks(file.absolutePath);
-        const tmpPath = file.absolutePath + ".tmp";
-        await fs.writeFile(tmpPath, file.content);
-        await fs.rename(tmpPath, file.absolutePath);
+        await assertSafePullTarget(file.absolutePath, file.syncKey, pullResolvedRoots);
+        await writeFileWithoutFollow(file.absolutePath, file.content);
         const backup = backupEntries.find((b) => b.absolutePath === file.absolutePath);
         if (backup) {
           writtenBackups.push(backup);
         }
       } catch (err) {
+        if (
+          err instanceof Error &&
+          (err.message.includes("Unsafe path") ||
+            err.message.includes("symlink") ||
+            err.message.includes("outside sync root"))
+        ) {
+          pullWriteSkipped.push(file.syncKey);
+          logger.appendLine(
+            `[${new Date().toISOString()}] Pull skipped unsafe path ${file.syncKey}: ${err.message}`
+          );
+          continue;
+        }
         logger.appendLine(
           `[${new Date().toISOString()}] Pull app configs write failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
         );

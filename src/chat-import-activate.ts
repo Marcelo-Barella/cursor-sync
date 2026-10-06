@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { ChatBundle } from "./chat-persistence.js";
@@ -736,7 +736,7 @@ export async function runPythonComposerBridge(
   }
 
   const tmpPath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-activation-${Date.now()}.json`
   );
   const args = [scriptPath, "--manifest", tmpPath];

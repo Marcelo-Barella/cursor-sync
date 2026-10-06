@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as crypto from "node:crypto";
 import * as path from "node:path";
-import * as os from "node:os";
 import { listConversationsForWorkspace } from "../chat-export-ux.js";
 import { __chatPersistenceInternals } from "../transcripts.js";
 import { resolveExtensionSyncRoots } from "../sync-roots.js";

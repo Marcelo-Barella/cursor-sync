@@ -31,23 +31,29 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | present | provably_absent | present_same | delete_remote | n/a |
 | present | provably_absent | present_changed | conflict | false |
 | present | skipped_unknown | * | noop | false |
+| present | untracked | * | noop | safe; excluded/out-of-scope keys prune via baseline_refresh when tracked |
 | present | untracked | local gone | baseline_refresh | prune baseline |
 
 ## Extensions
 
 | Situation | Local classification | Action |
 |-----------|---------------------|--------|
-| Parent directory removed (one or nested levels); ancestor walk proves path under enabled root | provably_absent / absent_eligible | pull if remote present; delete_remote if local gone and remote unchanged |
-| Key excluded or out of scope but still in baseline (e.g. moved under `excludeGlobs`) | untracked | baseline_refresh (prune); never pull overwrite or delete_local on out-of-scope disk |
-| Declined pull overwrite (checksum unchanged) | present | noop (all triggers) |
-| Declined keep-local against remote delete | present | noop for delete_local |
-| Independent edits on different keys | per key | push on changed-local keys, pull on changed-remote keys (`pull-push` aggregate, not global conflict) |
+| Parent directory removed (nested ok); strict path walk under realpath root | provably_absent / absent_eligible | pull if remote present; delete_remote only when strict path allows |
+| Symlink or non-directory anywhere below sync root on path to key | skipped_unknown | noop; no pull, no delete_remote, no writes outside root |
+| Symlinked ancestor (e.g. `rules` → empty dir) | skipped_unknown for all descendants | noop (S1) |
+| Symlink pointing outside root (e.g. `skills` → external dir) | skipped_unknown | noop; pull write blocked (S3) |
+| Enabled sync root missing on fresh device | — | create root (real parent dir), then pull |
+| Remote-only baseline key, absent locally and remotely | provably_absent / absent_eligible | baseline_refresh prune (F6), not recurring pull |
+| Key excluded but still in baseline | untracked | baseline_refresh (prune); noop for sync actions on that key |
+| Declined pull overwrite (same remote checksum) | present | noop (all triggers) |
+| Declined keep-local (same local checksum) | present | noop for delete_local |
+| Independent edits on different keys | per key | `pull-push` aggregate |
 
-## Disk probe (`classifyLocalPath`)
+## Disk classifier (`classifyLocalPath`)
 
-- **ENOENT:** walk to nearest existing ancestor; readable real directory under enabled non-excluded root → `proven_absent`; else `skipped_unknown`.
-- **Regular in-scope file within size limit:** `present`.
-- **Excluded, oversize, symlink, non-regular, unreadable:** `skipped_unknown`.
-- Never downgrade scan `provably_absent` when classification is not `present`.
-
-Pull writes create missing parent directories with `mkdirParentsWithoutSymlinks` (no traversal through symlinks).
+- Resolve each sync root with `realpath` once; `lstat` every component from root to key.
+- **ENOENT:** walk ancestors; proven absent only if every existing component is a real directory inside `realpath(root)`.
+- **Present file:** regular file, in size limit, `realpath` under root.
+- **Otherwise:** `skipped_unknown` (authoritative over scan listing).
+- Scan enumeration does not descend into symlink directories (`readdir` + `lstat`).
+- Pull: `mkdir` one component at a time with `lstat` checks; verify `realpath(parent)` under root; write without following symlinks.

@@ -7,6 +7,10 @@ import {
   fetchAppConfigs,
   notifyAppStorageConflicts,
 } from "./app-configs.js";
+import {
+  getLastEvaluatedMassDeleteBlockDeletions,
+  noteMassDeleteBlockedDeletions,
+} from "./app-storage-delete-guard.js";
 import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { isSyncOperationActive } from "./sync-operation.js";
@@ -215,6 +219,7 @@ export async function scheduledTick(
 
     switch (result.action) {
       case "none":
+        noteMassDeleteBlockedDeletions(getLastEvaluatedMassDeleteBlockDeletions());
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: already in sync, skipping`
         );

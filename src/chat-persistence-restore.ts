@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import { getLogger } from "./diagnostics.js";
 import { pruneOldBackups } from "./rollback.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
@@ -389,7 +389,7 @@ export async function restoreChatBundle(
 
   const remappedBundle = applyProjectMappingToBundle(workingBundle, projectMapping);
   const tmpBundlePath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-import-${conversationId}-${Date.now()}.json`
   );
   try {
