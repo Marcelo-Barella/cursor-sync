@@ -35,10 +35,14 @@ import {
   resolveMassDeleteBatch,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
-import { scanWithDiskProbes } from "./app-config-disk-probe.js";
+import {
+  mkdirParentsWithoutSymlinks,
+  scanWithDiskProbes,
+} from "./app-config-disk-probe.js";
 import {
   clearSyncDeclines,
   filterPushKeysRespectingDeclines,
+  loadSyncDeclineStore,
   pruneResolvedDeclines,
   recordDeclinedLocalDelete,
   recordDeclinedPullOverwrite,
@@ -449,6 +453,13 @@ export type AppStorageSyncAction =
   | { action: "blocked"; message: string }
   | { action: "pull"; keys: string[]; remoteDeletions: string[] }
   | { action: "push"; keys: string[]; deletions: string[] }
+  | {
+      action: "pull-push";
+      pullKeys: string[];
+      remoteDeletions: string[];
+      pushKeys: string[];
+      deletions: string[];
+    }
   | { action: "conflict"; keys: string[] }
   | { action: "baseline_refresh"; keys: string[] }
   | { action: "error"; reason: string };
@@ -518,16 +529,63 @@ export async function determineAppStorageSyncAction(
     extensionsEmpty
   );
 
+  const declineStore = await loadSyncDeclineStore(context);
   const classified = classifyAppStorageKeys(
     localChecksums,
     remoteChecksums,
     baseline,
-    probedScan
+    probedScan,
+    declineStore
   );
   const derived = appStorageSyncActionFromClassification(
     classified,
     remoteChecksums
   );
+
+  if (derived.action === "pull-push") {
+    let pullKeys = derived.pullKeys;
+    if (trigger === "scheduled") {
+      pullKeys = filterScheduledAppStoragePullKeys(
+        pullKeys,
+        baseline,
+        probedScan,
+        remoteChecksums
+      );
+    }
+    let remoteDeletions = [...derived.remoteDeletions];
+    const build = await buildLocalAppConfigsPayload(context);
+    let pushKeys = derived.pushKeys.filter(
+      (k) => !isGeneratedOnlyAppConfigKey(k, build.payload)
+    );
+    pushKeys = filterGeneratedOnlyPushKeys(
+      pushKeys,
+      localChecksums,
+      extensionsEmpty
+    );
+    pushKeys = filterPushKeysForRemoteDeletedUnchanged(
+      pushKeys,
+      baseline,
+      localChecksums,
+      remoteChecksums
+    );
+    pushKeys = pushKeys.filter(
+      (k) =>
+        !probedScan.skippedUnknownKeys.has(k) && !probedScan.untrackedKeys.has(k)
+    );
+    let deletions = derived.deletions.filter((k) =>
+      probedScan.provablyAbsentKeys.has(k)
+    );
+    if (!probedScan.deletesAllowed) {
+      deletions = [];
+    }
+    return {
+      action: "pull-push",
+      pullKeys,
+      remoteDeletions,
+      pushKeys,
+      deletions,
+    };
+  }
 
   if (derived.action === "push") {
     const build = await buildLocalAppConfigsPayload(context);
@@ -1203,6 +1261,17 @@ export async function executePushAppConfigs(
         formatPushRemovalToast(deletedCount, destination)
       );
     }
+    if (trigger === "manual" && skippedReads.length > 0) {
+      const preview = skippedReads
+        .map((s) => s.relativeSyncKey)
+        .slice(0, 3)
+        .join(", ");
+      const suffix =
+        skippedReads.length > 3 ? ` (+${skippedReads.length - 3} more)` : "";
+      vscode.window.showInformationMessage(
+        `Push skipped ${skippedReads.length} unreadable file(s): ${preview}${suffix}`
+      );
+    }
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${uploadedCount} files`
     );
@@ -1280,6 +1349,12 @@ export async function executePullAppConfigs(
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
+        continue;
+      }
+      if (
+        trigger === "manual" &&
+        syncKey === GENERATED_EXTENSIONS_SYNC_KEY
+      ) {
         continue;
       }
 
@@ -1554,8 +1629,7 @@ export async function executePullAppConfigs(
     const writtenBackups: typeof backupEntries = [];
     for (const file of filesToWrite) {
       try {
-        const dir = path.dirname(file.absolutePath);
-        await fs.mkdir(dir, { recursive: true });
+        await mkdirParentsWithoutSymlinks(file.absolutePath);
         const tmpPath = file.absolutePath + ".tmp";
         await fs.writeFile(tmpPath, file.content);
         await fs.rename(tmpPath, file.absolutePath);

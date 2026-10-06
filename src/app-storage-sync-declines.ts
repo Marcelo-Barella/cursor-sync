@@ -13,6 +13,12 @@ async function readStore(context: vscode.ExtensionContext): Promise<DeclineStore
   return (context.globalState.get<DeclineStore>(STORAGE_KEY) ?? {}) as DeclineStore;
 }
 
+export async function loadSyncDeclineStore(
+  context: vscode.ExtensionContext
+): Promise<DeclineStore> {
+  return readStore(context);
+}
+
 async function writeStore(
   context: vscode.ExtensionContext,
   store: DeclineStore

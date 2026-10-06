@@ -301,11 +301,6 @@ export async function scanLocalAppConfigFiles(
         "Local scan found no user content files while baseline has tracked keys";
     }
   }
-  if (deletesAllowed && trackingScopeMismatch) {
-    deletesAllowed = false;
-    deleteBlockReason = "Sync paths or limits changed since the baseline was saved";
-  }
-
   return {
     checksums,
     unreadableKeys,

@@ -23,6 +23,14 @@ const FORBIDDEN_PATTERNS = [
   /\{\s*homedir\s*\}\s*=\s*os\b/,
   /process\.env\s*\[\s*["']HOME["']\s*\]/,
   /process\.env\.USERPROFILE/,
+  /const\s*\{\s*userInfo\s*\}\s*=\s*os\b/,
+  /const\s*\{\s*homedir\s*:\s*\w+\s*\}\s*=\s*nodeOs\b/,
+  /process\.env\s*\[\s*["']USERPROFILE["']\s*\]/,
+  /\bnodeOs\.userInfo\s*\(\s*\)\s*\.homedir/,
+  /const\s*\{\s*env\s*\}\s*=\s*process\b/,
+  /\benv\.HOME\b/,
+  /require\s*\(\s*["']os["']\s*\)\s*\[\s*["']homedir["']\s*\]\s*\(\s*\)/,
+  /const\s*\{\s*homedir\s*\}\s*=\s*require\s*\(\s*["']os["']\s*\)/,
 ];
 
 const ALLOWLIST = new Set([path.join("src", "paths.ts")]);
@@ -65,6 +73,13 @@ describe("sync path hardcoding guard", () => {
       'const home = process.env["HOME"];',
       "const home = process.env.USERPROFILE;",
       "const home = os.userInfo().homedir;",
+      "const { userInfo } = os;",
+      "const { homedir: hd } = nodeOs;",
+      'const home = process.env["USERPROFILE"];',
+      "const home = nodeOs.userInfo().homedir;",
+      "const { env } = process; env.HOME;",
+      'const home = require("os")["homedir"]();',
+      'const { homedir } = require("os");',
     ];
     for (const sample of samples) {
       const matched = FORBIDDEN_PATTERNS.some((pattern) => pattern.test(sample));

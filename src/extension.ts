@@ -421,12 +421,26 @@ export async function executeSyncNow(
         }
         break;
       case "pull-push": {
-        const pullOk = await executePull(context, lockedSyncOptions);
+        const pullOk = await executePull(context, {
+          ...lockedSyncOptions,
+          keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
         if (!pullOk) {
           syncFailed = true;
           break;
         }
-        if (!(await executePush(context, lockedSyncOptions))) {
+        if (
+          !(await executePush(context, {
+            ...lockedSyncOptions,
+            keys: "pushKeys" in result ? (result.pushKeys as string[]) : undefined,
+            deletions:
+              "deletions" in result ? (result.deletions as string[]) : undefined,
+          }))
+        ) {
           syncFailed = true;
         }
         break;

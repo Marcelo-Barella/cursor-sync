@@ -4,6 +4,7 @@ import type * as vscode from "vscode";
 import type { SyncDestinationId } from "./sync-destination.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 import { decideSyncKey } from "./app-storage-sync-decisions.js";
+import type { SyncDeclineEntry } from "./app-storage-sync-declines.js";
 import { accountKeyFromAppSession } from "./app-session-identity.js";
 
 export {
@@ -182,7 +183,8 @@ export function classifyAppStorageKeys(
   localChecksums: Record<string, string>,
   remoteChecksums: Record<string, string>,
   baseline: AppStorageBaseline | undefined,
-  localScan?: LocalConfigFileScan
+  localScan?: LocalConfigFileScan,
+  declines?: Record<string, SyncDeclineEntry>
 ): ClassifiedAppStorageKeys {
   const scan: LocalConfigFileScan =
     localScan ?? {
@@ -233,6 +235,7 @@ export function classifyAppStorageKeys(
       baseline,
       curLocal,
       curRemote,
+      declines: declines?.[key],
     });
 
     let classification: AppStorageKeyClassification;
@@ -286,6 +289,7 @@ export type DerivedAppStorageSyncAction =
   | { action: "none" }
   | { action: "pull"; keys: string[]; remoteDeletions: string[] }
   | { action: "push"; keys: string[]; deletions: string[] }
+  | { action: "pull-push"; pullKeys: string[]; remoteDeletions: string[]; pushKeys: string[]; deletions: string[] }
   | { action: "conflict"; keys: string[] }
   | { action: "baseline_refresh"; keys: string[] };
 
@@ -344,8 +348,11 @@ export function appStorageSyncActionFromClassification(
 
   if (hasPull && hasPush) {
     return {
-      action: "conflict",
-      keys: [...pushKeysEffective, ...pullKeys],
+      action: "pull-push",
+      pullKeys: classified.pullKeys,
+      remoteDeletions: classified.remoteDeleteKeys,
+      pushKeys: classified.pushKeys,
+      deletions: classified.deleteKeys,
     };
   }
   if (hasPull) {

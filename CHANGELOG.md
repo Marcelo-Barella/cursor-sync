@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.17
+
+### Fixed
+- Unified `classifyLocalPath` for decision and pull paths: missing parent dirs are `proven_absent` (ancestor walk); scan `provably_absent` is never downgraded (K26, K27).
+- Pull creates parent dirs via `mkdirParentsWithoutSymlinks`; manual pull skips generated `extensions.json`.
+- Declines feed `decideSyncKey` so scheduler/Sync Now respect declined overwrites and keep-local deletes (K28).
+- Per-key `pull-push` when different keys changed locally vs remotely (K29).
+- Excluded-but-tracked keys baseline-prune without blocking other keys; scope mismatch no longer blocks all deletes (K25).
+- Mass-delete warning dedupe resets when the blocked deletion set changes, including shrink after restore (K24).
+
+### Changed
+- Canonical decision table lives in `docs/app-storage-sync-decisions.md` (not source comments).
+- Manual push toasts unreadable/symlink skips; hardcoded-path guard patterns extended.
+
 ## v0.8.4-staging.16
 
 ### Fixed

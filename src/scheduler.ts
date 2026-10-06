@@ -264,11 +264,23 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local and remote changes detected, pulling then pushing`
         );
-        const pullOk = await executePull(context, { trigger: "scheduled" });
+        const pullOk = await executePull(context, {
+          trigger: "scheduled",
+          keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
         if (!pullOk) {
           break;
         }
-        await executePush(context, { trigger: "scheduled" });
+        await executePush(context, {
+          trigger: "scheduled",
+          keys: "pushKeys" in result ? (result.pushKeys as string[]) : undefined,
+          deletions:
+            "deletions" in result ? (result.deletions as string[]) : undefined,
+        });
         break;
       }
 

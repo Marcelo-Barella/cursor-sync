@@ -9,29 +9,77 @@ import {
 } from "./paths.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 
-export type DiskProbeResult = "present" | "absent_eligible" | "skipped_unknown";
+export type LocalPathClassification = "present" | "proven_absent" | "skipped_unknown";
 
 function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-async function parentDirectoryReadable(parentDir: string): Promise<boolean> {
+function absolutePathUnderEnabledRoot(
+  absolutePath: string,
+  roots: ReturnType<typeof resolveSyncRoots>
+): boolean {
+  const normalized = path.resolve(absolutePath);
+  const prefixes = [roots.cursorUser, roots.dotCursor].map((p) =>
+    path.resolve(p)
+  );
+  return prefixes.some(
+    (prefix) => normalized === prefix || normalized.startsWith(prefix + path.sep)
+  );
+}
+
+async function directoryIsReadableRealDir(dir: string): Promise<boolean> {
   try {
-    await fs.readdir(parentDir);
+    const st = await fs.lstat(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      return false;
+    }
+    await fs.readdir(dir);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function probeSyncKeyOnDisk(
+async function provenAbsentViaAncestorWalk(
+  absolutePath: string,
+  roots: ReturnType<typeof resolveSyncRoots>
+): Promise<boolean> {
+  let dir = path.dirname(absolutePath);
+  for (;;) {
+    if (!absolutePathUnderEnabledRoot(dir, roots)) {
+      return false;
+    }
+    try {
+      const st = await fs.lstat(dir);
+      if (st.isSymbolicLink()) {
+        return false;
+      }
+      if (st.isDirectory()) {
+        return await directoryIsReadableRealDir(dir);
+      }
+      return false;
+    } catch (err) {
+      if (!isEnoent(err)) {
+        return false;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        return false;
+      }
+      dir = parent;
+    }
+  }
+}
+
+export async function classifyLocalPath(
   context: vscode.ExtensionContext,
   syncKey: string
-): Promise<DiskProbeResult> {
+): Promise<LocalPathClassification> {
   const enumConfig = getSyncEnumerationConfig(context);
   const roots = resolveSyncRoots(process.platform, context);
   const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
-  if (!absolutePath) {
+  if (!absolutePath || !absolutePathUnderEnabledRoot(absolutePath, roots)) {
     return "skipped_unknown";
   }
 
@@ -59,39 +107,54 @@ export async function probeSyncKeyOnDisk(
     if (!isEnoent(err)) {
       return "skipped_unknown";
     }
-    const parentDir = path.dirname(absolutePath);
-    if (!(await parentDirectoryReadable(parentDir))) {
-      return "skipped_unknown";
+    if (await provenAbsentViaAncestorWalk(absolutePath, roots)) {
+      return "proven_absent";
     }
-    return "absent_eligible";
+    return "skipped_unknown";
   }
 }
 
-export function applyDiskProbeToScan(
+export function applyLocalPathClassificationToScan(
   scan: LocalConfigFileScan,
   syncKey: string,
-  probe: DiskProbeResult
+  classification: LocalPathClassification
 ): void {
-  scan.untrackedKeys.delete(syncKey);
-  scan.provablyAbsentKeys.delete(syncKey);
-  scan.absentEligibleKeys.delete(syncKey);
-  scan.enoentKeys.delete(syncKey);
-
-  if (probe === "present") {
-    scan.skippedUnknownKeys.delete(syncKey);
-    scan.unreadableKeys.delete(syncKey);
-    return;
-  }
-  if (probe === "absent_eligible") {
+  if (
+    scan.provablyAbsentKeys.has(syncKey) &&
+    classification !== "present"
+  ) {
     scan.skippedUnknownKeys.delete(syncKey);
     scan.unreadableKeys.delete(syncKey);
     scan.absentEligibleKeys.add(syncKey);
-    scan.provablyAbsentKeys.add(syncKey);
     scan.enoentKeys.add(syncKey);
     return;
   }
+
+  scan.untrackedKeys.delete(syncKey);
+
+  if (classification === "present") {
+    scan.skippedUnknownKeys.delete(syncKey);
+    scan.unreadableKeys.delete(syncKey);
+    scan.provablyAbsentKeys.delete(syncKey);
+    scan.absentEligibleKeys.delete(syncKey);
+    scan.enoentKeys.delete(syncKey);
+    return;
+  }
+
+  if (classification === "proven_absent") {
+    scan.skippedUnknownKeys.delete(syncKey);
+    scan.unreadableKeys.delete(syncKey);
+    scan.provablyAbsentKeys.add(syncKey);
+    scan.absentEligibleKeys.add(syncKey);
+    scan.enoentKeys.add(syncKey);
+    return;
+  }
+
   scan.skippedUnknownKeys.add(syncKey);
   scan.unreadableKeys.add(syncKey);
+  scan.provablyAbsentKeys.delete(syncKey);
+  scan.absentEligibleKeys.delete(syncKey);
+  scan.enoentKeys.delete(syncKey);
 }
 
 export async function scanWithDiskProbes(
@@ -110,8 +173,39 @@ export async function scanWithDiskProbes(
     checksums: { ...scan.checksums },
   };
   for (const key of syncKeys) {
-    const probe = await probeSyncKeyOnDisk(context, key);
-    applyDiskProbeToScan(next, key, probe);
+    const classification = await classifyLocalPath(context, key);
+    applyLocalPathClassificationToScan(next, key, classification);
   }
   return next;
+}
+
+export async function mkdirParentsWithoutSymlinks(targetFilePath: string): Promise<void> {
+  const targetDir = path.dirname(path.resolve(targetFilePath));
+  const toCreate: string[] = [];
+  let current = targetDir;
+  for (;;) {
+    try {
+      const st = await fs.lstat(current);
+      if (st.isSymbolicLink()) {
+        throw new Error(`Refusing to create path through symlink: ${current}`);
+      }
+      if (!st.isDirectory()) {
+        throw new Error(`Path component is not a directory: ${current}`);
+      }
+      break;
+    } catch (err) {
+      if (!isEnoent(err)) {
+        throw err;
+      }
+      toCreate.unshift(current);
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+  for (const dir of toCreate) {
+    await fs.mkdir(dir);
+  }
 }

@@ -14,9 +14,26 @@ export const MASS_DELETE_MAX_WITHOUT_CONFIRM = 3;
 export const MASS_DELETE_FRACTION_WITHOUT_CONFIRM = 0.5;
 
 let lastSchedulerMassDeleteBlockSignature: string | undefined;
+let lastMassDeleteBlockedDeletionKey: string | undefined;
 
 export function resetSchedulerMassDeleteBlockDedupe(): void {
   lastSchedulerMassDeleteBlockSignature = undefined;
+}
+
+function blockedDeletionSetKey(deletions: string[]): string {
+  return [...deletions].sort().join("\0");
+}
+
+export function noteMassDeleteBlockedDeletions(deletions: string[]): void {
+  const key = blockedDeletionSetKey(deletions);
+  if (lastMassDeleteBlockedDeletionKey !== key) {
+    resetSchedulerMassDeleteBlockDedupe();
+    lastMassDeleteBlockedDeletionKey = key;
+  }
+}
+
+export function clearMassDeleteBlockedDeletionKey(): void {
+  lastMassDeleteBlockedDeletionKey = undefined;
 }
 
 export function massDeleteBlockSignature(
@@ -42,6 +59,16 @@ export function clearSchedulerMassDeleteBlockIfResolved(
 ): void {
   if (deletions.length === 0) {
     lastSchedulerMassDeleteBlockSignature = undefined;
+    lastMassDeleteBlockedDeletionKey = undefined;
+    return;
+  }
+  const key = blockedDeletionSetKey(deletions);
+  if (
+    lastMassDeleteBlockedDeletionKey !== undefined &&
+    key !== lastMassDeleteBlockedDeletionKey
+  ) {
+    resetSchedulerMassDeleteBlockDedupe();
+    lastMassDeleteBlockedDeletionKey = key;
   }
 }
 
@@ -187,6 +214,7 @@ export async function recordSchedulerMassDeleteBlock(
     }
   ) => Promise<void>
 ): Promise<boolean> {
+  noteMassDeleteBlockedDeletions(deletions);
   const signature = massDeleteBlockSignature(direction, deletions, reason);
   if (!shouldRecordSchedulerMassDeleteBlock(signature)) {
     return false;
