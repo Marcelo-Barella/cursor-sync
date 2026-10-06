@@ -25,7 +25,8 @@ export async function assertCanReadE2eGist(
   | { ok: true; dek: Buffer; userId: string; keyVersion: number }
   | { ok: false; message: string }
 > {
-  if (!tryReadGistE2eMarker(files as Record<string, { content?: string }>)) {
+  const marker = tryReadGistE2eMarker(files as Record<string, { content?: string }>);
+  if (!marker) {
     return {
       ok: false,
       message: "Internal error: assertCanReadE2eGist called without marker.",
@@ -38,8 +39,7 @@ export async function assertCanReadE2eGist(
       message: unlocked.ok ? GIST_LOCKED_MESSAGE : unlocked.message,
     };
   }
-  const marker = tryReadGistE2eMarker(files as Record<string, { content?: string }>);
-  if (marker && marker.keyVersion !== unlocked.keyVersion) {
+  if (marker.keyVersion !== unlocked.keyVersion) {
     return {
       ok: false,
       message: "This Gist was encrypted with a different key version. Unlock with the correct account.",

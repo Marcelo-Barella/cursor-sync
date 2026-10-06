@@ -12,6 +12,9 @@ import { DEFAULT_ARGON2_PARAMS, MIN_PASSPHRASE_LENGTH } from "./constants.js";
 import {
   buildPutKeysBody,
   fetchServerKeyMaterial,
+  getCachedKeysGate,
+  hydrateKeysCacheFromDisk,
+  invalidateKeysGateCache,
   KeysApiError,
   putServerKeyMaterial,
   rewrapPassphraseOnServer,
@@ -33,11 +36,6 @@ import {
   isE2eDekUnlocked,
   requireE2eUnlocked,
 } from "./gate.js";
-import {
-  getCachedKeysGate,
-  hydrateKeysCacheFromDisk,
-  invalidateKeysGateCache,
-} from "./keys-client.js";
 import { parseAppSessionClaims } from "./session-user.js";
 import { getAppSession } from "../app-auth.js";
 import { markMigrationPending } from "./migration.js";

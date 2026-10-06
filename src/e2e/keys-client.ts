@@ -9,6 +9,11 @@ import {
   type KeyWrapWire,
   type ServerKeyMaterialResponse,
 } from "./keys-wire.js";
+import {
+  clearPersistedKeysCache,
+  loadPersistedKeysCache,
+  persistKeysCache,
+} from "./keys-cache-store.js";
 
 export class KeysApiError extends Error {
   constructor(
@@ -72,7 +77,6 @@ export async function hydrateKeysCacheFromDisk(
   if (inMemoryKeysCache.presence !== "unknown") {
     return inMemoryKeysCache;
   }
-  const { loadPersistedKeysCache } = await import("./keys-cache-store.js");
   const persisted = await loadPersistedKeysCache(context);
   if (persisted) {
     inMemoryKeysCache = persisted;
@@ -85,7 +89,6 @@ export async function setCachedKeysGate(
   cache: KeysGateCache
 ): Promise<void> {
   inMemoryKeysCache = cache;
-  const { persistKeysCache } = await import("./keys-cache-store.js");
   await persistKeysCache(context, cache);
 }
 
@@ -94,7 +97,6 @@ export async function invalidateKeysGateCache(
 ): Promise<void> {
   inMemoryKeysCache = { presence: "unknown", verification: "unknown" };
   if (context) {
-    const { clearPersistedKeysCache } = await import("./keys-cache-store.js");
     await clearPersistedKeysCache(context);
   }
 }
