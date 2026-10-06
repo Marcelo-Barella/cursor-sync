@@ -4,7 +4,6 @@ import * as path from "node:path";
 
 const RECOVERY_KEY_FILE_NAME = "cursor-sync-recovery-key.txt";
 
-/** Default save path: Downloads when present, otherwise the user home directory. */
 export function defaultRecoveryKeySavePath(): string {
   const home = os.homedir();
   const downloads = path.join(home, "Downloads");
@@ -13,7 +12,6 @@ export function defaultRecoveryKeySavePath(): string {
       return path.join(downloads, RECOVERY_KEY_FILE_NAME);
     }
   } catch {
-    // use home
   }
   return path.join(home, RECOVERY_KEY_FILE_NAME);
 }

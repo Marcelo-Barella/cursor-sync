@@ -172,7 +172,6 @@ async function authFetch(
 
 export type FetchServerKeyMaterialResult = {
   cache: KeysGateCache;
-  /** True only when a live HTTP GET /v1/keys completed successfully. */
   fetchedFromNetwork: boolean;
 };
 
