@@ -1,5 +1,7 @@
+import type * as vscode from "vscode";
 import type { GistClient } from "../gist.js";
 import { tryReadGistE2eMarker } from "./gist-bundle.js";
+import { loadSyncState, saveSyncState } from "../diagnostics.js";
 
 export const PLAINTEXT_GIST_BLOCKED_MESSAGE =
   "This Gist is encrypted with Cursor Sync. Log in and unlock before writing plaintext.";
@@ -12,9 +14,24 @@ export type GistEncryptionProbeResult =
   | { state: "encrypted" }
   | { state: "unknown" };
 
+async function clearStaleGistIdIfDeleted(
+  context: vscode.ExtensionContext,
+  gistId: string
+): Promise<void> {
+  const syncState = await loadSyncState(context);
+  if (!syncState || syncState.gistId !== gistId) {
+    return;
+  }
+  await saveSyncState(context, {
+    ...syncState,
+    gistId: "",
+  });
+}
+
 export async function probeSyncGistEncryption(
   client: GistClient,
-  gistId?: string
+  gistId?: string,
+  context?: vscode.ExtensionContext
 ): Promise<GistEncryptionProbeResult> {
   let id = gistId;
   if (!id) {
@@ -29,6 +46,10 @@ export async function probeSyncGistEncryption(
   }
   const gist = await client.getGist(id);
   if (!gist.ok) {
+    if (gist.error.statusCode === 404 && context && id) {
+      await clearStaleGistIdIfDeleted(context, id);
+      return { state: "plain" };
+    }
     return { state: "unknown" };
   }
   const encrypted = tryReadGistE2eMarker(gist.data.files) !== undefined;
@@ -37,9 +58,10 @@ export async function probeSyncGistEncryption(
 
 export async function assertPlaintextGistWriteAllowed(
   client: GistClient,
-  gistId?: string
+  gistId?: string,
+  context?: vscode.ExtensionContext
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const probe = await probeSyncGistEncryption(client, gistId);
+  const probe = await probeSyncGistEncryption(client, gistId, context);
   if (probe.state === "encrypted") {
     return { ok: false, message: PLAINTEXT_GIST_BLOCKED_MESSAGE };
   }

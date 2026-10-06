@@ -42,13 +42,17 @@ export interface LegacyPlaintextCleanupResult {
 
 export async function runLegacyPlaintextCleanup(
   context: vscode.ExtensionContext,
-  options?: { extraKeysFromConfigs?: string[] }
+  options?: {
+    extraKeysFromConfigs?: string[];
+    prefetchedPlaintextObjectKeys?: string[];
+  }
 ): Promise<LegacyPlaintextCleanupResult> {
   const logger = getLogger();
   const remote = await fetchConfigsApi(context);
   const legacyPayloadPresent = hasLegacyConfigsPayload(remote?.payload);
 
-  const serverKeys = await listPlaintextObjectKeys(context);
+  const serverKeys =
+    options?.prefetchedPlaintextObjectKeys ?? (await listPlaintextObjectKeys(context));
   const keysToDelete = unionKeys(serverKeys, options?.extraKeysFromConfigs ?? []);
 
   let deleteOutcome: PlaintextDeleteOutcome = {
@@ -66,7 +70,10 @@ export async function runLegacyPlaintextCleanup(
     }
   }
 
-  const remainingKeys = await listPlaintextObjectKeys(context);
+  const remainingKeys =
+    deleteOutcome.settled.length > 0
+      ? await listPlaintextObjectKeys(context)
+      : keysToDelete.filter((k) => !deleteOutcome.settled.includes(k));
 
   const migration = await loadMigrationState(context);
   if (migration) {

@@ -331,9 +331,15 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
-  void import("./e2e/gate.js").then(({ refreshE2eGateOnActivation }) =>
-    refreshE2eGateOnActivation(context)
-  );
+  void import("./e2e/gate.js")
+    .then(({ refreshE2eGateOnActivation }) => refreshE2eGateOnActivation(context))
+    .catch((err) => {
+      logger.appendLine(
+        `[${new Date().toISOString()}] E2E gate activation refresh failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    });
   getOrCreateClientId(context);
   startScheduler(context);
 

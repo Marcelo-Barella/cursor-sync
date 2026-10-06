@@ -6,7 +6,7 @@ import {
 } from "./legacy-cleanup.js";
 import { listPlaintextObjectKeys } from "./storage-plaintext.js";
 
-const STRAY_CHECK_STATE_KEY = "cursorSync.e2e.lastStrayPlaintextCheck";
+export const STRAY_CHECK_STATE_KEY = "cursorSync.e2e.lastStrayPlaintextCheck";
 const STRAY_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 interface StrayCheckState {
@@ -31,17 +31,23 @@ async function saveStrayCheckState(
   await context.globalState.update(STRAY_CHECK_STATE_KEY, state);
 }
 
+export async function clearStrayPlaintextCheckState(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await context.globalState.update(STRAY_CHECK_STATE_KEY, undefined);
+}
+
 export async function runAppStorageLegacyCleanup(
   context: vscode.ExtensionContext,
   options?: {
     extraKeysFromConfigs?: string[];
-    forceStrayCheck?: boolean;
   }
 ): Promise<AppStorageCleanupResult> {
   const migration = await loadMigrationState(context);
   const migrationComplete = migration?.phase === "completed";
+  let prefetchedPlaintextObjectKeys: string[] | undefined;
 
-  if (migrationComplete && !options?.forceStrayCheck) {
+  if (migrationComplete) {
     const prior = await loadStrayCheckState(context);
     const freshEnough =
       prior &&
@@ -59,10 +65,12 @@ export async function runAppStorageLegacyCleanup(
       });
       return { kind: "skipped", reason: "nothing_to_do" };
     }
+    prefetchedPlaintextObjectKeys = keys;
   }
 
   const result = await runLegacyPlaintextCleanup(context, {
     extraKeysFromConfigs: options?.extraKeysFromConfigs,
+    prefetchedPlaintextObjectKeys,
   });
 
   if (result.remainingKeys.length === 0) {

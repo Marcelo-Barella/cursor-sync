@@ -90,10 +90,14 @@ export async function getToken(
 }
 
 export async function requireToken(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { silent?: boolean }
 ): Promise<string | undefined> {
   const token = await getToken(context);
   if (!token) {
+    if (options?.silent) {
+      return undefined;
+    }
     const action = await vscode.window.showWarningMessage(
       "GitHub token not configured. Configure now?",
       "Configure"

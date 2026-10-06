@@ -38,25 +38,33 @@ describe("unlock refreshes gate cache", () => {
       },
       commands: { executeCommand: vi.fn(async () => undefined) },
     }));
+    const keyMaterial = {
+      keyVersion: 1,
+      kdf: "argon2id" as const,
+      kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+      salt: Buffer.alloc(16, 1),
+      passWrap: {
+        nonce: Buffer.alloc(12, 2),
+        ct: Buffer.concat([Buffer.alloc(16), Buffer.alloc(16)]),
+      },
+      recoveryWrap: {
+        nonce: Buffer.alloc(12, 3),
+        ct: Buffer.concat([Buffer.alloc(16), Buffer.alloc(16)]),
+      },
+    };
+    vi.doMock("../src/e2e/key-material-load.js", () => ({
+      loadKeyMaterialForCryptoOps: vi.fn(async () => ({
+        ok: true,
+        material: keyMaterial,
+        usedCacheFallback: false,
+      })),
+    }));
     vi.doMock("../src/e2e/keys-client.js", () => ({
       hydrateKeysCacheFromDisk: vi.fn(async () => undefined),
       getCachedKeysGate: vi.fn(() => ({
         presence: "set",
         verification: "verified",
-        keyMaterial: {
-          keyVersion: 1,
-          kdf: "argon2id",
-          kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
-          salt: Buffer.alloc(16, 1),
-          passWrap: {
-            nonce: Buffer.alloc(12, 2),
-            ct: Buffer.concat([Buffer.alloc(16), Buffer.alloc(16)]),
-          },
-          recoveryWrap: {
-            nonce: Buffer.alloc(12, 3),
-            ct: Buffer.concat([Buffer.alloc(16), Buffer.alloc(16)]),
-          },
-        },
+        keyMaterial,
       })),
       fetchServerKeyMaterial: vi.fn(),
       invalidateKeysGateCache: vi.fn(async () => undefined),

@@ -22,6 +22,7 @@ vi.mock("../src/app-auth.js", () => ({
 }));
 
 vi.mock("../src/e2e/keys-client.js", () => ({
+  invalidateKeysGateCache: vi.fn(async () => undefined),
   fetchServerKeyMaterial: vi.fn(async () => ({
     presence: "set",
     verification: "verified",

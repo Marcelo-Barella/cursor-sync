@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.5
+
+### Fixed
+- Unlock, change passphrase, and rotate recovery always fetch fresh `GET /v1/keys` (cache fallback only on rate limit / network); wrong credential retries once after refetch; lock clears keys cache.
+- Change passphrase requires current passphrase or recovery key verification first.
+- Scheduler skips Gist push quietly without a token; no configure prompts from scheduled paths.
+- Sidebar sync/push/pull toasts when blocked; gist guard fails closed on read errors and clears stale gist id on 404.
+- Login single deferred toast; activation gate refresh catches failures; stray-check state cleared on reset.
+
 ## v0.9.0-staging.4
 
 ### Fixed

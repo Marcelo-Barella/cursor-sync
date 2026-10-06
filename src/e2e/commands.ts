@@ -3,8 +3,6 @@ import {
   computeDekVerifierHex,
   generateDek,
   generateSalt,
-  unwrapDekWithPassphrase,
-  unwrapDekWithRecoveryKey,
   wrapDekForPassphrase,
   wrapDekForRecovery,
 } from "./key-material.js";
@@ -12,20 +10,24 @@ import { DEFAULT_ARGON2_PARAMS, MIN_PASSPHRASE_LENGTH } from "./constants.js";
 import {
   buildPutKeysBody,
   fetchServerKeyMaterial,
-  getCachedKeysGate,
-  hydrateKeysCacheFromDisk,
   invalidateKeysGateCache,
   KeysApiError,
   putServerKeyMaterial,
   rewrapPassphraseOnServer,
   rotateRecoveryOnServer,
 } from "./keys-client.js";
+import { loadKeyMaterialForCryptoOps } from "./key-material-load.js";
+import {
+  dekMatches,
+  unwrapDekWithPassphraseMaterial,
+  unwrapDekWithRecoveryMaterial,
+} from "./unlock-crypto.js";
+import type { ServerKeyMaterialResponse } from "./keys-wire.js";
 import { rememberDekVersion, storeDek } from "./dek-storage.js";
 import {
   formatRecoveryKeyForDisplay,
   generateRecoveryKeyBytes,
   lastRecoveryKeyGroup,
-  parseRecoveryKeyInput,
 } from "./recovery-key.js";
 import {
   refreshE2eGateAfterCryptoChange,
@@ -96,6 +98,9 @@ async function rewrapDekWithNewPassphrase(
 ): Promise<boolean> {
   const newPass = await promptPassphrase("Set a new sync passphrase (required after recovery unlock)");
   if (!newPass) {
+    vscode.window.showWarningMessage(
+      "Recovery unlock requires a new sync passphrase. Sync stays locked until you finish with Cursor Sync: Unlock."
+    );
     return false;
   }
   const confirm = await promptPassphrase("Confirm new sync passphrase");
@@ -249,6 +254,112 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
   return true;
 }
 
+async function showKeyMaterialFallbackNotice(notice?: string): Promise<void> {
+  if (notice) {
+    await vscode.window.showWarningMessage(notice);
+  }
+}
+
+async function tryPassphraseUnlock(
+  context: vscode.ExtensionContext,
+  userId: string,
+  material: ServerKeyMaterialResponse,
+  passphrase: string
+): Promise<Buffer | undefined> {
+  try {
+    return await unwrapDekWithPassphraseMaterial(material, passphrase, userId);
+  } catch {
+    const fresh = await loadKeyMaterialForCryptoOps(context);
+    if (!fresh.ok) {
+      return undefined;
+    }
+    if (fresh.fallbackNotice) {
+      await showKeyMaterialFallbackNotice(fresh.fallbackNotice);
+    }
+    try {
+      return await unwrapDekWithPassphraseMaterial(fresh.material, passphrase, userId);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+async function tryRecoveryUnlock(
+  context: vscode.ExtensionContext,
+  userId: string,
+  material: ServerKeyMaterialResponse,
+  recoveryInput: string
+): Promise<Buffer | undefined> {
+  try {
+    return unwrapDekWithRecoveryMaterial(material, recoveryInput, userId);
+  } catch {
+    const fresh = await loadKeyMaterialForCryptoOps(context);
+    if (!fresh.ok) {
+      return undefined;
+    }
+    if (fresh.fallbackNotice) {
+      await showKeyMaterialFallbackNotice(fresh.fallbackNotice);
+    }
+    try {
+      return unwrapDekWithRecoveryMaterial(fresh.material, recoveryInput, userId);
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+async function verifyCurrentUnlockCredential(
+  context: vscode.ExtensionContext,
+  userId: string,
+  expectedDek: Buffer
+): Promise<boolean> {
+  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  if (!keyLoad.ok) {
+    vscode.window.showErrorMessage(keyLoad.message);
+    return false;
+  }
+  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
+
+  const mode = await vscode.window.showQuickPick(
+    [
+      { label: "Current passphrase", id: "pass" },
+      { label: "Recovery key", id: "recovery" },
+    ],
+    { title: "Verify identity before changing sync passphrase" }
+  );
+  if (!mode) {
+    return false;
+  }
+
+  if (mode.id === "pass") {
+    const passphrase = await promptPassphrase("Current sync passphrase");
+    if (!passphrase) {
+      return false;
+    }
+    const dek = await tryPassphraseUnlock(context, userId, keyLoad.material, passphrase);
+    if (!dek || !dekMatches(dek, expectedDek)) {
+      vscode.window.showErrorMessage("Wrong passphrase.");
+      return false;
+    }
+    return true;
+  }
+
+  const recoveryInput = await vscode.window.showInputBox({
+    prompt: "Enter recovery key",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (!recoveryInput) {
+    return false;
+  }
+  const dek = await tryRecoveryUnlock(context, userId, keyLoad.material, recoveryInput);
+  if (!dek || !dekMatches(dek, expectedDek)) {
+    vscode.window.showErrorMessage("Recovery key did not match.");
+    return false;
+  }
+  return true;
+}
+
 export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<boolean> {
   let snapshot: Awaited<ReturnType<typeof resolveE2eGateSnapshot>>;
   try {
@@ -289,21 +400,13 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     return false;
   }
 
-  await hydrateKeysCacheFromDisk(context);
-  let keysCache = getCachedKeysGate();
-  if (!keysCache.keyMaterial) {
-    try {
-      keysCache = await fetchServerKeyMaterial(context);
-    } catch (err) {
-      vscode.window.showErrorMessage(keysApiUserMessage(err));
-      return false;
-    }
-  }
-  const material = keysCache.keyMaterial;
-  if (!material) {
-    vscode.window.showErrorMessage("Could not load encryption keys from the server.");
+  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  if (!keyLoad.ok) {
+    vscode.window.showErrorMessage(keyLoad.message);
     return false;
   }
+  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
+  const material = keyLoad.material;
 
   let dek: Buffer | undefined;
   let usedRecovery = false;
@@ -316,34 +419,19 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!input) {
       return false;
     }
-    try {
-      const bytes = parseRecoveryKeyInput(input);
-      dek = unwrapDekWithRecoveryKey(
-        material.recoveryWrap,
-        bytes,
-        snapshot.userId,
-        material.keyVersion
-      );
-      usedRecovery = true;
-    } catch (err) {
-      vscode.window.showErrorMessage(err instanceof Error ? err.message : String(err));
+    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input);
+    if (!dek) {
+      vscode.window.showErrorMessage("Recovery key did not match.");
       return false;
     }
+    usedRecovery = true;
   } else {
     const passphrase = await promptPassphrase("Enter sync passphrase");
     if (!passphrase) {
       return false;
     }
-    try {
-      dek = await unwrapDekWithPassphrase(
-        material.passWrap,
-        passphrase,
-        snapshot.userId,
-        material.keyVersion,
-        material.salt,
-        material.kdfParams
-      );
-    } catch {
+    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase);
+    if (!dek) {
       vscode.window.showErrorMessage("Wrong passphrase.");
       return false;
     }
@@ -383,11 +471,17 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
     return;
   }
 
-  const keysCache = await fetchServerKeyMaterial(context, { force: true });
-  const material = keysCache.keyMaterial;
-  if (!material) {
+  if (!(await verifyCurrentUnlockCredential(context, unlocked.userId, unlocked.dek))) {
     return;
   }
+
+  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  if (!keyLoad.ok) {
+    vscode.window.showErrorMessage(keyLoad.message);
+    return;
+  }
+  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
+  const material = keyLoad.material;
 
   const newPass = await promptPassphrase("New sync passphrase");
   if (!newPass) {
@@ -438,11 +532,13 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
     return;
   }
 
-  const keysCache = await fetchServerKeyMaterial(context, { force: true });
-  const material = keysCache.keyMaterial;
-  if (!material) {
+  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  if (!keyLoad.ok) {
+    vscode.window.showErrorMessage(keyLoad.message);
     return;
   }
+  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
+  const material = keyLoad.material;
 
   const recoveryBytes = generateRecoveryKeyBytes();
   const recoveryWrap = wrapDekForRecovery(
@@ -520,12 +616,15 @@ export async function runRetryKeysGateFlow(context: vscode.ExtensionContext): Pr
   }
 }
 
-export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext): Promise<void> {
+export async function ensureE2eGateAfterLogin(
+  context: vscode.ExtensionContext
+): Promise<"deferred_keys" | "ok"> {
   const snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
   if (snapshot.phase === "keys_unavailable") {
     vscode.window.showInformationMessage(
       `Logged in. Encryption key status check was deferred: ${snapshot.keysStatusMessage ?? "rate limited"}`
     );
+    return "deferred_keys";
   }
   if (snapshot.phase === "keys_not_set") {
     void runCreatePassphraseFlow(context);
@@ -539,4 +638,5 @@ export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext):
       }
     });
   }
+  return "ok";
 }

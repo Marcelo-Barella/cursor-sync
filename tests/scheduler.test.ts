@@ -259,7 +259,7 @@ describe("determineSyncAction", () => {
     } as unknown as import("vscode").ExtensionContext;
 
     const result = await determineSyncAction(context);
-    expect(result).toEqual({ action: "error", reason: "no_token" });
+    expect(result).toEqual({ action: "none" });
   });
 
   it("returns none when local and remote checksums match state", async () => {

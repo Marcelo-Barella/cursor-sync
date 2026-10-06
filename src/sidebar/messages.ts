@@ -35,14 +35,23 @@ export async function dispatchSidebarMessage(
 ): Promise<void> {
   switch (msg.command) {
     case "syncNow":
-      await vscode.commands.executeCommand("cursorSync.syncNow");
-      break;
     case "push":
-      await vscode.commands.executeCommand("cursorSync.push");
+    case "pull": {
+      const { requireE2eUnlocked } = await import("../e2e/gate.js");
+      const e2e = await requireE2eUnlocked(context, { gistSync: true });
+      if (!e2e.ok) {
+        vscode.window.showWarningMessage(e2e.message);
+        break;
+      }
+      const cmd =
+        msg.command === "syncNow"
+          ? "cursorSync.syncNow"
+          : msg.command === "push"
+            ? "cursorSync.push"
+            : "cursorSync.pull";
+      await vscode.commands.executeCommand(cmd);
       break;
-    case "pull":
-      await vscode.commands.executeCommand("cursorSync.pull");
-      break;
+    }
     case "export":
       await vscode.commands.executeCommand("cursorSync.export");
       break;

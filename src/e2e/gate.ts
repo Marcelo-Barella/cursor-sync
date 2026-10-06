@@ -136,7 +136,22 @@ export async function refreshE2eGateContext(
   context: vscode.ExtensionContext,
   options?: { refreshKeys?: boolean; bypassCache?: boolean }
 ): Promise<E2eGateSnapshot> {
-  const snapshot = await resolveE2eGateSnapshot(context, options);
+  let snapshot: E2eGateSnapshot;
+  try {
+    snapshot = await resolveE2eGateSnapshot(context, options);
+  } catch (err) {
+    const message =
+      err instanceof KeysApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    snapshot = {
+      phase: "keys_unavailable",
+      keysStatusMessage: message,
+    };
+    cachedSnapshot = snapshot;
+  }
   await vscode.commands.executeCommand(
     "setContext",
     "cursorSync.e2e.unlocked",
@@ -246,5 +261,6 @@ export async function lockLocalDek(context: vscode.ExtensionContext): Promise<vo
     await clearStoredDekForUser(context, snapshot.userId, snapshot.keyVersion);
   }
   invalidateE2eGateSnapshot();
+  await invalidateKeysGateCache(context);
   await refreshE2eGateContext(context, { bypassCache: true });
 }

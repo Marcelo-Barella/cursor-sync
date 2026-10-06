@@ -1,6 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
+const saveSyncStateMock = vi.hoisted(() => vi.fn(async () => undefined));
+const loadSyncStateMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    gistId: "deleted-gist",
+    lastSyncTimestamp: "2026-01-01T00:00:00.000Z",
+    lastSyncDirection: "pull" as const,
+    localChecksums: {},
+    remoteChecksums: {},
+  }))
+);
+
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
+vi.mock("../src/diagnostics.js", () => ({
+  loadSyncState: loadSyncStateMock,
+  saveSyncState: saveSyncStateMock,
+}));
 import { GIST_E2E_MARKER_FILE } from "../src/e2e/constants.js";
 import {
   assertPlaintextGistWriteAllowed,
@@ -32,6 +47,25 @@ describe("gist plaintext guard", () => {
     expect(await probeSyncGistEncryption(client)).toEqual({ state: "plain" });
     const guard = await assertPlaintextGistWriteAllowed(client);
     expect(guard.ok).toBe(true);
+  });
+
+  it("treats deleted gist (404) as plain and allows new gist", async () => {
+    saveSyncStateMock.mockClear();
+    const client = {
+      getGist: vi.fn(async () => ({
+        ok: false,
+        error: { category: "UNKNOWN", message: "Not Found", statusCode: 404 },
+      })),
+    } as unknown as import("../src/gist.js").GistClient;
+    const context = {
+      globalState: { get: async () => undefined, update: async () => {} },
+    } as unknown as import("vscode").ExtensionContext;
+    expect(await probeSyncGistEncryption(client, "deleted-gist", context)).toEqual({
+      state: "plain",
+    });
+    const guard = await assertPlaintextGistWriteAllowed(client, "deleted-gist", context);
+    expect(guard.ok).toBe(true);
+    expect(saveSyncStateMock).toHaveBeenCalled();
   });
 
   it("fails closed when gist cannot be read (e.g. GitHub 503)", async () => {

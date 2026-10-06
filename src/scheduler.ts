@@ -5,7 +5,7 @@ import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
-import { requireToken } from "./auth.js";
+import { getToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles } from "./paths.js";
@@ -86,9 +86,9 @@ export async function determineSyncAction(
     return { action: "push" };
   }
 
-  const token = await requireToken(context);
+  const token = await getToken(context);
   if (!token) {
-    return { action: "error", reason: "no_token" };
+    return { action: "none" };
   }
 
   const client = new GistClient(token);

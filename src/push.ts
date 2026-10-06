@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { GistClient } from "./gist.js";
-import { requireToken, validateStoredToken } from "./auth.js";
+import { getToken, requireToken, validateStoredToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
 import { detectConflicts, clearConflicts, getResolutionForKey } from "./conflicts.js";
@@ -90,7 +90,15 @@ async function doPush(
   const authFailedMessage =
     "GitHub token not configured. Configure your token to sync.";
 
-  if (!(await validateStoredToken(context))) {
+  if (trigger === "scheduled") {
+    const scheduledToken = await getToken(context);
+    if (!scheduledToken) {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Push skipped: no GitHub token (scheduled)`
+      );
+      return true;
+    }
+  } else if (!(await validateStoredToken(context))) {
     const token = await requireToken(context);
     if (!token) {
       void showSyncFailureWithDebug(
@@ -107,8 +115,15 @@ async function doPush(
     }
   }
 
-  const token = await requireToken(context);
+  const token =
+    trigger === "scheduled" ? await getToken(context) : await requireToken(context);
   if (!token) {
+    if (trigger === "scheduled") {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Push skipped: no GitHub token (scheduled)`
+      );
+      return true;
+    }
     void showSyncFailureWithDebug(
       context,
       buildSyncDebugFailure("push", trigger, authFailedMessage, {
@@ -170,7 +185,7 @@ async function doPush(
 
   const usePlaintextGist = e2e.kind === "gist_plaintext";
   if (usePlaintextGist) {
-    const guard = await assertPlaintextGistWriteAllowed(client, syncState?.gistId);
+    const guard = await assertPlaintextGistWriteAllowed(client, syncState?.gistId, context);
     if (!guard.ok) {
       void showSyncFailureWithDebug(
         context,
