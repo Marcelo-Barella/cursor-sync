@@ -182,7 +182,6 @@ vi.mock("../src/e2e/gate.js", () => ({
 }));
 
 vi.mock("../src/e2e/gist-read.js", () => ({
-  remoteGistHasE2eMarker: vi.fn(() => false),
   assertCanReadE2eGist: vi.fn(),
   readLogicalFileFromGistMap: vi.fn(),
   GIST_LOCKED_MESSAGE:
@@ -207,7 +206,6 @@ vi.mock("../src/e2e/chat-payload-crypto.js", () => ({
       return raw;
     }
   ),
-  reexportLegacyChatUnderDek: vi.fn(async () => ({})),
   encryptChatPayloadForGist: vi.fn(async (_ctx: unknown, plain: string, logical: string) => ({
     [logical]: { content: plain },
     "cursor-sync-e2e.json": {
@@ -217,6 +215,7 @@ vi.mock("../src/e2e/chat-payload-crypto.js", () => ({
 }));
 
 vi.mock("../src/e2e/gist-bundle.js", () => ({
+  tryReadGistE2eMarker: vi.fn(() => undefined),
   wrapGistFilesForUpload: vi.fn(
     (_dek: Buffer, _userId: string, _keyVersion: number, logicalFiles: Record<string, { content: string }>) => ({
       ...logicalFiles,

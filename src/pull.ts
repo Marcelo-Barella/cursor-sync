@@ -12,10 +12,7 @@ import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js
 import { findMissingExtensions, findExtraExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
-import {
-  tryBeginSyncOperation,
-  endSyncOperation,
-} from "./sync-operation.js";
+import { tryBeginSyncOperation, resetSyncOperation } from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -24,11 +21,8 @@ import {
 } from "./sync-debug.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
-import {
-  assertCanReadE2eGist,
-  readLogicalFileFromGistMap,
-  remoteGistHasE2eMarker,
-} from "./e2e/gist-read.js";
+import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
@@ -36,8 +30,6 @@ export type PullOptions = {
   trigger?: PullTrigger;
   skipOperationLock?: boolean;
 };
-
-export { isPullLocked } from "./sync-operation.js";
 
 export async function executePull(
   context: vscode.ExtensionContext,
@@ -68,7 +60,7 @@ export async function executePull(
     throw err;
   } finally {
     if (!skipOperationLock) {
-      endSyncOperation();
+      resetSyncOperation();
       await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
       refreshSidebar();
     }
@@ -187,7 +179,7 @@ async function doPull(
   }
 
   const gistData = gistResult.data;
-  const e2eMarker = remoteGistHasE2eMarker(gistData.files);
+  const e2eMarker = tryReadGistE2eMarker(gistData.files);
   let e2eRead:
     | { dek: Buffer; userId: string; keyVersion: number }
     | undefined;

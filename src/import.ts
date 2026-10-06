@@ -9,11 +9,8 @@ import { resolveSyncRoots, syncKeyToGistFileName } from "./paths.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { Manifest } from "./types.js";
-import {
-  assertCanReadE2eGist,
-  readLogicalFileFromGistMap,
-  remoteGistHasE2eMarker,
-} from "./e2e/gist-read.js";
+import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 export async function executeImport(context: vscode.ExtensionContext): Promise<void> {
   const logger = getLogger();
@@ -59,7 +56,7 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
   }
 
   const gistData = gistResult.data;
-  const e2eMarker = remoteGistHasE2eMarker(gistData.files);
+  const e2eMarker = tryReadGistE2eMarker(gistData.files);
   let e2eRead:
     | { dek: Buffer; userId: string; keyVersion: number }
     | undefined;

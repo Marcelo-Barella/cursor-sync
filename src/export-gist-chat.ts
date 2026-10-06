@@ -5,7 +5,6 @@ import { withRetry } from "./retry.js";
 import { getLogger } from "./diagnostics.js";
 import { pickChatsForExport, type ChatExportSelection } from "./chat-export-ux.js";
 import { buildChatExportPayload, chatEditorExportFailureMessage } from "./chat-persistence.js";
-import { CHAT_BUNDLES_GIST_FILE_NAME } from "./chat-bundle-format.js";
 import { encryptChatPayloadForGist } from "./e2e/chat-payload-crypto.js";
 import { resolveChatEditorExportTarget } from "./chat-editor-target.js";
 
@@ -42,17 +41,12 @@ export async function exportChatSelectionToGist(
           `[${new Date().toISOString()}] Chat gist export workspace=${selection.workspaceKey} count=${bundles.length}`
         );
 
-        const plaintextKind =
-          gistPayload.fileName === CHAT_BUNDLES_GIST_FILE_NAME
-            ? ("chat-bundles-collection" as const)
-            : ("chat-bundle" as const);
         let gistFiles: Record<string, { content: string }>;
         try {
           gistFiles = await encryptChatPayloadForGist(
             context,
             gistPayload.content,
-            gistPayload.fileName,
-            plaintextKind
+            gistPayload.fileName
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

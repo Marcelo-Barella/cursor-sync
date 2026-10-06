@@ -8,7 +8,7 @@ import {
   wrapDekForPassphrase,
   wrapDekForRecovery,
 } from "./key-material.js";
-import { DEFAULT_ARGON2_PARAMS } from "./constants.js";
+import { DEFAULT_ARGON2_PARAMS, MIN_PASSPHRASE_LENGTH } from "./constants.js";
 import {
   buildPutKeysBody,
   fetchServerKeyMaterial,
@@ -24,8 +24,12 @@ import {
   lastRecoveryKeyGroup,
   parseRecoveryKeyInput,
 } from "./recovery-key.js";
-import { MIN_PASSPHRASE_LENGTH } from "./constants.js";
-import { refreshE2eGateContext, lockLocalDek, resolveE2eGateSnapshot } from "./gate.js";
+import {
+  refreshE2eGateContext,
+  lockLocalDek,
+  resolveE2eGateSnapshot,
+  requireE2eUnlocked,
+} from "./gate.js";
 import { invalidateKeysGateCache } from "./keys-client.js";
 import { parseAppSessionClaims } from "./session-user.js";
 import { getAppSession } from "../app-auth.js";
@@ -237,8 +241,7 @@ export async function executeE2eUnlock(context: vscode.ExtensionContext): Promis
 }
 
 export async function executeE2eChangePassphrase(context: vscode.ExtensionContext): Promise<void> {
-  const gate = await import("./gate.js");
-  const unlocked = await gate.requireE2eUnlocked(context);
+  const unlocked = await requireE2eUnlocked(context);
   if (!unlocked.ok) {
     vscode.window.showErrorMessage(unlocked.message);
     return;
@@ -291,8 +294,7 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
 }
 
 export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionContext): Promise<void> {
-  const gate = await import("./gate.js");
-  const unlocked = await gate.requireE2eUnlocked(context);
+  const unlocked = await requireE2eUnlocked(context);
   if (!unlocked.ok) {
     vscode.window.showErrorMessage(unlocked.message);
     return;

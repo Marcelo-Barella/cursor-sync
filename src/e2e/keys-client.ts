@@ -1,14 +1,13 @@
 import * as vscode from "vscode";
 import { getAppApiUrl } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
+import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
 import { assertDekVerifierHex, type KdfParamsWire, type KeyWrapBytes } from "./key-material.js";
 import {
   parseKeyMaterialResponse,
   type KeyWrapWire,
   type ServerKeyMaterialResponse,
 } from "./keys-wire.js";
-
-export { parseKeyMaterialResponse, type ServerKeyMaterialResponse, type KeyWrapWire } from "./keys-wire.js";
 
 export class KeysApiError extends Error {
   constructor(
@@ -49,14 +48,6 @@ function b64(buf: Buffer): string {
   return buf.toString("base64");
 }
 
-async function readApiError(response: Response): Promise<{ error?: string; message?: string }> {
-  try {
-    return (await response.json()) as { error?: string; message?: string };
-  } catch {
-    return {};
-  }
-}
-
 export type KeysPresence = "unknown" | "not_set" | "set";
 
 export interface KeysGateCache {
@@ -92,8 +83,7 @@ async function authFetch(
   return fetch(`${base}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${session}`,
-      Accept: "application/json",
+      ...appApiAuthHeaders(session),
       ...(init?.headers ?? {}),
     },
   });
@@ -109,7 +99,7 @@ export async function fetchServerKeyMaterial(
 
   const response = await authFetch(context, "/v1/keys", { method: "GET" });
   if (response.status === 404) {
-    const body = await readApiError(response);
+    const body = await readAppApiErrorJson(response);
     if (body.error && body.error !== "KEYS_NOT_SET") {
       throw new KeysApiError(body.error, 404, body.error);
     }
@@ -118,7 +108,7 @@ export async function fetchServerKeyMaterial(
     return cache;
   }
   if (response.status === 429) {
-    const body = await readApiError(response);
+    const body = await readAppApiErrorJson(response);
     const retryAfter = response.headers.get("Retry-After") ?? "900";
     throw new KeysApiError(
       `Rate limited (${body.error ?? "RATE_LIMITED"}). Retry after ${retryAfter}s.`,
@@ -127,7 +117,7 @@ export async function fetchServerKeyMaterial(
     );
   }
   if (response.status === 403) {
-    const body = await readApiError(response);
+    const body = await readAppApiErrorJson(response);
     if (body.error === "EMAIL_NOT_VERIFIED") {
       throw new KeysApiError("Verify your email before setting up sync encryption.", 403, "EMAIL_NOT_VERIFIED");
     }
@@ -137,7 +127,7 @@ export async function fetchServerKeyMaterial(
     throw new KeysApiError("Unauthorized", 401);
   }
   if (!response.ok) {
-    const body = await readApiError(response);
+    const body = await readAppApiErrorJson(response);
     throw new KeysApiError(
       body.error ?? `GET /v1/keys failed (${response.status})`,
       response.status,

@@ -38,8 +38,6 @@ export async function clearStoredDekForUser(
 }
 
 export async function clearAllStoredDeks(context: vscode.ExtensionContext): Promise<void> {
-  const prefix = "cursorSync.e2e.dek.";
-  // VS Code SecretStorage has no list API; version is tracked in gate cache.
   const versions = context.globalState.get<number[]>("cursorSync.e2e.dekVersions") ?? [];
   const userId = context.globalState.get<string>("cursorSync.e2e.lastUserId");
   if (userId) {

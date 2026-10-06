@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getAppSession } from "../app-auth.js";
 import { parseAppSessionClaims } from "./session-user.js";
-import { loadStoredDek } from "./dek-storage.js";
+import { clearStoredDekForUser, loadStoredDek } from "./dek-storage.js";
 import {
   fetchServerKeyMaterial,
   getCachedKeysGate,
@@ -135,7 +135,6 @@ export function onAppSessionCleared(): void {
 export async function lockLocalDek(context: vscode.ExtensionContext): Promise<void> {
   const snapshot = cachedSnapshot;
   if (snapshot?.userId && snapshot.keyVersion) {
-    const { clearStoredDekForUser } = await import("./dek-storage.js");
     await clearStoredDekForUser(context, snapshot.userId, snapshot.keyVersion);
   }
   invalidateE2eGateSnapshot();

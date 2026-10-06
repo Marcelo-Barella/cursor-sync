@@ -10,10 +10,7 @@ import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForK
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
-import {
-  tryBeginSyncOperation,
-  endSyncOperation,
-} from "./sync-operation.js";
+import { tryBeginSyncOperation, resetSyncOperation } from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -32,8 +29,6 @@ export type PushOptions = {
   trigger?: PushTrigger;
   skipOperationLock?: boolean;
 };
-
-export { isPushLocked } from "./sync-operation.js";
 
 export async function executePush(
   context: vscode.ExtensionContext,
@@ -64,7 +59,7 @@ export async function executePush(
     throw err;
   } finally {
     if (!skipOperationLock) {
-      endSyncOperation();
+      resetSyncOperation();
       await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
       refreshSidebar();
     }
