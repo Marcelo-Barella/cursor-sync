@@ -19,6 +19,20 @@ if (watch) {
   await ctx.watch();
   console.log("Watching...");
 } else {
-  await esbuild.build(buildOptions);
+  const result = await esbuild.build({ ...buildOptions, metafile: true });
+  await import("node:fs/promises").then((fs) =>
+    fs.writeFile(
+      "dist/extension.meta.json",
+      JSON.stringify(result.metafile, null, 2),
+      "utf8"
+    )
+  );
+  const { spawnSync } = await import("node:child_process");
+  const check = spawnSync("node", ["scripts/check-bundle-runtime-imports.mjs"], {
+    stdio: "inherit",
+  });
+  if (check.status !== 0) {
+    process.exit(check.status ?? 1);
+  }
   console.log("Build complete.");
 }

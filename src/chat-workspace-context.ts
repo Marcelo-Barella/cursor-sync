@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { isWin32Platform } from "./os-runtime.js";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -156,7 +157,7 @@ function buildWorkspaceIdentifier(
   wsId: string,
   folderFsPath: string
 ): WorkspaceIdentifier {
-  const sep = process.platform === "win32" ? 1 : 47;
+  const sep = isWin32Platform() ? 1 : 47;
   const external = pathToFileURL(folderFsPath).href;
   return {
     id: wsId,

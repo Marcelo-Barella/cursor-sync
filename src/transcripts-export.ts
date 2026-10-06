@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getLogger } from "./diagnostics.js";
@@ -411,7 +412,7 @@ export async function buildExportBundleV2(
     type: "agent-transcripts",
     createdAt,
     sourceMachineId: computeTranscriptMachineId(),
-    sourceOS: process.platform,
+    sourceOS: nodePlatform(),
     sourceProjects,
     artifacts,
     conversations,

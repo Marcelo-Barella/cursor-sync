@@ -1,5 +1,6 @@
 import type * as vscode from "vscode";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
+import { syncKeyRootPrefix } from "./app-config-sync-root-keys.js";
 
 export type DeleteGuardTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
@@ -103,14 +104,28 @@ export function exceedsMassDeleteThreshold(
   return false;
 }
 
-export function syncKeyRootPrefix(syncKey: string): "cursor-user/" | "dot-cursor/" | undefined {
-  if (syncKey.startsWith("cursor-user/")) {
-    return "cursor-user/";
+const ROOT_HELD_LABELS: Record<string, string> = {
+  "dot-cursor/": "~/.cursor",
+  "cursor-user/": "Cursor User settings",
+};
+
+export function formatSyncRootDeleteHeldNotice(scan: LocalConfigFileScan): string {
+  const prefixes = [...scan.deleteBlockedRootPrefixes];
+  if (prefixes.length === 0 && !scan.deletesAllowed && scan.deleteBlockReason) {
+    return `Sync held: ${scan.deleteBlockReason}`;
   }
-  if (syncKey.startsWith("dot-cursor/")) {
-    return "dot-cursor/";
+  const rootNames = prefixes.map((p) => ROOT_HELD_LABELS[p] ?? p).join(" and ");
+  let heldCount = 0;
+  for (const key of scan.skippedUnknownKeys) {
+    const prefix = syncKeyRootPrefix(key);
+    if (prefix && prefixes.includes(prefix)) {
+      heldCount += 1;
+    }
   }
-  return undefined;
+  if (heldCount === 0) {
+    heldCount = scan.skippedUnknownKeys.size;
+  }
+  return `Sync held: ${rootNames} is missing or empty (${heldCount} tracked file(s) skipped). Restore the folder before pull/push deletes.`;
 }
 
 export function filterDeletionsRespectingRootBlocks(

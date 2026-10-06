@@ -31,8 +31,8 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | present | provably_absent | present_same | delete_remote | n/a |
 | present | provably_absent | present_changed | conflict | false |
 | present | skipped_unknown | * | noop | false |
-| present | untracked | * | noop | safe; excluded/out-of-scope keys noop for sync actions |
-| present | untracked | local gone | baseline_refresh | noop (baseline may refresh separately) |
+| present | untracked | * | noop | excluded/out-of-scope keys noop for sync actions |
+| present | untracked | local gone | noop | baseline may refresh separately; no sync delete |
 
 ## Extensions
 
@@ -43,8 +43,8 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | Symlinked ancestor (e.g. `rules` → empty dir) | skipped_unknown for all descendants | noop (S1) |
 | Symlink pointing outside root (e.g. `skills` → external dir) | skipped_unknown | noop; pull write blocked (S3) |
 | Sync root missing with baseline entries | skipped_unknown for all keys under root | noop; no deletes either direction |
-| Sync root missing without baseline (fresh device) | — | create root only during pull when files will be written there (never during scan) |
-| Symlinked sync root (`realpath` once) | present under resolved target | enumerate/classify/write via resolved path; components below root must be real directories |
+| Sync root missing without baseline (fresh device) | absent_eligible / provably_absent | pull allowed; create root only at write time (never during scan) |
+| Symlinked sync root (`realpath` once) | absent_eligible under resolved empty target | pull allowed; walk/classify below resolved root; symlink at root is not skipped_unknown |
 | Remote-only baseline key, absent locally and remotely | provably_absent / absent_eligible | baseline_refresh prune (F6), not recurring pull |
 | Key excluded but still in baseline | untracked | noop for sync actions on that key |
 | Declined pull overwrite (same remote checksum) | present | noop (all triggers) |

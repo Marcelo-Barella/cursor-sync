@@ -4,6 +4,10 @@ import { constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import type { SyncRoots } from "./paths.js";
 import { syncKeyToAbsolutePath } from "./paths.js";
+import {
+  baselineHasKeysUnderPrefix,
+  syncKeyRootPrefix,
+} from "./app-config-sync-root-keys.js";
 
 function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException).code === "ENOENT";
@@ -84,17 +88,11 @@ export async function ensureSyncRootDirectory(rootPath: string): Promise<void> {
   await fs.mkdir(resolvedRoot, { recursive: false });
 }
 
-export function syncKeyRootPrefix(
-  syncKey: string
-): "cursor-user/" | "dot-cursor/" | undefined {
-  if (syncKey.startsWith("cursor-user/")) {
-    return "cursor-user/";
-  }
-  if (syncKey.startsWith("dot-cursor/")) {
-    return "dot-cursor/";
-  }
-  return undefined;
-}
+export {
+  baselineHasKeysForSyncKey,
+  baselineHasKeysUnderPrefix,
+  syncKeyRootPrefix,
+} from "./app-config-sync-root-keys.js";
 
 /** Create missing sync roots only when the baseline has no keys under that root. */
 export async function ensureSyncRootsForFreshPull(
@@ -245,6 +243,7 @@ export async function writeFileWithoutFollow(
   const tmpName = `.${path.basename(target)}.${randomBytes(8).toString("hex")}.tmp`;
   const tmpPath = path.join(parent, tmpName);
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let tmpOpened = false;
   try {
     if (options) {
       await assertSafePullTarget(target, options.syncKey, options.resolved);
@@ -256,6 +255,7 @@ export async function writeFileWithoutFollow(
         fsConstants.O_EXCL |
         fsConstants.O_NOFOLLOW
     );
+    tmpOpened = true;
     await handle.writeFile(content);
     await handle.sync();
     await handle.close();
@@ -266,9 +266,84 @@ export async function writeFileWithoutFollow(
     await fs.rename(tmpPath, target);
   } catch (err) {
     await handle?.close().catch(() => {});
-    await fs.unlink(tmpPath).catch(() => {});
+    if (tmpOpened) {
+      await fs.unlink(tmpPath).catch(() => {});
+    }
     throw err;
   }
+}
+
+async function classifyAbsentUnderResolvedRoot(
+  absolutePath: string,
+  rootInfo: { rootPath: string; rootReal: string },
+  baselineHasKeysUnderRoot: boolean
+): Promise<"proven_absent" | "skipped_unknown"> {
+  const logicalRoot = path.resolve(rootInfo.rootPath);
+  const target = path.resolve(absolutePath);
+  if (target !== logicalRoot && !target.startsWith(logicalRoot + path.sep)) {
+    return "skipped_unknown";
+  }
+
+  let rootReal = path.resolve(rootInfo.rootReal);
+  try {
+    const rootSt = await fs.lstat(logicalRoot);
+    if (rootSt.isSymbolicLink()) {
+      rootReal = path.resolve(await fs.realpath(logicalRoot));
+      const realSt = await fs.stat(rootReal);
+      if (!realSt.isDirectory()) {
+        return "skipped_unknown";
+      }
+    } else if (!rootSt.isDirectory()) {
+      return "skipped_unknown";
+    } else if (baselineHasKeysUnderRoot) {
+      const entries = await fs.readdir(logicalRoot);
+      if (entries.length === 0) {
+        return "skipped_unknown";
+      }
+    }
+  } catch (err) {
+    if (isEnoent(err)) {
+      return baselineHasKeysUnderRoot ? "skipped_unknown" : "proven_absent";
+    }
+    return "skipped_unknown";
+  }
+
+  const rel = path.relative(logicalRoot, target);
+  if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`)) {
+    return "skipped_unknown";
+  }
+  const parts = rel.split(path.sep).filter(Boolean);
+  if (parts.length === 0) {
+    return "skipped_unknown";
+  }
+
+  let currentReal = rootReal;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!;
+    const isLeaf = i === parts.length - 1;
+    currentReal = path.join(currentReal, part);
+    try {
+      const st = await fs.lstat(currentReal);
+      if (st.isSymbolicLink()) {
+        return "skipped_unknown";
+      }
+      if (isLeaf) {
+        return "skipped_unknown";
+      }
+      if (!st.isDirectory()) {
+        return "skipped_unknown";
+      }
+      if (!isRealpathInsideRoot(path.resolve(currentReal), rootReal)) {
+        return "skipped_unknown";
+      }
+    } catch (err) {
+      if (!isEnoent(err)) {
+        return "skipped_unknown";
+      }
+      return "proven_absent";
+    }
+  }
+  return "skipped_unknown";
 }
 
 export async function assertSafeLocalDeleteTarget(
@@ -342,8 +417,13 @@ export async function classifyPathUnderSyncRoot(
     excluded: boolean;
     isFilePresent: boolean;
     fileOversize: boolean;
+    baselineLocalKeys?: string[];
   }
 ): Promise<"present" | "proven_absent" | "skipped_unknown"> {
+  const prefix = syncKeyRootPrefix(syncKey);
+  const baselineHasKeysUnderRoot =
+    prefix !== undefined &&
+    baselineHasKeysUnderPrefix(prefix, options.baselineLocalKeys);
   const rootInfo = syncRootRealForKey(syncKey, resolved);
   if (!rootInfo || options.excluded) {
     return "skipped_unknown";
@@ -387,52 +467,11 @@ export async function classifyPathUnderSyncRoot(
     }
   }
 
-  const parent = path.dirname(path.resolve(absolutePath));
-  try {
-    const parentSt = await fs.lstat(parent);
-    if (parentSt.isSymbolicLink() || !parentSt.isDirectory()) {
-      return "skipped_unknown";
-    }
-    const parentReal = await fs.realpath(parent);
-    if (!isRealpathInsideRoot(parentReal, rootInfo.rootReal)) {
-      return "skipped_unknown";
-    }
-    await fs.readdir(parent);
-    return "proven_absent";
-  } catch (err) {
-    if (isEnoent(err)) {
-      let dir = parent;
-      for (;;) {
-        if (!dir.startsWith(path.resolve(rootInfo.rootPath) + path.sep) && dir !== path.resolve(rootInfo.rootPath)) {
-          return "skipped_unknown";
-        }
-        try {
-          const st = await fs.lstat(dir);
-          if (st.isSymbolicLink()) {
-            return "skipped_unknown";
-          }
-          if (st.isDirectory()) {
-            const real = await fs.realpath(dir);
-            if (!isRealpathInsideRoot(real, rootInfo.rootReal)) {
-              return "skipped_unknown";
-            }
-            return "proven_absent";
-          }
-          return "skipped_unknown";
-        } catch (inner) {
-          if (!isEnoent(inner)) {
-            return "skipped_unknown";
-          }
-          const up = path.dirname(dir);
-          if (up === dir) {
-            return "skipped_unknown";
-          }
-          dir = up;
-        }
-      }
-    }
-    return "skipped_unknown";
-  }
+  return classifyAbsentUnderResolvedRoot(
+    absolutePath,
+    rootInfo,
+    baselineHasKeysUnderRoot
+  );
 }
 
 export function absolutePathForSyncKey(

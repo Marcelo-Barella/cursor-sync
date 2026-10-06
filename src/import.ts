@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { GistClient } from "./gist.js";
@@ -74,7 +75,7 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
     return;
   }
 
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const availableFiles: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
   for (const [gistFileName, gistFile] of Object.entries(gistData.files)) {

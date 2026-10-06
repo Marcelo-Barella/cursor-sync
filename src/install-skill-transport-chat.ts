@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -10,7 +11,7 @@ const execFileAsync = promisify(execFile);
 export async function executeInstallSkillTransportChat(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  if (process.platform !== "linux") {
+  if (nodePlatform() !== "linux") {
     await vscode.window.showErrorMessage(
       "Cursor Sync: The transport-chat skill is currently supported on Linux only."
     );

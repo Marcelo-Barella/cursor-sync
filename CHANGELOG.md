@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.20
+
+### Fixed
+- Fresh device: missing `~/.cursor` without baseline classifies as `absent_eligible` (pull allowed); root created only at write time. Baseline + missing/empty root stays `skipped_unknown`.
+- Symlinked empty sync root: classify below `realpath(root)` so new keys under the root can pull (b13 / N3b3).
+- Manual push shows classification-based skip notice (`Pushed N, skipped M`); disk probe no longer downgrades held roots to `proven_absent`.
+- Pull: per-key write failure skips with notice (no full rollback); tmp unlink only after successful `open`.
+- Sync Now / Pull show held-root notice when deletes are blocked (S3).
+
+### Changed
+- Two-layer path guard: expanded AST over all `src` sources + esbuild metafile bundle check; spawn env confined to `os-runtime.ts`.
+- Decision table rows for fresh-device pull and symlinked root.
+
 ## v0.8.4-staging.19
 
 ### Fixed

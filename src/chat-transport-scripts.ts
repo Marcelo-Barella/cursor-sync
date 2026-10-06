@@ -1,8 +1,7 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { childProcessEnv } from "./os-runtime.js";
+import { nodeProcessCwd, spawnPython3Capture } from "./os-runtime.js";
 
 export type TransportChatScriptName =
   | "cursor_chat_io.py"
@@ -35,9 +34,9 @@ function buildTransportChatScriptCandidates(
     candidates.push(path.join(extensionPath, "scripts", scriptName));
     candidates.push(path.join(extensionPath, "..", "scripts", scriptName));
   }
-  candidates.push(path.join(process.cwd(), "scripts", scriptName));
+  candidates.push(path.join(nodeProcessCwd(), "scripts", scriptName));
   candidates.push(
-    path.join(process.cwd(), "resources", "transport-chat", "scripts", scriptName)
+    path.join(nodeProcessCwd(), "resources", "transport-chat", "scripts", scriptName)
   );
 
   return candidates;
@@ -130,39 +129,11 @@ export async function runPythonDiskImport(
     args.push("--no-pin-recent");
   }
 
-  const { exitCode, stdout, stderr } = await new Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  }>((resolve, reject) => {
-    const proc = spawn("python3", args, {
-      cwd: options.workspaceFolder,
-      env: childProcessEnv(),
-    });
-    let stdoutAcc = "";
-    let stderrAcc = "";
-    proc.stdout?.on("data", (chunk: Buffer | string) => {
-      stdoutAcc += String(chunk);
-    });
-    proc.stderr?.on("data", (chunk: Buffer | string) => {
-      stderrAcc += String(chunk);
-    });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      resolve({ exitCode: code ?? 1, stdout: stdoutAcc, stderr: stderrAcc });
-    });
+  const { exitCode, stdout, stderr } = await spawnPython3Capture({
+    args,
+    cwd: options.workspaceFolder,
+    log: (line) => log(`chat_io: ${line}`),
   });
-
-  for (const line of stderr.trim().split("\n")) {
-    if (line.trim()) {
-      log(`chat_io: ${line}`);
-    }
-  }
-  for (const line of stdout.trim().split("\n")) {
-    if (line.trim()) {
-      log(`chat_io: ${line}`);
-    }
-  }
 
   return { ok: exitCode === 0, exitCode, stdout, stderr };
 }
@@ -198,36 +169,10 @@ export async function runPythonBundleInspect(
   }
 
   const args = [scriptPath, "inspect", options.bundlePath];
-  const { exitCode, stdout, stderr } = await new Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  }>((resolve, reject) => {
-    const proc = spawn("python3", args, { env: childProcessEnv() });
-    let stdoutAcc = "";
-    let stderrAcc = "";
-    proc.stdout?.on("data", (chunk: Buffer | string) => {
-      stdoutAcc += String(chunk);
-    });
-    proc.stderr?.on("data", (chunk: Buffer | string) => {
-      stderrAcc += String(chunk);
-    });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      resolve({ exitCode: code ?? 1, stdout: stdoutAcc, stderr: stderrAcc });
-    });
+  const { exitCode, stdout, stderr } = await spawnPython3Capture({
+    args,
+    log: (line) => log(`chat_io inspect: ${line}`),
   });
-
-  for (const line of stderr.trim().split("\n")) {
-    if (line.trim()) {
-      log(`chat_io inspect: ${line}`);
-    }
-  }
-  for (const line of stdout.trim().split("\n")) {
-    if (line.trim()) {
-      log(`chat_io inspect: ${line}`);
-    }
-  }
 
   return { ok: exitCode === 0, exitCode, stdout, stderr };
 }
@@ -260,28 +205,9 @@ export async function runPythonExportDiskKvSnapshot(
     "snap = export_disk_kv_snapshot(db, cid)",
     "print(json.dumps(snap) if snap else 'null')",
   ].join(";");
-  const { exitCode, stdout } = await new Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  }>((resolve, reject) => {
-    const proc = spawn(
-      "python3",
-      ["-c", py, options.globalDbPath, options.conversationId],
-      { cwd: scriptsDir }
-    );
-    let stdoutAcc = "";
-    let stderrAcc = "";
-    proc.stdout?.on("data", (chunk: Buffer | string) => {
-      stdoutAcc += String(chunk);
-    });
-    proc.stderr?.on("data", (chunk: Buffer | string) => {
-      stderrAcc += String(chunk);
-    });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      resolve({ exitCode: code ?? 1, stdout: stdoutAcc, stderr: stderrAcc });
-    });
+  const { exitCode, stdout } = await spawnPython3Capture({
+    args: ["-c", py, options.globalDbPath, options.conversationId],
+    cwd: scriptsDir,
   });
   if (exitCode !== 0) {
     return null;

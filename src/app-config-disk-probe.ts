@@ -10,6 +10,8 @@ import {
   resolveSyncRoots,
   syncKeyToAbsolutePath,
 } from "./paths.js";
+import { nodePlatform } from "./os-runtime.js";
+import { syncKeyRootPrefix } from "./app-config-sync-root-keys.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 
 export type LocalPathClassification = "present" | "proven_absent" | "skipped_unknown";
@@ -29,10 +31,11 @@ export {
 export async function classifyLocalPath(
   context: vscode.ExtensionContext,
   syncKey: string,
-  resolved?: ResolvedSyncRoots
+  resolved?: ResolvedSyncRoots,
+  options?: { baselineLocalKeys?: string[] }
 ): Promise<LocalPathClassification> {
   const enumConfig = getSyncEnumerationConfig(context);
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
   if (!absolutePath) {
     return "skipped_unknown";
@@ -62,6 +65,7 @@ export async function classifyLocalPath(
     excluded,
     isFilePresent,
     fileOversize,
+    baselineLocalKeys: options?.baselineLocalKeys,
   });
 }
 
@@ -100,10 +104,12 @@ export function applyLocalPathClassificationToScan(
 export async function scanWithDiskProbes(
   context: vscode.ExtensionContext,
   scan: LocalConfigFileScan,
-  syncKeys: Iterable<string>
+  syncKeys: Iterable<string>,
+  options?: { baselineLocalKeys?: string[] }
 ): Promise<LocalConfigFileScan> {
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const resolved = await resolveSyncRootsRealpaths(roots);
+  const baselineLocalKeys = options?.baselineLocalKeys;
   const next: LocalConfigFileScan = {
     ...scan,
     unreadableKeys: new Set(scan.unreadableKeys),
@@ -116,7 +122,14 @@ export async function scanWithDiskProbes(
     checksums: { ...scan.checksums },
   };
   for (const key of syncKeys) {
-    const classification = await classifyLocalPath(context, key, resolved);
+    const prefix = syncKeyRootPrefix(key);
+    if (prefix && scan.deleteBlockedRootPrefixes.has(prefix)) {
+      applyLocalPathClassificationToScan(next, key, "skipped_unknown");
+      continue;
+    }
+    const classification = await classifyLocalPath(context, key, resolved, {
+      baselineLocalKeys,
+    });
     applyLocalPathClassificationToScan(next, key, classification);
   }
   return next;

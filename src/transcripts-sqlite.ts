@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { systemTmpDir } from "./os-runtime.js";
+import { isWin32Platform, systemTmpDir } from "./os-runtime.js";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { getComposerId } from "./composer-merge.js";
@@ -48,7 +48,7 @@ async function probePythonInterpreter(): Promise<PythonSqliteInterpreter> {
     { command: "python3", argvPrefix: [] },
     { command: "python", argvPrefix: [] },
   ];
-  if (process.platform === "win32") {
+  if (isWin32Platform()) {
     candidates.push({ command: "py", argvPrefix: ["-3"] });
   }
   for (const c of candidates) {
@@ -62,7 +62,7 @@ async function probePythonInterpreter(): Promise<PythonSqliteInterpreter> {
   }
   throw new Error(
     "No Python with the sqlite3 module found (tried python3, python" +
-      (process.platform === "win32" ? ", py -3" : "") +
+      (isWin32Platform() ? ", py -3" : "") +
       "). Install Python, add the SQLite CLI (sqlite3) to PATH, or both."
   );
 }

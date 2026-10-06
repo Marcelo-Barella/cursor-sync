@@ -17,6 +17,7 @@ import {
   resolveSyncRootsRealpaths,
 } from "./app-config-disk-probe.js";
 import { pathHasUnsafeComponentBelowRoot } from "./app-config-sync-path-safety.js";
+import { nodePlatform } from "./os-runtime.js";
 
 export type BaselineKeyPresence = "present" | "provably_absent" | "skipped_unknown";
 
@@ -109,7 +110,7 @@ export async function scanLocalAppConfigFiles(
   context: vscode.ExtensionContext,
   baseline?: AppStorageBaseline
 ): Promise<LocalConfigFileScan> {
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const resolvedRoots = await resolveSyncRootsRealpaths(roots);
   const enumConfig = getSyncEnumerationConfig(context);
   const localFiles = await enumerateSyncFiles(context, roots);

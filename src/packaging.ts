@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
-import { deviceIdentitySalt } from "./os-runtime.js";
+import { deviceIdentitySalt, nodePlatform } from "./os-runtime.js";
 import type { SyncFileEntry, PackagedFile, Manifest, ManifestFileEntry } from "./types.js";
 
 export type PackageFileSkip = {
@@ -60,7 +60,7 @@ export async function packageFiles(
     syncProfileName: profileName,
     createdAt: new Date().toISOString(),
     sourceMachineId: computeMachineId(),
-    sourceOS: process.platform as Manifest["sourceOS"],
+    sourceOS: nodePlatform() as Manifest["sourceOS"],
     files: manifestFiles,
   };
 

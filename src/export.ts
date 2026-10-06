@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { GistClient } from "./gist.js";
@@ -34,7 +35,7 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
 
   const extensionsJson = generateExtensionsJson();
   const { resolveSyncRoots } = await import("./paths.js");
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const cursorUserRoot = roots.cursorUser;
   await writeExtensionsFile(cursorUserRoot, extensionsJson);
 

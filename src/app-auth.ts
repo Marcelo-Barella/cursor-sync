@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { nodeProcessArgv } from "./os-runtime.js";
 import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl, isTrustedAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
@@ -465,7 +466,7 @@ export function consumePendingAuthCallback(context: vscode.ExtensionContext): vo
     return;
   }
 
-  const argvUri = findAuthCallbackUriInArgv(process.argv, context.extension.id);
+  const argvUri = findAuthCallbackUriInArgv(nodeProcessArgv(), context.extension.id);
   if (argvUri) {
     handleAuthCallbackUri(context, argvUri);
   }

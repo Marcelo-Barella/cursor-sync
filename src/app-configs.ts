@@ -24,7 +24,9 @@ import {
 import {
   buildTrackingScopeForBaseline,
   scanLocalAppConfigFiles,
+  type LocalConfigFileScan,
 } from "./app-config-local-scan.js";
+import { nodePlatform } from "./os-runtime.js";
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import {
   clearSchedulerMassDeleteBlockIfResolved,
@@ -34,6 +36,7 @@ import {
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
   syncEvaluatedMassDeleteBlockState,
+  formatSyncRootDeleteHeldNotice,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
@@ -382,7 +385,7 @@ export async function buildLocalAppConfigsPayload(
   context: vscode.ExtensionContext
 ): Promise<LocalAppConfigsBuildResult> {
   const extensionsJson = generateExtensionsJson();
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const cursorUserRoot = roots.cursorUser;
   const extensionsPath = path.join(cursorUserRoot, "extensions.json");
   await fs.mkdir(path.dirname(extensionsPath), { recursive: true });
@@ -420,7 +423,7 @@ export async function buildLocalAppConfigsPayload(
 export async function computeLocalAppConfigChecksums(
   context: vscode.ExtensionContext
 ): Promise<Record<string, string>> {
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const localFiles = await enumerateSyncFiles(context, roots);
   const checksums: Record<string, string> = {};
   for (const file of localFiles) {
@@ -432,6 +435,25 @@ export async function computeLocalAppConfigChecksums(
     }
   }
   return checksums;
+}
+
+function finalizeAppStorageSyncAction(
+  action: AppStorageSyncAction,
+  scan: LocalConfigFileScan
+): AppStorageSyncAction {
+  if (action.action !== "none") {
+    return action;
+  }
+  if (
+    !scan.deletesAllowed &&
+    (scan.deleteBlockedRootPrefixes.size > 0 || scan.deleteBlockReason)
+  ) {
+    return {
+      action: "blocked",
+      message: formatSyncRootDeleteHeldNotice(scan),
+    };
+  }
+  return action;
 }
 
 export type AppStorageSyncAction =
@@ -471,7 +493,7 @@ export async function determineAppStorageSyncAction(
     return { action: "error", reason: "session_expired" };
   }
 
-  const roots = resolveSyncRoots(process.platform, context);
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const extensionsEmpty = await localExtensionsJsonIsEmpty(roots);
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
   const baseline = await loadAppStorageBaseline(
@@ -506,7 +528,10 @@ export async function determineAppStorageSyncAction(
     ...Object.keys(baseline?.remoteChecksums ?? {}),
     ...Object.keys(localChecksums),
   ]);
-  const probedScan = await scanWithDiskProbes(context, localScan, probeKeys);
+  const baselineLocalKeys = baseline ? Object.keys(baseline.localChecksums) : [];
+  const probedScan = await scanWithDiskProbes(context, localScan, probeKeys, {
+    baselineLocalKeys,
+  });
 
   localChecksums = alignGeneratedOnlyLocalChecksums(
     localChecksums,
@@ -640,7 +665,7 @@ export async function determineAppStorageSyncAction(
       if (classified.baselineRefreshKeys.length > 0) {
         return { action: "baseline_refresh", keys: classified.baselineRefreshKeys };
       }
-      return { action: "none" };
+      return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
     }
     return { action: "push", keys: pushKeys, deletions };
   }
@@ -723,7 +748,7 @@ export async function determineAppStorageSyncAction(
       remoteDeletions = [];
     }
     if (pullKeys.length === 0 && remoteDeletions.length === 0) {
-      return { action: "none" };
+      return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
     }
     return {
       action: "pull",
@@ -732,7 +757,7 @@ export async function determineAppStorageSyncAction(
     };
   }
 
-  return { action: "none" };
+  return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
 }
 
 export async function applyAppStorageBaselineRefresh(
@@ -992,12 +1017,23 @@ export async function executePushAppConfigs(
     }
 
     const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
+    const probedPushScan = await scanWithDiskProbes(
+      context,
+      pushScan,
+      Object.keys(localPayload.manifest.files),
+      {
+        baselineLocalKeys: baselineEarly
+          ? Object.keys(baselineEarly.localChecksums)
+          : [],
+      }
+    );
     keysToUpload = keysToUpload.filter(
       (k) =>
-        !pushScan.skippedUnknownKeys.has(k) && !pushScan.untrackedKeys.has(k)
+        !probedPushScan.skippedUnknownKeys.has(k) &&
+        !probedPushScan.untrackedKeys.has(k)
     );
     for (let i = deletions.length - 1; i >= 0; i--) {
-      if (!pushScan.provablyAbsentKeys.has(deletions[i]!)) {
+      if (!probedPushScan.provablyAbsentKeys.has(deletions[i]!)) {
         deletions.splice(i, 1);
       }
     }
@@ -1009,7 +1045,7 @@ export async function executePushAppConfigs(
       [...deletions],
       trackedForDelete,
       trigger,
-      pushScan,
+      probedPushScan,
       {
         direction: "push",
         modalConfirm: async (reason) => {
@@ -1030,7 +1066,7 @@ export async function executePushAppConfigs(
         deletionsBeforeMassGuard,
         trackedForDelete,
         trigger,
-        pushScan
+        probedPushScan
       ).needsModalConfirm
     ) {
       pushCancelledByUser = true;
@@ -1112,7 +1148,7 @@ export async function executePushAppConfigs(
         deletionsBeforeMassGuard,
         trackedForDelete,
         trigger,
-        pushScan
+        probedPushScan
       );
       if (held.needsModalConfirm || held.schedulerBlocked) {
         const reason =
@@ -1285,10 +1321,20 @@ export async function executePushAppConfigs(
         ...deletions,
         ...(options?.keys ?? Object.keys(localPayload.manifest.files)),
       ]);
-      const classificationSkipped = [...pushCandidateKeys].filter(
-        (k) =>
-          pushScan.skippedUnknownKeys.has(k) || pushScan.untrackedKeys.has(k)
-      );
+      const classificationSkipped = [
+        ...new Set([
+          ...[...pushCandidateKeys].filter(
+            (k) =>
+              probedPushScan.skippedUnknownKeys.has(k) ||
+              probedPushScan.untrackedKeys.has(k)
+          ),
+          ...Object.keys(localPayload.manifest.files).filter(
+            (k) =>
+              probedPushScan.skippedUnknownKeys.has(k) ||
+              probedPushScan.untrackedKeys.has(k)
+          ),
+        ]),
+      ];
       const skipLabels = [
         ...new Set([
           ...skippedReads.map((s) => s.relativeSyncKey),
@@ -1361,7 +1407,7 @@ export async function executePullAppConfigs(
     }
 
     const { manifest } = response.payload;
-    const roots = resolveSyncRoots(process.platform, context);
+    const roots = resolveSyncRoots(nodePlatform(), context);
     const filesToWrite: Array<{
       absolutePath: string;
       syncKey: string;
@@ -1385,7 +1431,11 @@ export async function executePullAppConfigs(
       : undefined;
     let pullLocalScan = await scanLocalAppConfigFiles(context, pullBaseline);
     const manifestKeys = Object.keys(manifest.files);
-    pullLocalScan = await scanWithDiskProbes(context, pullLocalScan, manifestKeys);
+    pullLocalScan = await scanWithDiskProbes(context, pullLocalScan, manifestKeys, {
+      baselineLocalKeys: pullBaseline
+        ? Object.keys(pullBaseline.localChecksums)
+        : [],
+    });
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
@@ -1638,6 +1688,18 @@ export async function executePullAppConfigs(
     }
 
     if (filesToWrite.length === 0 && filesToDelete.length === 0) {
+      if (
+        pullLocalScan.deleteBlockedRootPrefixes.size > 0 ||
+        (pullRefusedKeys.length > 0 && pullCandidates > 0)
+      ) {
+        const held =
+          pullLocalScan.deleteBlockedRootPrefixes.size > 0
+            ? formatSyncRootDeleteHeldNotice(pullLocalScan)
+            : `Pull skipped ${pullRefusedKeys.length} file(s); local paths are not safe to overwrite.`;
+        vscode.window.showWarningMessage(held);
+        logger.appendLine(`[${new Date().toISOString()}] Pull held: ${held}`);
+        return true;
+      }
       if (sessionForBaseline && reconciledKeys.length > 0) {
         const localChecksums = (await scanLocalAppConfigFiles(context)).checksums;
         const remoteChecksums: Record<string, string> = {};
@@ -1722,22 +1784,11 @@ export async function executePullAppConfigs(
           );
           continue;
         }
+        pullWriteSkipped.push(file.syncKey);
         logger.appendLine(
-          `[${new Date().toISOString()}] Pull app configs write failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
+          `[${new Date().toISOString()}] Pull skipped write for ${file.syncKey}: ${err instanceof Error ? err.message : String(err)}`
         );
-        await rollbackFromBackup(writtenBackups);
-        const writeErrorMessage = `Pull from ${destinationLabel} failed: file write error. Changes have been rolled back.`;
-        await addSyncHistoryEntry(context, {
-          timestamp: new Date().toISOString(),
-          direction: "pull",
-          trigger,
-          fileCount: 0,
-          success: false,
-          destination,
-          error: writeErrorMessage,
-        });
-        vscode.window.showErrorMessage(writeErrorMessage);
-        return false;
+        continue;
       }
     }
 

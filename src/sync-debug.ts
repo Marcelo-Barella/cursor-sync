@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { nodePlatform } from "./os-runtime.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -71,7 +72,7 @@ export function buildSyncDebugFailure(
     trigger,
     message,
     extensionVersion: readExtensionVersion(),
-    platform: process.platform,
+    platform: nodePlatform(),
     ...extra,
   };
 }
