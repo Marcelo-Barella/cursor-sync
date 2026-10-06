@@ -4,7 +4,6 @@ export const DEFAULT_PRODUCTION_API_URL = "https://api.sync.bergamota.dev";
 export const DEFAULT_PRODUCTION_WEBSITE_URL = "https://sync.bergamota.dev";
 export const STAGING_API_URL = "https://api-staging.cursor-sync.com";
 export const STAGING_WEBSITE_URL = "https://staging.cursor-sync.com";
-/** Legacy staging hosts; set Developer environment to **custom** and use these URLs if needed. */
 export const LEGACY_STAGING_BERGAMOTA_API_URL = "https://api-staging-sync.bergamota.dev";
 export const LEGACY_STAGING_BERGAMOTA_WEBSITE_URL = "https://staging.sync.bergamota.dev";
 export const LOCAL_API_URL = "http://localhost:8100";

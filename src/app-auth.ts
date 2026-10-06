@@ -3,8 +3,6 @@ import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
-export { getAppApiUrl } from "./config/urls.js";
-
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
 
@@ -360,9 +358,7 @@ export async function getAppSession(
     if (secret) {
       return secret;
     }
-  } catch {
-    // SecretStorage unavailable, hung, or empty; use in-memory session for this window.
-  }
+  } catch {}
   return inMemoryAppSession;
 }
 
@@ -396,9 +392,7 @@ export async function clearAppSession(
 ): Promise<void> {
   try {
     await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
-  } catch {
-    // Clear in-memory session even when SecretStorage is unavailable or hung.
-  }
+  } catch {}
   inMemoryAppSession = undefined;
   const { onAppSessionCleared } = await import("./e2e/gate.js");
   onAppSessionCleared(context);
