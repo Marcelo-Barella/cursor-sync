@@ -66,7 +66,7 @@ describe("executeInstallSkillTransportChat", () => {
   function context(): import("vscode").ExtensionContext {
     return {
       extensionUri: { fsPath: path.join(tmpRoot, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
   }
 
   it("(a) fresh install copies files and shows Installed message", async () => {

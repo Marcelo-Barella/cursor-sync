@@ -163,7 +163,7 @@ describe("paths", () => {
       };
       const mockContext = {
         globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
-      } as import("vscode").ExtensionContext;
+      } as unknown as import("vscode").ExtensionContext;
       const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
@@ -192,7 +192,7 @@ describe("paths", () => {
       };
       const mockContext = {
         globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
-      } as import("vscode").ExtensionContext;
+      } as unknown as import("vscode").ExtensionContext;
       const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
@@ -211,7 +211,7 @@ describe("paths", () => {
       };
       const mockContext = {
         globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
-      } as import("vscode").ExtensionContext;
+      } as unknown as import("vscode").ExtensionContext;
       const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 

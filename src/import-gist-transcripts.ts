@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { GistClient } from "./gist.js";
@@ -178,7 +179,7 @@ async function importTranscriptsFromGist(
   let targetWorkspaceKey: string;
   if (localWorkspaces.length === 0) {
     throw new Error(
-      "No local chat workspaces found in ~/.cursor/chats/. Open a workspace in Cursor first."
+      `No local chat workspaces found in ${USER_LABEL_DOT_CURSOR}/chats/. Open a workspace in Cursor first.`
     );
   } else if (localWorkspaces.length === 1) {
     targetWorkspaceKey = localWorkspaces[0]!.name;

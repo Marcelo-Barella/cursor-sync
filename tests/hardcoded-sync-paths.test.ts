@@ -6,8 +6,10 @@ import { describe, expect, it } from "vitest";
 import { assertBundleRuntimeImports } from "../esbuild-bundle-guard.mjs";
 import {
   AST_ALLOWLIST,
+  bundleInputPathsFromMetafile,
   collectSourceFiles,
   scanFileAt,
+  scanMetafileInputs,
   scanSourceText,
 } from "./sync-path-ast-guard.js";
 
@@ -23,29 +25,85 @@ describe("sync path hardcoding guard (AST)", () => {
         continue;
       }
       const abs = path.join(repoRoot, rel);
-      offenders.push(...scanFileAt(abs, rel.replace(/\\/g, "/")));
+      offenders.push(...scanFileAt(abs, rel.replace(/\\/g, "/"), repoRoot));
     }
     expect(offenders).toEqual([]);
   });
 
   it("rejects every Tester AST probe fixture", () => {
+    const skipAsSrcOnly = new Set(["f05.ts", "m14.ts"]);
     const files = fs
       .readdirSync(probeDir)
-      .filter((f) => f.endsWith(".ts") && !f.startsWith("allowed-"));
+      .filter(
+        (f) =>
+          f.endsWith(".ts") &&
+          !f.startsWith("allowed-") &&
+          !skipAsSrcOnly.has(f)
+      );
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       const abs = path.join(probeDir, file);
-      const offenders = scanFileAt(abs, `tests/fixtures/ast-probes/${file}`);
+      const offenders = scanFileAt(
+        abs,
+        `tests/fixtures/ast-probes/${file}`,
+        repoRoot
+      );
       expect(offenders.length, `expected violations in ${file}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("rejects f05 import outside src when scanned as src module", () => {
+    const content = fs.readFileSync(path.join(probeDir, "f05.ts"), "utf8");
+    const offenders = scanSourceText("src/_f05.ts", content, repoRoot);
+    expect(offenders.some((o) => o.includes("outside src"))).toBe(true);
+  });
+
+  it("allows false-positive-safe AST patterns in allowed fixtures", () => {
+    const allowed = fs
+      .readdirSync(probeDir)
+      .filter((f) => f.startsWith("allowed-") && f.endsWith(".ts"));
+    for (const file of allowed) {
+      const abs = path.join(probeDir, file);
+      const offenders = scanFileAt(
+        abs,
+        `tests/fixtures/ast-probes/${file}`,
+        repoRoot
+      );
+      expect(offenders, file).toEqual([]);
     }
   });
 
   it("allows safe os-runtime wrapper usage in synthetic snippet", () => {
     const offenders = scanSourceText(
       "synthetic/allowed.ts",
-      `import { nodePlatform } from "./os-runtime.js"; export const p = nodePlatform();`
+      `import { nodePlatform } from "./os-runtime.js"; export const p = nodePlatform();`,
+      repoRoot
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("scans bundled metafile inputs the same as src tree", async () => {
+    const metaPath = path.join(repoRoot, "dist", "extension.meta.json");
+    if (!fs.existsSync(metaPath)) {
+      await esbuild.build({
+        entryPoints: [path.join(repoRoot, "src", "extension.ts")],
+        bundle: true,
+        outfile: path.join(repoRoot, "dist", "extension.js"),
+        external: ["vscode"],
+        platform: "node",
+        format: "cjs",
+        metafile: true,
+        logLevel: "silent",
+      });
+    }
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+      inputs?: Record<string, unknown>;
+    };
+    const inputs = bundleInputPathsFromMetafile(meta).filter(
+      (p) => p.startsWith("src/") && !p.includes("node_modules")
+    );
+    expect(inputs.length).toBeGreaterThan(0);
+    expect(scanMetafileInputs(meta, repoRoot)).toEqual([]);
   });
 });
 
@@ -79,5 +137,4 @@ describe("bundle runtime import guard", () => {
     );
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   });
-
 });

@@ -62,7 +62,7 @@ import {
   pullDeclineBlocksRemote,
 } from "../src/app-storage-sync-declines.js";
 
-const mockContext = {} as vscode.ExtensionContext;
+const mockContext = {} as unknown as vscode.ExtensionContext;
 const { tmpRoot, cursorUser, dotCursor, outside } = probePaths;
 
 function emptyScan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan {

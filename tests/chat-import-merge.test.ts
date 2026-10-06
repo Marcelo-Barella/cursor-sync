@@ -50,7 +50,7 @@ function normalizePinTimestamps(value: unknown): unknown {
   }
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value as unknown as Record<string, unknown>)) {
       if (k === "createdAt" || k === "lastUpdatedAt" || k === "lastOpenedAt") {
         const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
         out[k] = n >= EXPECTED_PIN_MS - 2 && n <= EXPECTED_PIN_MS + 2 ? EXPECTED_PIN_MS : v;
@@ -81,15 +81,15 @@ describe("chat-import-merge", () => {
   });
 
   it("filterComposerHeadersForConversation matches Python golden", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
-    const headers = snap.composerHeaders as Record<string, unknown>;
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
+    const headers = snap.composerHeaders as unknown as Record<string, unknown>;
     const result = filterComposerHeadersForConversation(headers, cid);
     expect(result).toEqual(golden.filterComposerHeadersForConversation);
   });
 
   it("filterComposerDataForConversation matches Python golden", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
-    const data = snap.composerData as Record<string, unknown>;
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
+    const data = snap.composerData as unknown as Record<string, unknown>;
     const result = filterComposerDataForConversation(data, cid);
     expect(result).toEqual(golden.filterComposerDataForConversation);
   });
@@ -120,8 +120,8 @@ describe("chat-import-merge", () => {
   });
 
   it("composerDataForFocus then snapshot merge matches Python golden", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
-    const data = snap.composerData as Record<string, unknown>;
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
+    const data = snap.composerData as unknown as Record<string, unknown>;
     let merged = composerDataForFocus(cid, JSON.stringify(existingData));
     const extra = filterComposerDataForConversation(data, cid);
     if (Object.keys(extra).length > 0) {
@@ -170,9 +170,9 @@ describe("chat-import-merge", () => {
   });
 
   it("prepareComposerDataForImport clears requestId from sidebar snapshot blob", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
-    const data = { ...(snap.composerData as Record<string, unknown>) };
-    const row = { ...(data[cid] as Record<string, unknown>) };
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
+    const data = { ...(snap.composerData as unknown as Record<string, unknown>) };
+    const row = { ...(data[cid] as unknown as Record<string, unknown>) };
     row.requestId = "stale-request-from-export";
     data[cid] = row;
     const bundleWithRequest = {
@@ -185,7 +185,7 @@ describe("chat-import-merge", () => {
       cid,
       workspaceIdentifier
     );
-    expect((result[cid] as Record<string, unknown>).requestId).toBe("");
+    expect((result[cid] as unknown as Record<string, unknown>).requestId).toBe("");
   });
 
   it("stamp leaves non-target rows workspaceIdentifier unchanged", () => {
@@ -201,7 +201,7 @@ describe("chat-import-merge", () => {
   });
 
   it("headersPayloadForImport prefers snapshot header name over bundle.title", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
     const bundleWithConflictingTitle: ChatBundle = {
       ...bundle,
       title: "Transcript junk",
@@ -224,7 +224,7 @@ describe("chat-import-merge", () => {
   });
 
   it("headersPayloadForImport uses bundle.title when snapshot headers absent", () => {
-    const snap = bundle.sidebarSnapshot as Record<string, unknown>;
+    const snap = bundle.sidebarSnapshot as unknown as Record<string, unknown>;
     const bundleTitleOnly: ChatBundle = {
       ...bundle,
       title: "Transcript Title",

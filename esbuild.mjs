@@ -66,8 +66,11 @@ const buildOptions = {
             await removeIfExists(`${tempOut}.map`);
             await removeIfExists(finalOut);
             await removeIfExists(`${finalOut}.map`);
+            await removeIfExists(metaPath);
             console.error(err instanceof Error ? err.message : String(err));
-            process.exit(1);
+            if (!watch) {
+              process.exit(1);
+            }
           }
         });
       },

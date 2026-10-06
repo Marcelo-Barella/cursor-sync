@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.22",
+  "version": "0.8.4-staging.23",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -345,7 +345,8 @@
         "cursorSync.chatImport.pythonPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to a Python 3 interpreter for chat-transport scripts. Empty = auto-detect (python3, python)."
+          "scope": "machine",
+          "description": "Python 3 interpreter basename or absolute path for chat-transport scripts (python, python3, python3.N, py). Empty = auto-detect. Workspace values are ignored."
         },
         "cursorSync.chatImport.transportChatScriptDir": {
           "type": "string",

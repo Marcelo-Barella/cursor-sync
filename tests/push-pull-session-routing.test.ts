@@ -45,7 +45,7 @@ vi.mock("vscode", () => ({
 }));
 
 function makeContext(): vscode.ExtensionContext {
-  return { secrets: {} } as vscode.ExtensionContext;
+  return { secrets: {} } as unknown as vscode.ExtensionContext;
 }
 
 describe("executePush app session routing", () => {

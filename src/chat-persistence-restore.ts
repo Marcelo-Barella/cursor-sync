@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { systemTmpDir } from "./os-runtime.js";
@@ -293,7 +294,7 @@ export async function restoreChatBundle(
     options.workspaceFolder?.trim() || (await pickImportWorkspaceFolder());
   if (!folderFsPath) {
     throw new Error(
-      "Open a workspace folder in Cursor before importing a chat bundle (required for ~/.cursor/chats/<md5(folder)> store.db path)."
+      `Open a workspace folder in Cursor before importing a chat bundle (required for ${USER_LABEL_DOT_CURSOR}/chats/<md5(folder)> store.db path).`
     );
   }
   const wsCtx = await requireWorkspaceContext({ workspaceFolder: folderFsPath });
@@ -482,7 +483,7 @@ export async function restoreChatBundle(
     if (options.activate) {
       if (!storeWritten) {
         warnings.push(
-          "Bundle has no store.db snapshot; IDE activation usually requires store.db at ~/.cursor/chats/<md5(workspace)>/<conversationId>/store.db. Re-export from a machine where that file exists."
+          `Bundle has no store.db snapshot; IDE activation usually requires store.db at ${USER_LABEL_DOT_CURSOR}/chats/<md5(workspace)>/<conversationId>/store.db. Re-export from a machine where that file exists.`
         );
         logChatRestoreDebug(
           `activation warning conversationId=${conversationId} storeWritten=false (storeSnapshot absent or restore failed)`

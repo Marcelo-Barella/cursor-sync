@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";

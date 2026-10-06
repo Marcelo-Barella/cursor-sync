@@ -51,7 +51,7 @@ describe("sync latch recovery", () => {
     expect(syncOp.tryBeginSyncOperation()).toBe(true);
     expect(syncOp.isSyncOperationActive()).toBe(true);
 
-    const context = {} as import("vscode").ExtensionContext;
+    const context = {} as unknown as import("vscode").ExtensionContext;
     await syncOp.recoverSyncOperationLatch(context, { force: true });
     expect(syncOp.isSyncOperationActive()).toBe(false);
     expect(refreshSidebarMock).toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe("sync latch recovery", () => {
     }));
 
     const { executeSyncNow } = await import("../src/extension.js");
-    await executeSyncNow({} as import("vscode").ExtensionContext);
+    await executeSyncNow({} as unknown as import("vscode").ExtensionContext);
 
     expect(syncOp.isSyncOperationActive()).toBe(false);
     expect(refreshSidebarMock).toHaveBeenCalled();

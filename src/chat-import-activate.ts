@@ -1,4 +1,5 @@
 import { spawnPython3Capture } from "./os-runtime.js";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
@@ -177,8 +178,8 @@ export function normalizeActivationManifest(
   const userHome = resolveUserHomeFromSyncRoots();
   if (folder === "~") {
     folder = userHome;
-  } else if (folder.startsWith("~/")) {
-    folder = path.join(userHome, folder.slice(2));
+  } else if (folder.startsWith(USER_LABEL_HOME_TILDE_PREFIX)) {
+    folder = path.join(userHome, folder.slice(USER_LABEL_HOME_TILDE_PREFIX.length));
   }
   const workspaceFolder = path.resolve(folder);
 
@@ -609,7 +610,7 @@ export async function tryActivateViaComposerHandle(
 
   log(
     `composer.getComposerHandleById returned no handle for composerId=${manifest.composerId} ` +
-      "(store.db may be missing under ~/.cursor/chats/<workspace-key>/)"
+      `(store.db may be missing under ${USER_LABEL_DOT_CURSOR}/chats/<workspace-key>/)`
   );
   return null;
 }

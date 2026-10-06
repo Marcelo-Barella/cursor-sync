@@ -1178,7 +1178,11 @@ export async function executePushAppConfigs(
     );
     for (let i = deletions.length - 1; i >= 0; i--) {
       const deletionKey = deletions[i]!;
-      if (explicitDeletionKeys.has(deletionKey) && trigger !== "syncNow") {
+      if (
+        explicitDeletionKeys.has(deletionKey) &&
+        trigger !== "syncNow" &&
+        trigger !== "scheduled"
+      ) {
         continue;
       }
       if (!probedPushScan.provablyAbsentKeys.has(deletionKey)) {

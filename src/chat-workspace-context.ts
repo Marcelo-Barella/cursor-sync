@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import { isWin32Platform } from "./os-runtime.js";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
@@ -59,8 +60,8 @@ function expandUserFolder(folder: string): string {
   if (folder === "~") {
     return userHome;
   }
-  if (folder.startsWith("~/")) {
-    return path.join(userHome, folder.slice(2));
+  if (folder.startsWith(USER_LABEL_HOME_TILDE_PREFIX)) {
+    return path.join(userHome, folder.slice(USER_LABEL_HOME_TILDE_PREFIX.length));
   }
   return folder;
 }
@@ -224,7 +225,7 @@ export async function requireWorkspaceContext(
     return ctx;
   }
   throw new Error(
-    "Workspace folder is required for chat import: sets ~/.cursor/chats/<md5(folder)> store.db path and stamps workspaceIdentifier on composer headers."
+    `Workspace folder is required for chat import: sets ${USER_LABEL_DOT_CURSOR}/chats/<md5(folder)> store.db path and stamps workspaceIdentifier on composer headers.`
   );
 }
 

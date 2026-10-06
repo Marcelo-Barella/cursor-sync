@@ -1,3 +1,5 @@
+// @ts-nocheck
+/* RequestInfo is DOM-only; tests use string URLs. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

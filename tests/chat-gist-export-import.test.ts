@@ -245,7 +245,7 @@ vi.mock("../src/chat-transport-scripts.js", () => ({
           await mergeSidebarIntoStateDb(
             dbPath,
             bundle,
-            wsCtx.workspaceIdentifier as import("../src/chat-import-merge.js").WorkspaceIdentifier,
+            wsCtx.workspaceIdentifier as unknown as import("../src/chat-import-merge.js").WorkspaceIdentifier,
             { pinRecent: opts.pinRecent ?? true }
           );
         }

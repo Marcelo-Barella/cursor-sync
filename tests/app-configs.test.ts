@@ -44,7 +44,10 @@ vi.mock("../src/extensions.js", () => ({
   generateExtensionsJson: () => "[]",
 }));
 
-vi.mock("../src/paths.js", () => ({
+vi.mock("../src/paths.js", async (importOriginal) => {
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
+  return {
+  ...PATHS_MOCK_USER_LABELS,
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/cursor-user",
     dotCursor: "/tmp/dot-cursor",
@@ -70,7 +73,8 @@ vi.mock("../src/paths.js", () => ({
     }
     return undefined;
   },
-}));
+};
+});
 
 vi.mock("../src/packaging.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/packaging.js")>();

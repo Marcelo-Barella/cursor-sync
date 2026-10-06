@@ -66,14 +66,24 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 
 ## Subprocess allowlist (`src/os-runtime.ts`)
 
-Only these command basenames may be spawned via `execFileAsync`, `spawnSyncCapture`, or `spawnPython3Capture`:
+Only these executables may be spawned via `execFileAsync`, `spawnSyncCapture`, or `spawnPython3Capture`:
 
-`python3`, `python`, `py`, `sqlite3`, `chmod`
+`python3`, `python`, `python3.N` (e.g. `python3.12`), `py`, `sqlite3`, `chmod`
 
-Subprocess environment is scrubbed (no `HOME`, `USERPROFILE`, `APPDATA`, `XDG_*`, etc.). Any other executable is rejected at runtime.
+Commands are resolved to an absolute path on `PATH` from a minimal parent env (never cwd-relative). Caller options cannot override `shell`, `env`, or `argv0`; `shell` is always false. Child `env` is built from an allowlist only: `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TMPDIR`, `TEMP`, `TMP`, `SystemRoot`, `windir`, `COMSPEC`, `PATHEXT`, `SYSTEMDRIVE` (each justified in source).
+
+`sqlite3` invocations use `-safe` when the installed CLI supports it (disables `.shell` / `.system`); otherwise the extension logs and documents fallback.
+
+`cursorSync.chatImport.pythonPath` is **machine** scope only (workspace overrides ignored).
+
+### Known subprocess residuals (documented, not fully blockable)
+
+- Python `os.path.expanduser`, `pwd`, `getent passwd`, reading `/etc/passwd` inside allowlisted interpreters.
+- Any behavior of the resolved `python3` / `sqlite3` binary itself once spawned.
 
 ## AST / bundle guards
 
-- All `src/**` sources except `paths.ts` and `os-runtime.ts` are scanned for forbidden identifiers (`require`, `process`, `globalThis`, …), banned runtime imports, `/proc/` / `environ` string literals, and `systemTmpDir()` path traversal patterns.
+- All `src/**` sources except `paths.ts` and `os-runtime.ts` are scanned for free-reference forbidden identifiers, banned runtime imports, non-literal `import()`/`require`, imports resolving outside `src/`, home-path string literals (via `paths.ts` user labels), `/proc/` / `environ` literals, top-level `arguments`, and `systemTmpDir()` traversal patterns.
+- Bundle metafile guard matches AST banned modules (`worker_threads`, `inspector`, `v8`, `cluster`, …).
 - `paths.ts` is allowlisted because it resolves Cursor user paths via `node:os` / `process.env` (platform-specific layout only).
 - `os-runtime.ts` is the sole gateway for `child_process` and host identity helpers.

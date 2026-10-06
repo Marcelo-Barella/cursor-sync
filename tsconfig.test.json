@@ -7,13 +7,6 @@
     "moduleResolution": "Bundler",
     "types": ["node", "vitest/globals"]
   },
-  "include": [
-    "tests/sync-path-ast-guard.ts",
-    "tests/hardcoded-sync-paths.test.ts",
-    "tests/os-runtime-subprocess.test.ts",
-    "tests/app-configs-push-skip-notice.test.ts",
-    "tests/app-storage-staging21.test.ts",
-    "tests/app-configs-delete-only-push.test.ts"
-  ],
+  "include": ["tests/**/*.ts"],
   "exclude": ["node_modules", "dist", "tests/fixtures"]
 }

@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { USER_LABEL_DOT_CURSOR_CHATS } from "./paths.js";
 import * as path from "node:path";
 import type { SyncManifestChatHistoryEntry } from "./sync-manifest.js";
 import { resolveExtensionSyncRoots } from "./sync-roots.js";
@@ -36,7 +37,7 @@ export async function validateWorkspaceKeysForImport(
       ok: true,
       available,
       message:
-        "No workspace folders under ~/.cursor/chats/ yet. Cursor creates one per workspace when you use Agent chat. Set workspace_key to that folder name after it exists, or import may not show threads.",
+        `No workspace folders under ${USER_LABEL_DOT_CURSOR_CHATS}/ yet. Cursor creates one per workspace when you use Agent chat. Set workspace_key to that folder name after it exists, or import may not show threads.`,
     };
   }
   const missing = unique.filter((k) => !available.includes(k));
@@ -44,7 +45,7 @@ export async function validateWorkspaceKeysForImport(
     return {
       ok: false,
       available,
-      message: `workspace_key must match a directory under ~/.cursor/chats/. Not found: ${missing.join(", ")}. On this machine: ${available.join(", ")}.`,
+      message: `workspace_key must match a directory under ${USER_LABEL_DOT_CURSOR_CHATS}/. Not found: ${missing.join(", ")}. On this machine: ${available.join(", ")}.`,
     };
   }
   return { ok: true, available };

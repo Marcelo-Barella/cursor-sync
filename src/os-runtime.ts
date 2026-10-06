@@ -4,10 +4,10 @@ import {
   spawnSync,
   type ExecFileOptions,
 } from "node:child_process";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-
 const execFilePromisified = promisify(execFileCallback);
 
 /** Subprocess executables the extension may invoke (basename). Documented in docs/app-storage-sync-decisions.md */
@@ -21,20 +21,25 @@ export const ALLOWED_SUBPROCESS_COMMANDS: readonly string[] = [
 
 const ALLOWED_COMMAND_SET = new Set(ALLOWED_SUBPROCESS_COMMANDS);
 
-const SCRUBBED_ENV_KEYS = [
-  /^HOME$/i,
-  /^USERPROFILE$/i,
-  /^APPDATA$/i,
-  /^HOMEDRIVE$/i,
-  /^HOMEPATH$/i,
-  /^USER$/i,
-  /^LOGNAME$/i,
-  /^USERNAME$/i,
-  /^XDG_/i,
-  /^SHELL$/i,
-  /^PWD$/i,
-  /^OLDPWD$/i,
+/** Keys copied from the host process into child environments (nothing else). */
+const SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
+  "PATH", // locate allowlisted interpreters on PATH
+  "LANG", // locale for Python/sqlite CLI messages
+  "LC_ALL",
+  "LC_CTYPE",
+  "TMPDIR", // temp dir hints (not home)
+  "TEMP",
+  "TMP",
+  "SystemRoot", // Windows system root (not user profile)
+  "windir",
+  "COMSPEC", // Windows cmd for py launcher edge cases
+  "PATHEXT", // Windows executable extensions
+  "SYSTEMDRIVE",
 ];
+
+const PYTHON_BASENAME_RE = /^py$|^python$|^python3(\.\d+)*$/i;
+
+let sqlite3SafeFlagSupported: boolean | undefined;
 
 export function subprocessCommandBasename(command: string): string {
   const normalized = command.replace(/\\/g, "/");
@@ -45,25 +50,141 @@ export function subprocessCommandBasename(command: string): string {
   return base;
 }
 
+export function isAllowedSubprocessBasename(basename: string): boolean {
+  const base = subprocessCommandBasename(basename);
+  if (ALLOWED_COMMAND_SET.has(base)) {
+    return true;
+  }
+  return PYTHON_BASENAME_RE.test(base);
+}
+
 export function assertAllowedSubprocessCommand(command: string): void {
-  const base = subprocessCommandBasename(command);
-  if (!ALLOWED_COMMAND_SET.has(base)) {
+  if (!isAllowedSubprocessBasename(subprocessCommandBasename(command))) {
     throw new Error(
-      `Subprocess command not allowlisted: ${command} (allowed: ${ALLOWED_SUBPROCESS_COMMANDS.join(", ")})`
+      `Subprocess command not allowlisted: ${command} (allowed: ${ALLOWED_SUBPROCESS_COMMANDS.join(", ")}, python3.N)`
     );
   }
 }
 
-export function scrubbedSubprocessEnv(
-  extra?: NodeJS.ProcessEnv
-): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
-  for (const key of Object.keys(env)) {
-    if (SCRUBBED_ENV_KEYS.some((re) => re.test(key))) {
-      delete env[key];
+export function scrubbedSubprocessEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of SUBPROCESS_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined && value !== "") {
+      env[key] = value;
     }
   }
   return env;
+}
+
+function pathEntriesFromEnv(): string[] {
+  const env = scrubbedSubprocessEnv();
+  const raw = env.PATH ?? env.Path ?? "";
+  if (!raw) {
+    return [];
+  }
+  return raw.split(path.delimiter).filter((p) => p.length > 0);
+}
+
+function looksRelativeCommand(command: string): boolean {
+  const normalized = command.replace(/\\/g, "/");
+  if (normalized.startsWith("./") || normalized.startsWith("../")) {
+    return true;
+  }
+  if (!path.isAbsolute(command) && (normalized.includes("/") || normalized.includes("\\"))) {
+    return true;
+  }
+  return false;
+}
+
+function resolveOnPath(basename: string, pathDirs: string[]): string | undefined {
+  const extensions =
+    process.platform === "win32"
+      ? (scrubbedSubprocessEnv().PATHEXT ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
+          .split(";")
+          .filter(Boolean)
+      : [""];
+  for (const dir of pathDirs) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, basename + ext);
+      try {
+        if (fs.existsSync(candidate)) {
+          return path.resolve(candidate);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve an allowlisted command to an absolute executable path using PATH from scrubbed env (never cwd).
+ */
+export function resolveSubprocessCommand(command: string): string {
+  assertAllowedSubprocessCommand(command);
+  const trimmed = command.trim();
+  if (looksRelativeCommand(trimmed)) {
+    throw new Error(`Subprocess command must not be a relative path: ${command}`);
+  }
+  if (path.isAbsolute(trimmed)) {
+    const resolved = path.resolve(trimmed);
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`Subprocess command not found: ${command}`);
+    }
+    const base = subprocessCommandBasename(resolved);
+    if (!isAllowedSubprocessBasename(base)) {
+      throw new Error(`Subprocess command not allowlisted: ${command}`);
+    }
+    return resolved;
+  }
+  const base = subprocessCommandBasename(trimmed);
+  const resolved = resolveOnPath(base, pathEntriesFromEnv());
+  if (!resolved) {
+    throw new Error(`Subprocess command not found on PATH: ${command}`);
+  }
+  return resolved;
+}
+
+function validateSubprocessCwd(cwd: string | URL | undefined): string | undefined {
+  if (cwd === undefined) {
+    return undefined;
+  }
+  if (typeof cwd !== "string") {
+    throw new Error("Subprocess cwd must be a string path");
+  }
+  if (!path.isAbsolute(cwd)) {
+    throw new Error(`Subprocess cwd must be absolute: ${cwd}`);
+  }
+  const normalized = path.resolve(cwd);
+  if (normalized.split(/[/\\]/).includes("..")) {
+    throw new Error(`Subprocess cwd must not contain .. segments: ${cwd}`);
+  }
+  return normalized;
+}
+
+type SafeExecFileOptions = Pick<
+  ExecFileOptions,
+  "cwd" | "maxBuffer" | "timeout" | "encoding"
+>;
+
+function safeExecOptions(options?: SafeExecFileOptions): ExecFileOptions {
+  return {
+    cwd: validateSubprocessCwd(options?.cwd),
+    maxBuffer: options?.maxBuffer,
+    timeout: options?.timeout,
+    encoding: options?.encoding,
+    shell: false,
+    env: scrubbedSubprocessEnv(),
+  };
+}
+
+/** @internal test hook for subprocess option hardening */
+export function subprocessExecFileOptionsForTest(
+  options?: SafeExecFileOptions & { shell?: boolean; env?: NodeJS.ProcessEnv }
+): ExecFileOptions {
+  return safeExecOptions(options);
 }
 
 export function systemTmpDir(): string {
@@ -105,13 +226,10 @@ export interface SpawnPython3Options {
 export async function execFileAsync(
   file: string,
   args: readonly string[],
-  options?: ExecFileOptions
+  options?: SafeExecFileOptions
 ): Promise<{ stdout: string; stderr: string }> {
-  assertAllowedSubprocessCommand(file);
-  const result = await execFilePromisified(file, args, {
-    ...options,
-    env: scrubbedSubprocessEnv(options?.env),
-  });
+  const resolved = resolveSubprocessCommand(file);
+  const result = await execFilePromisified(resolved, args, safeExecOptions(options));
   return { stdout: String(result.stdout), stderr: String(result.stderr) };
 }
 
@@ -120,11 +238,12 @@ export function spawnSyncCapture(
   args: readonly string[],
   options?: { cwd?: string; encoding?: BufferEncoding }
 ): { status: number | null; stdout: string; stderr: string } {
-  assertAllowedSubprocessCommand(command);
-  const res = spawnSync(command, args, {
-    cwd: options?.cwd,
+  const resolved = resolveSubprocessCommand(command);
+  const res = spawnSync(resolved, args, {
+    cwd: validateSubprocessCwd(options?.cwd),
     encoding: options?.encoding ?? "utf-8",
     env: scrubbedSubprocessEnv(),
+    shell: false,
   });
   return {
     status: res.status,
@@ -137,12 +256,13 @@ export async function spawnPython3Capture(
   options: SpawnPython3Options
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const command = options.command ?? "python3";
-  assertAllowedSubprocessCommand(command);
+  const resolved = resolveSubprocessCommand(command);
   const { args, cwd, log } = options;
   return await new Promise((resolve, reject) => {
-    const proc = spawn(command, args, {
-      cwd,
+    const proc = spawn(resolved, args, {
+      cwd: validateSubprocessCwd(cwd),
       env: scrubbedSubprocessEnv(),
+      shell: false,
     });
     let stdoutAcc = "";
     let stderrAcc = "";
@@ -167,4 +287,49 @@ export async function spawnPython3Capture(
       resolve({ exitCode: code ?? 1, stdout: stdoutAcc, stderr: stderrAcc });
     });
   });
+}
+
+function sqlite3SupportsSafeFlag(): boolean {
+  if (sqlite3SafeFlagSupported !== undefined) {
+    return sqlite3SafeFlagSupported;
+  }
+  try {
+    const resolved = resolveSubprocessCommand("sqlite3");
+    const res = spawnSync(resolved, ["-safe", "-version"], {
+      env: scrubbedSubprocessEnv(),
+      encoding: "utf-8",
+      shell: false,
+    });
+    sqlite3SafeFlagSupported = res.status === 0;
+  } catch {
+    sqlite3SafeFlagSupported = false;
+  }
+  if (!sqlite3SafeFlagSupported) {
+    void import("./diagnostics.js")
+      .then(({ getLogger }) => {
+        getLogger().appendLine(
+          `[${new Date().toISOString()}] sqlite3 CLI does not support -safe; using fallback without -safe (documented residual risk)`
+        );
+      })
+      .catch(() => {
+        /* extension not activated */
+      });
+  }
+  return sqlite3SafeFlagSupported;
+}
+
+/** Prefix sqlite3 CLI args with -safe when supported (.shell / .system disabled). */
+export function sqlite3CliArgs(userArgs: readonly string[]): string[] {
+  if (sqlite3SupportsSafeFlag()) {
+    return ["-safe", ...userArgs];
+  }
+  return [...userArgs];
+}
+
+export function isSqlite3SafeModeCliError(error: unknown): boolean {
+  const msg =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message)
+      : String(error);
+  return /safe mode/i.test(msg);
 }

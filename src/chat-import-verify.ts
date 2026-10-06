@@ -4,6 +4,7 @@ import type { ChatBundle } from "./chat-persistence.js";
 import { resolveActivationDir } from "./chat-import-activate.js";
 import type { WorkspaceContext } from "./chat-workspace-context.js";
 import { sidebarSnapshotHasComposerData } from "./chat-partial-state.js";
+import { USER_LABEL_DOT_CURSOR_CHATS } from "./paths.js";
 import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 
@@ -251,13 +252,13 @@ export async function verifyImportVisibility(
       checks.push({
         name: "store.db",
         status: "FAIL",
-        detail: `missing at ~/.cursor/chats/${chatsKey}/${conversationId}/`,
+        detail: `missing at ${USER_LABEL_DOT_CURSOR_CHATS}/${chatsKey}/${conversationId}/`,
       });
     } else {
       checks.push({
         name: "store.db",
         status: "SKIP",
-        detail: `no file at ~/.cursor/chats/${chatsKey}/${conversationId}/`,
+        detail: `no file at ${USER_LABEL_DOT_CURSOR_CHATS}/${chatsKey}/${conversationId}/`,
       });
     }
   } else if (expectStore) {

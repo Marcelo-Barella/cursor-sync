@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as vscode from "vscode";
 import { getLogger } from "./diagnostics.js";
 import { refreshSidebar } from "./sidebar/index.js";
@@ -115,7 +116,7 @@ export async function pickImportWorkspaceFolder(): Promise<string | null> {
   }));
   const selected = await vscode.window.showQuickPick(picks, {
     title: "Select workspace folder for chat import",
-    placeHolder: "store.db is written under ~/.cursor/chats/<md5(this folder)>/",
+    placeHolder: `store.db is written under ${USER_LABEL_DOT_CURSOR}/chats/<md5(this folder)>/`,
     ignoreFocusOut: true,
   });
   return selected?.description ?? null;

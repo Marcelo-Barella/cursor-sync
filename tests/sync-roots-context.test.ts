@@ -10,7 +10,7 @@ function makeContext(userDataDir: string): vscode.ExtensionContext {
   const globalStorage = path.join(userDataDir, "User", "globalStorage", "MarceloBarella.cursor-sync");
   return {
     globalStorageUri: { fsPath: globalStorage },
-  } as vscode.ExtensionContext;
+  } as unknown as vscode.ExtensionContext;
 }
 
 describe("sync roots from extension context", () => {

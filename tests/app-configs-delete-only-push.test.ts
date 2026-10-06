@@ -34,7 +34,10 @@ vi.mock("../src/extensions.js", () => ({
   generateExtensionsJson: () => "[]",
 }));
 
-vi.mock("../src/paths.js", () => ({
+vi.mock("../src/paths.js", async () => {
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
+  return {
+  ...PATHS_MOCK_USER_LABELS,
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/cursor-user",
     dotCursor: "/tmp/dot-cursor",
@@ -50,7 +53,8 @@ vi.mock("../src/paths.js", () => ({
   }),
   isSyncKeyExcludedByConfig: () => false,
   syncKeyToAbsolutePath: () => undefined,
-}));
+};
+});
 
 vi.mock("../src/packaging.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/packaging.js")>();
@@ -185,6 +189,32 @@ describe("delete-only push", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("scheduled push re-checks provably-absent for explicit deletions (M17)", async () => {
+    const { scanLocalAppConfigFiles } = await import("../src/app-config-local-scan.js");
+    vi.mocked(scanLocalAppConfigFiles).mockResolvedValueOnce({
+      checksums: {},
+      unreadableKeys: new Set(),
+      enoentKeys: new Set(),
+      provablyAbsentKeys: new Set(),
+      skippedUnknownKeys: new Set(),
+      untrackedKeys: new Set(),
+      absentEligibleKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: 0,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
+      deleteBlockedRootPrefixes: new Set(),
+    });
+    const { executePushAppConfigs } = await import("../src/app-configs.js");
+    const ok = await executePushAppConfigs(makeContext(), {
+      keys: [],
+      deletions: ["dot-cursor/removed.md"],
+      trigger: "scheduled",
+    });
+    expect(deleteR2ObjectMock).not.toHaveBeenCalled();
+    expect(ok).toBeDefined();
   });
 
   it("deletes remote object and updates manifest without uploads", async () => {

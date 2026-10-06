@@ -47,7 +47,9 @@ describe("import gist workspace picker labels", () => {
       JSON.stringify({ folder: pathToFileURL(path.resolve(folder)).href }),
       "utf8"
     );
+    const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
     vi.doMock("../src/paths.js", () => ({
+      ...PATHS_MOCK_USER_LABELS,
       resolveSyncRoots: () => ({ cursorUser, dotCursor: path.join(tmpRoot, ".cursor") }),
     }));
     vi.doMock("node:os", async () => {

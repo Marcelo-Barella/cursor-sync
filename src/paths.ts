@@ -10,6 +10,12 @@ export interface SyncRoots {
   dotCursor: string;
 }
 
+/** User-facing path shorthand (not for filesystem resolution). Centralized for AST home-path guard. */
+export const USER_LABEL_DOT_CURSOR = "~/.cursor";
+export const USER_LABEL_DOT_CURSOR_PROJECTS = `${USER_LABEL_DOT_CURSOR}/projects`;
+export const USER_LABEL_DOT_CURSOR_CHATS = `${USER_LABEL_DOT_CURSOR}/chats`;
+export const USER_LABEL_HOME_TILDE_PREFIX = "~/";
+
 const DENYLIST_DIRS = [
   "extensions",
   "logs",

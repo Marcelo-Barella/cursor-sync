@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 
+vi.mock("../src/paths.js", async () => {
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
+  return { ...PATHS_MOCK_USER_LABELS };
+});
+
 vi.mock("../src/sync-roots.js", () => ({
   resolveExtensionSyncRoots: () => ({
     cursorUser: "/tmp/cursor-user",

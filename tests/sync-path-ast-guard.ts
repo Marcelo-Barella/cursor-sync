@@ -52,6 +52,9 @@ const BANNED_IMPORT_MODULES = new Set([
 
 const PATH_HELPER_IDENTIFIERS = new Set(["systemTmpDir"]);
 
+const HOME_PATH_LITERAL_RE =
+  /(^|[^a-z])\/home\/|\/Users\/|C:\\Users|~\/\.cursor|~\/(?![a-z])/i;
+
 function normalizeModuleSpecifier(text: string): string {
   return text.replace(/^node:/, "");
 }
@@ -103,12 +106,19 @@ function stringHasForbiddenPathContent(text: string): boolean {
     if (withoutEnvironmentWord.includes("environ")) {
       return true;
     }
+    if (withoutEnvironmentWord.includes("environs")) {
+      return true;
+    }
   }
   return false;
 }
 
 function stringHasParentSegment(text: string): boolean {
   return text.includes("..");
+}
+
+function stringLooksLikeHomePath(text: string): boolean {
+  return HOME_PATH_LITERAL_RE.test(text);
 }
 
 function subtreeContainsSystemTmpDir(node: ts.Node): boolean {
@@ -161,13 +171,263 @@ function subtreeContainsParentSegmentLiteral(node: ts.Node): boolean {
   return found;
 }
 
-export function visitAst(node: ts.Node, rel: string, offenders: string[]): void {
-  if (ts.isIdentifier(node) && FORBIDDEN_IDENTIFIERS.has(node.text)) {
+function isDeclarationName(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) {
+    return false;
+  }
+  if (
+    (ts.isVariableDeclaration(parent) ||
+      ts.isFunctionDeclaration(parent) ||
+      ts.isParameter(parent) ||
+      ts.isBindingElement(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent) ||
+      ts.isModuleDeclaration(parent) ||
+      ts.isImportSpecifier(parent) ||
+      ts.isExportSpecifier(parent)) &&
+    parent.name === node
+  ) {
+    return true;
+  }
+  if (ts.isPropertySignature(parent) && parent.name === node) {
+    return true;
+  }
+  return false;
+}
+
+function isTypePosition(node: ts.Identifier): boolean {
+  let current: ts.Node | undefined = node;
+  while (current) {
+    if (
+      ts.isTypeReferenceNode(current) ||
+      ts.isTypeQueryNode(current) ||
+      ts.isTypePredicateNode(current) ||
+      ts.isTypeAliasDeclaration(current)
+    ) {
+      return true;
+    }
+    if (ts.isInterfaceDeclaration(current) || ts.isClassDeclaration(current)) {
+      return false;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function isObjectLiteralKey(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) {
+    return false;
+  }
+  if (ts.isPropertyAssignment(parent) && parent.name === node) {
+    return true;
+  }
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+    return true;
+  }
+  if (ts.isPropertySignature(parent) && parent.name === node) {
+    return true;
+  }
+  if (ts.isMethodSignature(parent) && parent.name === node) {
+    return true;
+  }
+  return false;
+}
+
+function isPropertyNameInAccess(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) {
+    return false;
+  }
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) {
+    return true;
+  }
+  if (
+    ts.isElementAccessExpression(parent) &&
+    parent.argumentExpression === node &&
+    ts.isStringLiteral(node)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isReflectMemberAccess(node: ts.Identifier): boolean {
+  if (node.text !== "Reflect") {
+    return false;
+  }
+  const parent = node.parent;
+  return Boolean(parent && ts.isPropertyAccessExpression(parent) && parent.expression === node);
+}
+
+function isConstructorComparison(node: ts.PropertyAccessExpression): boolean {
+  if (node.name.text !== "constructor") {
+    return false;
+  }
+  const parent = node.parent;
+  if (!parent || !ts.isBinaryExpression(parent)) {
+    return false;
+  }
+  const op = parent.operatorToken.kind;
+  return (
+    op === ts.SyntaxKind.EqualsEqualsToken ||
+    op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+    op === ts.SyntaxKind.ExclamationEqualsToken ||
+    op === ts.SyntaxKind.ExclamationEqualsEqualsToken
+  );
+}
+
+function hasLocalConstShadowBefore(
+  name: string,
+  sourceFile: ts.SourceFile,
+  beforePos: number
+): boolean {
+  let found = false;
+  const walk = (n: ts.Node): void => {
+    if (found || n.pos >= beforePos) {
+      return;
+    }
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  return found;
+}
+
+function isForbiddenIdentifierReference(
+  node: ts.Identifier,
+  sourceFile: ts.SourceFile
+): boolean {
+  if (!FORBIDDEN_IDENTIFIERS.has(node.text)) {
+    return false;
+  }
+  if (isDeclarationName(node)) {
+    return false;
+  }
+  if (hasLocalConstShadowBefore(node.text, sourceFile, node.pos)) {
+    return false;
+  }
+  if (isTypePosition(node)) {
+    return false;
+  }
+  if (isObjectLiteralKey(node)) {
+    return false;
+  }
+  if (isPropertyNameInAccess(node)) {
+    return false;
+  }
+  if (node.text === "Reflect" && isReflectMemberAccess(node)) {
+    return false;
+  }
+  return true;
+}
+
+function isDynamicImportOrRequire(node: ts.CallExpression): boolean {
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    return true;
+  }
+  if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
+    return true;
+  }
+  return false;
+}
+
+function importArgIsStringLiteral(node: ts.CallExpression): boolean {
+  const arg = node.arguments[0];
+  if (!arg) {
+    return false;
+  }
+  return ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg);
+}
+
+function resolveImportTarget(
+  specifier: string,
+  fromRel: string,
+  repoRoot: string
+): string | undefined {
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+    return undefined;
+  }
+  const fromDir = path.dirname(fromRel);
+  const resolved = path.normalize(path.join(fromDir, specifier));
+  const abs = path.join(repoRoot, resolved);
+  return abs;
+}
+
+function isImportOutsideSrc(specifier: string, fromRel: string, repoRoot: string): boolean {
+  if (specifier.includes("node_modules")) {
+    return false;
+  }
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+    return false;
+  }
+  const abs = resolveImportTarget(specifier.replace(/\.(js|ts|tsx|jsx|mjs|cjs)$/, ""), fromRel, repoRoot);
+  if (!abs) {
+    return false;
+  }
+  const srcRoot = path.join(repoRoot, "src");
+  const normalized = path.normalize(abs);
+  if (!normalized.startsWith(srcRoot + path.sep) && normalized !== srcRoot) {
+    return true;
+  }
+  return false;
+}
+
+function isModuleTopLevelNode(node: ts.Node): boolean {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isFunctionExpression(current) ||
+      ts.isArrowFunction(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isConstructorDeclaration(current) ||
+      ts.isGetAccessorDeclaration(current) ||
+      ts.isSetAccessorDeclaration(current)
+    ) {
+      return false;
+    }
+    current = current.parent;
+  }
+  return true;
+}
+
+export function visitAst(
+  node: ts.Node,
+  rel: string,
+  offenders: string[],
+  opts: { repoRoot: string; sourceFile: ts.SourceFile }
+): void {
+  const sourceFile = opts.sourceFile;
+  if (ts.isIdentifier(node) && isForbiddenIdentifierReference(node, sourceFile)) {
     note(rel, offenders, `forbidden identifier ${node.text}`);
   }
 
+  if (
+    isModuleTopLevelNode(node) &&
+    ts.isIdentifier(node) &&
+    node.text === "arguments" &&
+    !isDeclarationName(node) &&
+    !isPropertyNameInAccess(node)
+  ) {
+    note(rel, offenders, "forbidden top-level identifier arguments");
+  }
+
   if (ts.isPropertyAccessExpression(node) && node.name.text === "constructor") {
-    note(rel, offenders, "forbidden .constructor access");
+    if (!isConstructorComparison(node)) {
+      note(rel, offenders, "forbidden .constructor access");
+    }
   }
   if (
     ts.isElementAccessExpression(node) &&
@@ -177,10 +437,28 @@ export function visitAst(node: ts.Node, rel: string, offenders: string[]): void 
   ) {
     note(rel, offenders, "forbidden .constructor access");
   }
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression &&
+    !ts.isStringLiteral(node.argumentExpression) &&
+    !ts.isNoSubstitutionTemplateLiteral(node.argumentExpression)
+  ) {
+    const expr = node.expression.getText();
+    if (expr.endsWith("constructor") || node.getText().includes("constructor")) {
+      note(rel, offenders, "forbidden computed .constructor access");
+    }
+  }
+
+  if (ts.isBindingElement(node) && node.propertyName?.getText() === "constructor") {
+    note(rel, offenders, "forbidden destructured constructor");
+  }
 
   if (ts.isStringLiteral(node)) {
     if (stringHasForbiddenPathContent(node.text)) {
       note(rel, offenders, "forbidden string literal (/proc/ or environ)");
+    }
+    if (!AST_ALLOWLIST.has(rel) && stringLooksLikeHomePath(node.text)) {
+      note(rel, offenders, "forbidden home path string literal");
     }
   }
 
@@ -188,12 +466,18 @@ export function visitAst(node: ts.Node, rel: string, offenders: string[]): void 
     if (stringHasForbiddenPathContent(node.text)) {
       note(rel, offenders, "forbidden template (/proc/ or environ)");
     }
+    if (!AST_ALLOWLIST.has(rel) && stringLooksLikeHomePath(node.text)) {
+      note(rel, offenders, "forbidden home path template");
+    }
   }
 
   if (ts.isTemplateExpression(node) || ts.isTemplateSpan(node)) {
     const text = node.getText();
     if (stringHasForbiddenPathContent(text)) {
       note(rel, offenders, "forbidden template (/proc/ or environ)");
+    }
+    if (!AST_ALLOWLIST.has(rel) && stringLooksLikeHomePath(text)) {
+      note(rel, offenders, "forbidden home path template");
     }
   }
 
@@ -208,8 +492,13 @@ export function visitAst(node: ts.Node, rel: string, offenders: string[]): void 
 
   if (ts.isImportDeclaration(node)) {
     const spec = node.moduleSpecifier;
-    if (ts.isStringLiteral(spec) && isBannedImportModule(spec.text)) {
-      note(rel, offenders, `forbidden import ${spec.text}`);
+    if (ts.isStringLiteral(spec)) {
+      if (isBannedImportModule(spec.text)) {
+        note(rel, offenders, `forbidden import ${spec.text}`);
+      }
+      if (rel.startsWith("src/") && isImportOutsideSrc(spec.text, rel, opts.repoRoot)) {
+        note(rel, offenders, `import resolves outside src/: ${spec.text}`);
+      }
     }
   }
 
@@ -229,17 +518,48 @@ export function visitAst(node: ts.Node, rel: string, offenders: string[]): void 
     }
   }
 
-  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+  if (ts.isCallExpression(node) && isDynamicImportOrRequire(node)) {
     const arg = node.arguments[0];
-    if (ts.isStringLiteral(arg) && isBannedImportModule(arg.text)) {
+    if (!importArgIsStringLiteral(node)) {
+      note(rel, offenders, "forbidden dynamic import/require without string literal");
+    } else if (ts.isStringLiteral(arg) && isBannedImportModule(arg.text)) {
       note(rel, offenders, `forbidden dynamic import(${arg.text})`);
     }
   }
 
-  ts.forEachChild(node, (child) => visitAst(child, rel, offenders));
+  ts.forEachChild(node, (child) => visitAst(child, rel, offenders, opts));
 }
 
-export function scanSourceText(rel: string, content: string): string[] {
+export function scanMetafileInputs(
+  metafile: { inputs?: Record<string, unknown> },
+  repoRoot: string
+): string[] {
+  const offenders: string[] = [];
+  for (const inputPath of bundleInputPathsFromMetafile(metafile)) {
+    const normalized = inputPath.replace(/\\/g, "/");
+    if (normalized.includes("node_modules")) {
+      continue;
+    }
+    if (!normalized.startsWith("src/")) {
+      continue;
+    }
+    if (AST_ALLOWLIST.has(normalized)) {
+      continue;
+    }
+    const abs = path.join(repoRoot, normalized);
+    if (!fs.existsSync(abs)) {
+      continue;
+    }
+    offenders.push(...scanFileAt(abs, normalized, repoRoot));
+  }
+  return offenders;
+}
+
+export function scanSourceText(
+  rel: string,
+  content: string,
+  repoRoot?: string
+): string[] {
   const offenders: string[] = [];
   const kind = scriptKindFor(rel);
   const source = ts.createSourceFile(
@@ -249,13 +569,16 @@ export function scanSourceText(rel: string, content: string): string[] {
     true,
     kind
   );
-  visitAst(source, rel, offenders);
+  visitAst(source, rel, offenders, {
+    repoRoot: repoRoot ?? process.cwd(),
+    sourceFile: source,
+  });
   return offenders;
 }
 
-export function scanFileAt(relPath: string, relLabel: string): string[] {
+export function scanFileAt(relPath: string, relLabel: string, repoRoot?: string): string[] {
   const content = fs.readFileSync(relPath, "utf-8");
-  return scanSourceText(relLabel, content);
+  return scanSourceText(relLabel, content, repoRoot ?? path.dirname(path.dirname(relPath)));
 }
 
 export function bundleInputPathsFromMetafile(metafile: {

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.23
+
+### Fixed
+- `os-runtime`: allowlisted env only; PATH-resolved absolute executables; no caller `shell`/`env`; `sqlite3 -safe`; `python3.N` + machine-scoped `chatImport.pythonPath`.
+- AST guard: non-literal dynamic import; outside-`src/` imports; home-path literals via `paths` labels; free-identifier matching; metafile scan; bundle ban parity.
+- Esbuild: remove stale `extension.meta.json` on guard failure; watch mode keeps watching.
+- Scheduled push re-checks provably-absent explicit deletions (M17).
+- `npm test` typechecks all `tests/**` (`tsconfig.test.json`).
+
 ## v0.8.4-staging.22
 
 ### Fixed

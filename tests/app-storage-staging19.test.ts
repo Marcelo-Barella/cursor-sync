@@ -68,7 +68,7 @@ vi.mock("../src/paths.js", async (importOriginal) => {
   };
 });
 
-const mockContext = {} as vscode.ExtensionContext;
+const mockContext = {} as unknown as vscode.ExtensionContext;
 const { tmpRoot, cursorUser, dotCursor, outside } = probePaths;
 
 const baseline6 = {

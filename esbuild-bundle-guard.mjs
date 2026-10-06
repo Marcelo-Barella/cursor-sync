@@ -10,6 +10,14 @@ const FORBIDDEN = new Set([
   "node:child_process",
   "module",
   "node:module",
+  "worker_threads",
+  "node:worker_threads",
+  "inspector",
+  "node:inspector",
+  "v8",
+  "node:v8",
+  "cluster",
+  "node:cluster",
 ]);
 
 export function assertBundleRuntimeImports(metafile) {

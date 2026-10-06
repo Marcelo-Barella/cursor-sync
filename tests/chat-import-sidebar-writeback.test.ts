@@ -129,7 +129,7 @@ describe("chat-import-sidebar-writeback", () => {
           }
         },
       },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
     vi.clearAllMocks();
     const { mergeSidebarIntoStateDb, repairComposerDataAfterActivation } = await import(
       "../src/chat-import-merge.js"

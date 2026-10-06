@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 import { syncKeyRootPrefix } from "./app-config-sync-root-keys.js";
+import { USER_LABEL_DOT_CURSOR } from "./paths.js";
 
 export type DeleteGuardTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
@@ -105,7 +106,7 @@ export function exceedsMassDeleteThreshold(
 }
 
 const ROOT_HELD_LABELS: Record<string, string> = {
-  "dot-cursor/": "~/.cursor",
+  "dot-cursor/": USER_LABEL_DOT_CURSOR,
   "cursor-user/": "Cursor User settings",
 };
 

@@ -1,6 +1,12 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { execFileAsync, isWin32Platform, systemTmpDir } from "./os-runtime.js";
+import {
+  execFileAsync,
+  isSqlite3SafeModeCliError,
+  isWin32Platform,
+  sqlite3CliArgs,
+  systemTmpDir,
+} from "./os-runtime.js";
 import { getComposerId } from "./composer-merge.js";
 import {
   globalStateVscdbPathsFromRoots,
@@ -186,7 +192,7 @@ export async function runSqliteQuery(
     return runPythonSqliteQuery(dbPath, sql, execOpts);
   }
   try {
-    return await execFileAsync("sqlite3", ["-json", dbPath, sql], execOpts);
+    return await execFileAsync("sqlite3", sqlite3CliArgs(["-json", dbPath, sql]), execOpts);
   } catch (error) {
     if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
       throw error;
@@ -203,9 +209,17 @@ export async function runSqliteScript(dbPath: string, script: string): Promise<v
   const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
   try {
     try {
-      await execFileAsync("sqlite3", [dbPath, `.read ${tmpPath}`], execOpts);
+      await execFileAsync(
+        "sqlite3",
+        sqlite3CliArgs([dbPath, `.read ${tmpPath}`]),
+        execOpts
+      );
       return;
     } catch (error) {
+      if (isSqlite3SafeModeCliError(error)) {
+        await execFileAsync("sqlite3", [dbPath, `.read ${tmpPath}`], execOpts);
+        return;
+      }
       if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
         throw error;
       }

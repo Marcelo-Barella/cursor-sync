@@ -60,7 +60,7 @@ import {
 } from "../src/app-storage-baseline.js";
 import { decideSyncKey } from "../src/app-storage-sync-decisions.js";
 
-const mockContext = {} as vscode.ExtensionContext;
+const mockContext = {} as unknown as vscode.ExtensionContext;
 const { tmpRoot, cursorUser, dotCursor } = probePaths;
 
 function emptyScan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan {

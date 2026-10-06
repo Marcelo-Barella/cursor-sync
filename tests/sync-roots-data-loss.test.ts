@@ -15,7 +15,7 @@ function makeContext(userDataDir: string): vscode.ExtensionContext {
   );
   return {
     globalStorageUri: { fsPath: globalStorage },
-  } as vscode.ExtensionContext;
+  } as unknown as vscode.ExtensionContext;
 }
 
 describe("sync roots decoy XDG vs user-data-dir", () => {
