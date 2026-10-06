@@ -5,6 +5,7 @@ import { isSyncOperationActive } from "../sync-operation.js";
 import type { SyncTabState } from "./sync-tab.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { buildSyncTabStateFromInputs } from "./sync-tab-state.js";
+import { activeScheduledRootHeldFingerprint } from "../storage-sync-ui-status.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 import { renderSidebarAppearanceTokenCss } from "./sidebar-appearance-tokens.js";
 import { getSidebarThemeController } from "./sidebar-theme-controller.js";
@@ -21,6 +22,7 @@ export async function buildSyncTabState(
     appSessionActive,
     syncState,
     isSyncOperationActive: isSyncOperationActive(),
+    activeHeldFingerprint: activeScheduledRootHeldFingerprint(context),
   });
 }
 

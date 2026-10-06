@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.35
+
+### Fixed
+- App storage UX: shared storage sync status derivation (`failure` > `held`/`partial` warning > `ok`) for status bar, sidebar, and Show Status; recovered clean scheduled ticks record recovery history and clear held fingerprints; successful push no longer masks an active held root; toast severity matches bar color.
+- Scheduler: end-of-tick status bar refresh no longer overwrites an error set in the same tick (Gist-only and session-expired cases); session-expired ticks show error instead of falling through to Setup.
+- Status bar: restore `cursorSync.loginToApp` on Sync Setup when no GitHub token and no gist is configured.
+- App storage pull: partial pulls are not success (`partial` result, history `success: false`, markers retained, pull-push does not continue to push); root-recovery clears held-toast dedupe; root-create toasts use plain language (raw errno kept in logs).
+- App storage pull: write-time `EACCES`/`ENOSPC`/`EROFS` skips use accurate skip reasons (not `unsafe_path`); symlink reconcile no longer advances baseline when local content differs from remote while remote is unchanged.
+- Tests: TypeScript compiler-API guard for unchecked SQLite executescript composition; test-only Python script constant; staging.35 coverage for status derivation, partial pull-push, and scheduler bar refresh.
+
 ## v0.8.4-staging.34
 
 ### Fixed

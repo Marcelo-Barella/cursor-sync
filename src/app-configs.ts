@@ -85,9 +85,15 @@ import {
   shouldPullAppConfigFile,
   updateAppStorageBaselineAfterSync,
 } from "./app-storage-baseline.js";
+import {
+  formatSyncRootEnsureUserMessage,
+  pullWriteSkipReasonFromError,
+} from "./app-storage-root-errors.js";
+import { SCHEDULED_ROOT_HELD_HISTORY_KEY } from "./storage-sync-ui-status.js";
 
-/** Pull completed cleanly; held = scheduled root hold (not a failure); failure = error or partial. */
-export type AppStoragePullStatus = "success" | "held" | "failure";
+/** Pull completed cleanly; held = scheduled root hold; partial = incomplete pull; failure = error. */
+export type AppStoragePullStatus = "success" | "held" | "partial" | "failure";
+
 import {
   enumerateSyncFiles,
   listSymlinkSyncKeysUnderRoots,
@@ -554,7 +560,6 @@ const ROOT_ENSURE_WARN_STATE_KEY = "cursorSync.appStorage.rootEnsureFailuresWarn
 
 type RootEnsureWarnEntry = { rootPath: string; fingerprint: string };
 
-const SCHEDULED_ROOT_HELD_HISTORY_KEY = "cursorSync.appStorage.scheduledRootHeldHistory";
 const SCHEDULED_ROOT_HELD_TOAST_KEY = "cursorSync.appStorage.scheduledRootHeldToast";
 
 async function warnRootEnsureFailuresOnce(
@@ -569,6 +574,7 @@ async function warnRootEnsureFailuresOnce(
     if (prior.length > 0) {
       await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, []);
       await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, undefined);
+      await context.globalState.update(SCHEDULED_ROOT_HELD_TOAST_KEY, undefined);
     }
     return;
   }
@@ -580,7 +586,7 @@ async function warnRootEnsureFailuresOnce(
     await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, next);
   } else {
     const roots = failures.map((f) => f.rootPath).join(", ");
-    const detail = failures[0]?.message ?? "";
+    const detail = formatSyncRootEnsureUserMessage(failures[0]?.message ?? "");
     vscode.window.showWarningMessage(
       `Pull skipped sync root(s): ${roots}. ${detail}`
     );
@@ -1860,7 +1866,10 @@ export async function executePullAppConfigs(
         } else if (localDiffersFromRemote && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
-        } else if (!remoteChangedOnServer) {
+        } else if (
+          !remoteChangedOnServer &&
+          (localChecksum === undefined || localChecksum === manifestEntry.checksum)
+        ) {
           reconciledKeys.push(syncKey);
         }
         continue;
@@ -1872,7 +1881,10 @@ export async function executePullAppConfigs(
         if (localDiffersFromRemote && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
-        } else if (!remoteChangedOnServer) {
+        } else if (
+          !remoteChangedOnServer &&
+          (localChecksum === undefined || localChecksum === manifestEntry.checksum)
+        ) {
           reconciledKeys.push(syncKey);
         }
         continue;
@@ -2243,7 +2255,7 @@ export async function executePullAppConfigs(
           continue;
         }
         pullWriteSkipped.push(file.syncKey);
-        pullSkipReasonOverrides.set(file.syncKey, "unsafe_path");
+        pullSkipReasonOverrides.set(file.syncKey, pullWriteSkipReasonFromError(err));
         logger.appendLine(
           `[${new Date().toISOString()}] Pull skipped write for ${file.syncKey}: ${err instanceof Error ? err.message : String(err)}`
         );
@@ -2332,14 +2344,15 @@ export async function executePullAppConfigs(
       (pullLocalScan.deleteBlockedRootPrefixes.size > 0 || rootEnsureFailures.length > 0);
     if (scheduledRootHeld) {
       const fp = `ensure:${rootEnsureFailures.map((f) => `${f.rootPath}:${f.message}`).sort().join("|")}`;
+      const rawRootMsg = rootEnsureFailures[0]?.message ?? "sync root unavailable";
       await recordScheduledRootHeldPullOnce(
         context,
         trigger,
         fp,
-        rootEnsureFailures[0]?.message ?? "sync root unavailable"
+        formatSyncRootEnsureUserMessage(rawRootMsg)
       );
       logger.appendLine(
-        `[${new Date().toISOString()}] Scheduled pull held (root ensure failure); no UI toast`
+        `[${new Date().toISOString()}] Scheduled pull held (root ensure failure); deduped warning toast`
       );
       return "held";
     }
@@ -2383,14 +2396,13 @@ export async function executePullAppConfigs(
       });
     }
 
-    const partialWithProgress = pullPartial && totalPulled > 0;
     await addSyncHistoryEntry(context, {
       timestamp: new Date().toISOString(),
       direction: "pull",
       trigger,
       fileCount: totalPulled,
-      success: !pullPartial || partialWithProgress,
-      partial: partialWithProgress,
+      success: !pullPartial,
+      partial: pullPartial && totalPulled > 0,
       destination,
       ...(pullPartial
         ? { error: partialToast }
@@ -2431,7 +2443,13 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs ${pullPartial ? "partial" : "succeeded"}: ${totalPulled} files`
     );
-    return pullPartial && totalPulled === 0 ? "failure" : "success";
+    if (pullPartial && totalPulled === 0) {
+      return "failure";
+    }
+    if (pullPartial) {
+      return "partial";
+    }
+    return "success";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(

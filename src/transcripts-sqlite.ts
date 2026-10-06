@@ -79,7 +79,7 @@ async function probePythonInterpreter(): Promise<PythonSqliteInterpreter> {
   );
 }
 
-export async function resolvePythonInterpreterForSqlite(): Promise<PythonSqliteInterpreter> {
+async function resolvePythonInterpreterForSqlite(): Promise<PythonSqliteInterpreter> {
   if (!pythonInterpreterResolvePromise) {
     pythonInterpreterResolvePromise = probePythonInterpreter().catch((err) => {
       pythonInterpreterResolvePromise = null;

@@ -1,5 +1,12 @@
 import type { SyncHistoryEntry } from "../types.js";
 import type { SyncTabState } from "./sync-tab.js";
+import {
+  activeScheduledRootHeldFingerprint,
+  deriveStorageSyncPresentation,
+  latestStorageHistoryEntry,
+  storageSyncSidebarStatus,
+  storageSyncSidebarStatusDetail,
+} from "../storage-sync-ui-status.js";
 
 function latestAttemptForDestination(
   history: SyncHistoryEntry[],
@@ -20,6 +27,7 @@ export function buildSyncTabStateFromInputs(input: {
     gistId: string;
   };
   isSyncOperationActive: boolean;
+  activeHeldFingerprint?: string;
 }): SyncTabState {
   const { history, appSessionActive, syncState, isSyncOperationActive } = input;
   const storageAttempt = latestAttemptForDestination(history, "cursor-sync-storage");
@@ -44,15 +52,18 @@ export function buildSyncTabStateFromInputs(input: {
   }
 
   if (appSessionActive && storageAttempt) {
+    const presentation = deriveStorageSyncPresentation({
+      history,
+      activeHeldFingerprint: input.activeHeldFingerprint,
+    });
+    const sidebarStatus = storageSyncSidebarStatus(presentation);
     return {
-      status: storageAttempt.success ? "synced" : "error",
+      status: sidebarStatus,
       lastSyncTime: storageAttempt.timestamp,
       lastSyncDirection: storageAttempt.direction,
       fileCount: storageAttempt.fileCount,
       gistId: syncState?.gistId,
-      statusDetail: storageAttempt.success
-        ? `Storage ${storageAttempt.direction} succeeded`
-        : `Storage ${storageAttempt.direction} failed`,
+      statusDetail: storageSyncSidebarStatusDetail(presentation, storageAttempt),
       ...base,
     };
   }
@@ -93,3 +104,5 @@ export function buildSyncTabStateFromInputs(input: {
     ...base,
   };
 }
+
+export { latestStorageHistoryEntry };

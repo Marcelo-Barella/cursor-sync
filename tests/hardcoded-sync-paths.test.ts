@@ -12,24 +12,14 @@ import {
   scanMetafileInputs,
   scanSourceText,
 } from "./sync-path-ast-guard.js";
+import { scanSqliteRunnerViolations } from "./sqlite-runner-ast-guard.js";
 
 const repoRoot = process.cwd();
 const probeDir = path.join(repoRoot, "tests", "fixtures", "ast-probes");
 
-const FORBIDDEN_UNCHECKED_SQLITE_SYMBOL = "runSqlitePythonExecutescriptUnchecked";
-
 describe("sync path hardcoding guard (AST)", () => {
-  it("forbids unchecked sqlite executescript helper anywhere under src", () => {
-    const srcDir = path.join(repoRoot, "src");
-    const offenders: string[] = [];
-    for (const rel of collectSourceFiles(srcDir)) {
-      const abs = path.join(repoRoot, rel);
-      const text = fs.readFileSync(abs, "utf8");
-      if (text.includes(FORBIDDEN_UNCHECKED_SQLITE_SYMBOL)) {
-        offenders.push(`${rel}: references ${FORBIDDEN_UNCHECKED_SQLITE_SYMBOL}`);
-      }
-    }
-    expect(offenders).toEqual([]);
+  it("forbids unchecked sqlite executescript composition anywhere under src", () => {
+    expect(scanSqliteRunnerViolations(repoRoot)).toEqual([]);
   });
 
   it("forbids banned identifiers and imports in every src file outside allowlist", () => {

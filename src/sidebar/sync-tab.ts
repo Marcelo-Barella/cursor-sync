@@ -1,7 +1,7 @@
 import type { SyncHistoryEntry } from "../types.js";
 
 export interface SyncTabState {
-  status: "synced" | "not-synced" | "syncing" | "error";
+  status: "synced" | "not-synced" | "syncing" | "error" | "warning";
   lastSyncTime: string | undefined;
   lastSyncDirection: "push" | "pull" | undefined;
   fileCount: number;
@@ -106,12 +106,14 @@ export function renderSyncPane(state: SyncTabState): string {
     "not-synced": "warning",
     syncing: "sync~spin",
     error: "error",
+    warning: "warning",
   };
   const statusLabelMap = {
     synced: "Synced",
     "not-synced": "Not Synced",
     syncing: "Syncing...",
     error: "Sync Error",
+    warning: "Sync Warning",
   };
 
   const statusIcon = statusIconMap[state.status];

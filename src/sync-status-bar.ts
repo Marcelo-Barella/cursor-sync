@@ -1,34 +1,13 @@
 import type * as vscode from "vscode";
 import { getToken } from "./auth.js";
 import { hasAppSession } from "./app-configs.js";
-import { formatStatusTimestamp, loadSyncHistory, loadSyncState } from "./diagnostics.js";
+import { loadSyncHistory } from "./diagnostics.js";
 import { updateStatusBar } from "./statusbar.js";
 import { isSyncOperationActive } from "./sync-operation.js";
-import type { SyncHistoryEntry } from "./types.js";
-
-function latestStorageHistoryEntry(
-  history: Awaited<ReturnType<typeof loadSyncHistory>>
-) {
-  return history.find((entry) => entry.destination === "cursor-sync-storage");
-}
-
-function storageStatusDetail(entry: SyncHistoryEntry): string {
-  const when = formatStatusTimestamp(entry.timestamp);
-  if (entry.held || entry.error?.startsWith("held:")) {
-    const msg = entry.error?.replace(/^held:\s*/, "") ?? "sync held";
-    return `pull held at ${when}: ${msg}`;
-  }
-  if (entry.conflict) {
-    return `conflict at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
-  }
-  if (entry.partial) {
-    return `${entry.direction} partial at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
-  }
-  if (entry.success) {
-    return `${entry.direction} succeeded at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
-  }
-  return `${entry.direction} failed at ${when}${entry.error ? `: ${entry.error}` : ""}`;
-}
+import {
+  activeScheduledRootHeldFingerprint,
+  deriveStorageSyncPresentation,
+} from "./storage-sync-ui-status.js";
 
 export async function refreshSyncStatusBar(
   context: vscode.ExtensionContext,
@@ -50,47 +29,52 @@ export async function refreshSyncStatusBar(
     } catch {
       history = [];
     }
-    const latest = latestStorageHistoryEntry(history);
-    if (options?.held || latest?.held || latest?.error?.startsWith("held:")) {
-      updateStatusBar("warning", {
-        destination: "cursor-sync-storage",
-        detail: latest ? storageStatusDetail(latest) : "Sync held",
-        lastSync: latest ? new Date(latest.timestamp) : undefined,
-      });
-      return;
-    }
-    if (latest?.conflict) {
-      updateStatusBar("conflict", {
-        destination: "cursor-sync-storage",
-        detail: storageStatusDetail(latest),
-        lastSync: new Date(latest.timestamp),
-      });
-      return;
-    }
-    if (options?.failed || (latest && !latest.success && !latest.partial)) {
-      updateStatusBar("error", {
-        destination: "cursor-sync-storage",
-        detail: latest ? storageStatusDetail(latest) : "Sync failed",
-        lastSync: latest ? new Date(latest.timestamp) : undefined,
-      });
-      return;
-    }
-    if (options?.warning || latest?.partial) {
-      updateStatusBar("warning", {
-        destination: "cursor-sync-storage",
-        detail: latest ? storageStatusDetail(latest) : "Sync completed with warnings",
-        lastSync: latest ? new Date(latest.timestamp) : undefined,
-      });
-      return;
-    }
-    updateStatusBar("ok", {
-      destination: "cursor-sync-storage",
-      lastSync: latest ? new Date(latest.timestamp) : undefined,
-      detail: latest
-        ? storageStatusDetail(latest)
-        : "Logged in — no storage sync yet",
+    const heldFp = activeScheduledRootHeldFingerprint(context);
+    const tickFailed = options?.failed === true;
+    const presentation = deriveStorageSyncPresentation({
+      history,
+      activeHeldFingerprint: heldFp,
+      tickFailed,
     });
-    return;
+    if (options?.held && presentation.level === "ok") {
+      presentation.level = "warning";
+      presentation.warningKind = "held";
+      presentation.detail = "Sync held";
+    }
+    if (options?.warning && presentation.level === "ok") {
+      presentation.level = "warning";
+      presentation.warningKind = presentation.warningKind ?? "partial";
+    }
+    switch (presentation.level) {
+      case "error":
+        updateStatusBar("error", {
+          destination: "cursor-sync-storage",
+          detail: presentation.detail,
+          lastSync: presentation.lastSync,
+        });
+        return;
+      case "conflict":
+        updateStatusBar("conflict", {
+          destination: "cursor-sync-storage",
+          detail: presentation.detail,
+          lastSync: presentation.lastSync,
+        });
+        return;
+      case "warning":
+        updateStatusBar("warning", {
+          destination: "cursor-sync-storage",
+          detail: presentation.detail,
+          lastSync: presentation.lastSync,
+        });
+        return;
+      default:
+        updateStatusBar("ok", {
+          destination: "cursor-sync-storage",
+          lastSync: presentation.lastSync,
+          detail: presentation.detail,
+        });
+        return;
+    }
   }
 
   if (options?.failed) {
@@ -98,13 +82,17 @@ export async function refreshSyncStatusBar(
     return;
   }
 
+  const { loadSyncState } = await import("./diagnostics.js");
+  const syncState = await loadSyncState(context);
   const token = await getToken(context);
   if (!token) {
-    updateStatusBar("unconfigured");
+    updateStatusBar("unconfigured", {
+      unconfiguredCommand: syncState?.gistId
+        ? "cursorSync.configureGithub"
+        : "cursorSync.loginToApp",
+    });
     return;
   }
-
-  const syncState = await loadSyncState(context);
   updateStatusBar("ok", {
     lastSync: syncState?.lastSyncTimestamp
       ? new Date(syncState.lastSyncTimestamp)

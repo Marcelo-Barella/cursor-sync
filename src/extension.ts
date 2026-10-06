@@ -404,8 +404,8 @@ export async function executeSyncNow(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
-        if (!executePullSucceeded(pullResult) && pullResult.status === "failure") {
-          syncFailed = true;
+        if (pullResult.status !== "success") {
+          syncFailed = pullResult.status === "failure";
         }
         break;
       }
@@ -429,8 +429,8 @@ export async function executeSyncNow(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
-        if (!executePullSucceeded(pullResult) && pullResult.status === "failure") {
-          syncFailed = true;
+        if (pullResult.status !== "success") {
+          syncFailed = pullResult.status === "failure";
           break;
         }
         if (

@@ -45,6 +45,7 @@ export type PullOptions = {
 export type ExecutePullResult =
   | { status: "success" }
   | { status: "held" }
+  | { status: "partial" }
   | { status: "failure" };
 
 export function executePullSucceeded(result: ExecutePullResult): boolean {
@@ -87,6 +88,8 @@ export async function executePull(
         result = { status: "held" };
       } else if (pullStatus === "failure") {
         result = { status: "failure" };
+      } else if (pullStatus === "partial") {
+        result = { status: "partial" };
       } else {
         result = { status: "success" };
       }
@@ -111,7 +114,9 @@ export async function executePull(
           ? { failed: true }
           : result.status === "held"
             ? { held: true }
-            : undefined;
+            : result.status === "partial"
+              ? { warning: true }
+              : undefined;
       await refreshSyncStatusBar(context, barOpts);
       refreshSidebar();
     }

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { SyncState, SyncHistoryEntry } from "./types.js";
 import { syncDestinationLabel } from "./sync-destination.js";
 import type { SyncDestinationId } from "./sync-destination.js";
+import { formatStorageHistoryQuickPickLine } from "./storage-sync-ui-status.js";
 
 const MAX_HISTORY_ENTRIES = 50;
 
@@ -34,6 +35,9 @@ export function formatStatusTimestamp(iso: string): string {
 }
 
 function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
+  if (entry.destination === "cursor-sync-storage") {
+    return formatStorageHistoryQuickPickLine(entry);
+  }
   const when = formatStatusTimestamp(entry.timestamp);
   if (entry.success) {
     const summary = entry.error ? ` — ${entry.error}` : "";
@@ -165,6 +169,21 @@ export async function loadSyncHistory(
   } catch {
     return [];
   }
+}
+
+export async function recordStorageSyncRecovery(
+  context: vscode.ExtensionContext,
+  trigger: SyncHistoryEntry["trigger"]
+): Promise<void> {
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "pull",
+    trigger,
+    fileCount: 0,
+    success: true,
+    destination: "cursor-sync-storage",
+    error: "Recovered — already in sync",
+  });
 }
 
 export async function addSyncHistoryEntry(

@@ -154,7 +154,11 @@ export type PerFileHeldReason =
   | "under_symlinked_dir"
   | "unsafe_path"
   | "changed_during_write"
-  | "root_unavailable";
+  | "root_unavailable"
+  | "permission_denied"
+  | "disk_full"
+  | "read_only_fs"
+  | "write_failed";
 
 function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set<string> {
   const value = scan[key];
@@ -218,6 +222,10 @@ export function formatPerFileSyncHeldNotice(
   const underSymlinkDir: string[] = [];
   const changedDuringWrite: string[] = [];
   const rootUnavailable: string[] = [];
+  const permissionDenied: string[] = [];
+  const diskFull: string[] = [];
+  const readOnlyFs: string[] = [];
+  const writeFailed: string[] = [];
   const unsafe: string[] = [];
   for (const key of heldKeys) {
     const reason = perFileHeldReasonForKey(key, scan, overrides);
@@ -235,6 +243,14 @@ export function formatPerFileSyncHeldNotice(
       changedDuringWrite.push(key);
     } else if (reason === "root_unavailable") {
       rootUnavailable.push(key);
+    } else if (reason === "permission_denied") {
+      permissionDenied.push(key);
+    } else if (reason === "disk_full") {
+      diskFull.push(key);
+    } else if (reason === "read_only_fs") {
+      readOnlyFs.push(key);
+    } else if (reason === "write_failed") {
+      writeFailed.push(key);
     } else {
       unsafe.push(key);
     }
@@ -274,6 +290,18 @@ export function formatPerFileSyncHeldNotice(
   }
   if (rootUnavailable.length > 0) {
     parts.push(formatHeldGroup("sync root unavailable", rootUnavailable));
+  }
+  if (permissionDenied.length > 0) {
+    parts.push(formatHeldGroup("permission denied", permissionDenied));
+  }
+  if (diskFull.length > 0) {
+    parts.push(formatHeldGroup("disk full", diskFull));
+  }
+  if (readOnlyFs.length > 0) {
+    parts.push(formatHeldGroup("read-only filesystem", readOnlyFs));
+  }
+  if (writeFailed.length > 0) {
+    parts.push(formatHeldGroup("write failed", writeFailed));
   }
   if (unsafe.length > 0) {
     parts.push(formatHeldGroup("unsafe path", unsafe));
@@ -343,7 +371,15 @@ export function formatPullSkippedFilesNotice(
                   ? "changed during write"
                   : reason === "root_unavailable"
                     ? "sync root unavailable"
-                    : "unsafe path";
+                    : reason === "permission_denied"
+                      ? "permission denied"
+                      : reason === "disk_full"
+                        ? "disk full"
+                        : reason === "read_only_fs"
+                          ? "read-only filesystem"
+                          : reason === "write_failed"
+                            ? "write failed"
+                            : "unsafe path";
     return `Pull skipped 1 file (${label}): ${key}`;
   }
   const detail = formatPerFileSyncHeldNotice(scan, skippedKeys, overrides).replace(
