@@ -13,9 +13,9 @@ export interface BackupEntry {
 export async function createBackup(
   context: vscode.ExtensionContext,
   filePaths: string[]
-): Promise<{ backupDir: string; entries: BackupEntry[] }> {
+): Promise<{ backupDir: string; entries: BackupEntry[]; failedPaths: string[] }> {
   if (filePaths.length === 0) {
-    return { backupDir: "", entries: [] };
+    return { backupDir: "", entries: [], failedPaths: [] };
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -27,20 +27,25 @@ export async function createBackup(
   await fs.mkdir(backupDir, { recursive: true });
 
   const entries: BackupEntry[] = [];
+  const failedPaths: string[] = [];
 
   for (const absPath of filePaths) {
     try {
       await fs.access(absPath);
       const relative = absPath.replace(/[/\\]/g, "--");
       const backupPath = path.join(backupDir, relative);
-      await fs.copyFile(absPath, backupPath);
-      entries.push({ absolutePath: absPath, backupPath });
+      try {
+        await fs.copyFile(absPath, backupPath);
+        entries.push({ absolutePath: absPath, backupPath });
+      } catch {
+        failedPaths.push(absPath);
+      }
     } catch {
       // File doesn't exist yet, no backup needed
     }
   }
 
-  return { backupDir, entries };
+  return { backupDir, entries, failedPaths };
 }
 
 export async function rollbackFromBackup(entries: BackupEntry[]): Promise<void> {

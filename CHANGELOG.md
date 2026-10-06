@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.14
+
+### Fixed
+- Mass-delete threshold uses OR logic (`> 3` or `> 50%` of tracked, plus delete-all-tracked); table-driven coverage for edge ratios.
+- Mass-delete guard on push and pull (Sync Now / manual), not only the scheduler; empty remote manifest cannot wipe local tracked files without confirmation.
+- Pull overwrite picker: baseline-tracked remote changes pre-selected; no-baseline local≠remote stays unselected (conflict).
+- Auto-pull and scheduled pull skip excluded, oversize, symlink, and unreadable on-disk files; only provably absent locals are pull candidates.
+- Pull aborts when pre-write backup fails instead of overwriting without a backup.
+- Removed directory trees mark descendant baseline keys provably absent so deletes sync.
+- Prune baseline entries for untracked keys when paths leave enabled scope; cancel mass-delete / empty picker is a no-op without failure history or “no files uploaded” toast.
+- Scheduler mass-delete blocks dedupe warn/history per distinct reason; path guard patterns extended (`userInfo` from `os`, `nodeOs.homedir`, `os["homedir"]`, destructured homedir alias, `USERPROFILE`).
+
 ## v0.8.4-staging.13
 
 ### Fixed

@@ -81,17 +81,40 @@ export async function clearAllAppStorageBaselines(
 export function filterScheduledAppStoragePullKeys(
   keys: string[],
   baseline: AppStorageBaseline | undefined,
-  localChecksums: Record<string, string>
+  localScan: import("./app-config-local-scan.js").LocalConfigFileScan
 ): string[] {
   return keys.filter((key) => {
-    if (localChecksums[key] === undefined) {
-      return true;
-    }
-    if (!baselineHasEntries(baseline)) {
+    if (localScan.skippedUnknownKeys.has(key) || localScan.untrackedKeys.has(key)) {
       return false;
     }
-    return baselineKeyTracked(baseline!, key);
+    if (localScan.checksums[key] !== undefined) {
+      return false;
+    }
+    if (!localScan.provablyAbsentKeys.has(key)) {
+      return false;
+    }
+    if (!baselineHasEntries(baseline)) {
+      return true;
+    }
+    if (!baselineKeyTracked(baseline!, key)) {
+      return true;
+    }
+    return true;
   });
+}
+
+export function pullOverwriteShouldBePreselected(
+  syncKey: string,
+  pullBaseline: AppStorageBaseline | undefined,
+  localChecksum: string | undefined
+): boolean {
+  if (pullBaseline && baselineKeyTracked(pullBaseline, syncKey)) {
+    return true;
+  }
+  if (!pullBaseline) {
+    return true;
+  }
+  return localChecksum === undefined;
 }
 
 export function baselineHasEntries(baseline: AppStorageBaseline | undefined): boolean {
@@ -418,6 +441,7 @@ export async function updateAppStorageBaselineAfterSync(
     localChecksums: Record<string, string>;
     remoteChecksums: Record<string, string>;
     trackingScope?: AppStorageBaseline["trackingScope"];
+    pruneUntrackedKeys?: Iterable<string>;
   }
 ): Promise<void> {
   const existing =
@@ -445,6 +469,13 @@ export async function updateAppStorageBaselineAfterSync(
   for (const key of input.deletedKeys) {
     delete nextLocal[key];
     delete nextRemote[key];
+  }
+
+  if (input.pruneUntrackedKeys) {
+    for (const key of input.pruneUntrackedKeys) {
+      delete nextLocal[key];
+      delete nextRemote[key];
+    }
   }
 
   await saveAppStorageBaseline(context, {

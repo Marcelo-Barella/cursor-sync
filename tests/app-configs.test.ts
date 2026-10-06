@@ -72,7 +72,10 @@ vi.mock("../src/paths.js", () => ({
   },
 }));
 
-vi.mock("../src/packaging.js", () => ({
+vi.mock("../src/packaging.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/packaging.js")>();
+  return {
+  ...actual,
   packageFiles: async () => ({
     skipped: [],
     packaged: new Map([
@@ -99,13 +102,37 @@ vi.mock("../src/packaging.js", () => ({
       },
     },
   }),
-}));
+  };
+});
 
 vi.mock("../src/rollback.js", () => ({
-  createBackup: async () => ({ entries: [] }),
+  createBackup: async () => ({ entries: [], failedPaths: [] }),
   rollbackFromBackup: async () => {},
   pruneOldBackups: async () => {},
 }));
+
+const scanLocalAppConfigFilesMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    checksums: {},
+    unreadableKeys: new Set(),
+    enoentKeys: new Set(),
+    provablyAbsentKeys: new Set(),
+    skippedUnknownKeys: new Set(),
+    untrackedKeys: new Set(),
+    deletesAllowed: true,
+    enumeratedCount: 1,
+    rootsHealthy: true,
+    trackingScopeMismatch: false,
+  })
+);
+
+vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-config-local-scan.js")>();
+  return {
+    ...actual,
+    scanLocalAppConfigFiles: scanLocalAppConfigFilesMock,
+  };
+});
 
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
@@ -408,6 +435,7 @@ describe("app-configs R2 sync", () => {
 
   it("pull prefers R2 bytes and falls back to legacy payload content", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
+    getR2StorageCredentialsMock.mockResolvedValue({ token: "r2" });
     getR2ObjectMock.mockResolvedValue(undefined);
     showQuickPickMock.mockImplementation(async (items: { label: string }[]) => items);
     const fetchMock = vi.fn().mockResolvedValue({

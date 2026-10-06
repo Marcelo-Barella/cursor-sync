@@ -165,6 +165,40 @@ export async function scanLocalAppConfigFiles(
     }
   }
 
+  async function markAbsentWhenAncestorDirectoryRemoved(syncKey: string): Promise<void> {
+    const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
+    if (!absolutePath) {
+      return;
+    }
+    const rootPrefix = syncKey.startsWith("dot-cursor/")
+      ? roots.dotCursor
+      : syncKey.startsWith("cursor-user/")
+        ? roots.cursorUser
+        : undefined;
+    if (!rootPrefix) {
+      return;
+    }
+    let dir = path.dirname(absolutePath);
+    while (dir.length >= rootPrefix.length && dir.startsWith(rootPrefix)) {
+      if (dir === rootPrefix) {
+        break;
+      }
+      const parentDir = path.dirname(dir);
+      const dirName = path.basename(dir);
+      try {
+        const listing = await fs.readdir(parentDir);
+        if (!listing.includes(dirName)) {
+          provablyAbsentKeys.add(syncKey);
+          enoentKeys.add(syncKey);
+          return;
+        }
+      } catch {
+        return;
+      }
+      dir = parentDir;
+    }
+  }
+
   const baselineLocalKeys = baseline ? Object.keys(baseline.localChecksums) : [];
   for (const key of baselineLocalKeys) {
     if (checksums[key] !== undefined) {
@@ -199,6 +233,9 @@ export async function scanLocalAppConfigFiles(
     } else if (presence === "skipped_unknown") {
       skippedUnknownKeys.add(key);
       unreadableKeys.add(key);
+    }
+    if (!provablyAbsentKeys.has(key)) {
+      await markAbsentWhenAncestorDirectoryRemoved(key);
     }
   }
 

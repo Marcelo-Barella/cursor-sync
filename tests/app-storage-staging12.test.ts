@@ -80,18 +80,26 @@ describe("app storage staging.12", () => {
       localChecksums: { "cursor-user/settings.json": "local" },
       remoteChecksums: { "cursor-user/settings.json": "remote" },
     };
+    const presentScan: LocalConfigFileScan = {
+      ...emptyScan,
+      checksums: { "cursor-user/settings.json": "local" },
+      provablyAbsentKeys: new Set(["cursor-user/new.json"]),
+    };
     expect(
       filterScheduledAppStoragePullKeys(
         ["cursor-user/settings.json", "cursor-user/new.json"],
         baseline,
-        { "cursor-user/settings.json": "local" }
+        presentScan
       )
-    ).toEqual(["cursor-user/settings.json", "cursor-user/new.json"]);
+    ).toEqual(["cursor-user/new.json"]);
     expect(
       filterScheduledAppStoragePullKeys(
         ["cursor-user/new.json"],
         undefined,
-        { "cursor-user/new.json": "local-changed" }
+        {
+          ...emptyScan,
+          checksums: { "cursor-user/new.json": "local-changed" },
+        }
       )
     ).toEqual([]);
   });
@@ -116,7 +124,9 @@ describe("app storage staging.12", () => {
       emptyScan
     );
     expect(classified.conflictKeys).toContain("cursor-user/settings.json");
-    expect(filterScheduledAppStoragePullKeys(classified.pullKeys, undefined)).toEqual([]);
+    expect(
+      filterScheduledAppStoragePullKeys(classified.pullKeys, undefined, emptyScan)
+    ).toEqual([]);
   });
 
   it("after mutual delete, re-added same content is push not remote_delete", () => {

@@ -165,7 +165,13 @@ describe("app storage staging.13 mass-delete safety", () => {
     const classified = classifyAppStorageKeys({}, remote, undefined, scan());
     expect(classified.pullKeys).toEqual(["cursor-user/settings.json"]);
     expect(
-      filterScheduledAppStoragePullKeys(classified.pullKeys, undefined, {})
+      filterScheduledAppStoragePullKeys(
+        classified.pullKeys,
+        undefined,
+        scan({
+          provablyAbsentKeys: new Set(["cursor-user/settings.json"]),
+        })
+      )
     ).toEqual(["cursor-user/settings.json"]);
   });
 

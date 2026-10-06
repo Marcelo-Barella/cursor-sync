@@ -16,8 +16,13 @@ const FORBIDDEN_PATTERNS = [
   /import\s*\{[^}]*\bhomedir\b[^}]*\}\s*from\s*["']node:os["']/,
   /import\s*\{[^}]*\bhomedir\b[^}]*\}\s*from\s*["']os["']/,
   /import\s*\{[^}]*\buserInfo\b[^}]*\}\s*from\s*["']node:os["']/,
+  /import\s*\{[^}]*\buserInfo\b[^}]*\}\s*from\s*["']os["']/,
+  /\bnodeOs\.homedir\s*\(\s*\)/,
+  /\bos\s*\[\s*["']homedir["']\s*\]\s*\(\s*\)/,
+  /const\s*\{\s*homedir\s*:\s*\w+\s*\}\s*=\s*os\b/,
   /\{\s*homedir\s*\}\s*=\s*os\b/,
   /process\.env\s*\[\s*["']HOME["']\s*\]/,
+  /process\.env\.USERPROFILE/,
 ];
 
 const ALLOWLIST = new Set([path.join("src", "paths.ts")]);
@@ -52,8 +57,13 @@ describe("sync path hardcoding guard", () => {
       "import { homedir } from 'node:os';",
       "import { homedir } from 'os';",
       "import { userInfo } from 'node:os';",
+      "import { userInfo } from 'os';",
+      "const home = nodeOs.homedir();",
+      'const home = os["homedir"]();',
+      "const { homedir: hd } = os;",
       "const { homedir } = os;",
       'const home = process.env["HOME"];',
+      "const home = process.env.USERPROFILE;",
       "const home = os.userInfo().homedir;",
     ];
     for (const sample of samples) {
