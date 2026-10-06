@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.1
+
+### Added
+- Mandatory end-to-end encryption (E2E) for app configs (encrypted R2 + encrypted manifest with `clearLegacyPayload` migration) and GitHub Gist settings/chat/transcript exports (CSE1 envelopes + gist marker).
+- E2E gate commands (unlock, lock, passphrase change, recovery key rotation) and sidebar lock banner; push/pull/sync-now require unlock when encryption is enabled.
+- Legacy chat Gist password import with optional re-wrap under the sync DEK; `tests/e2e-crypto.test.ts` covers the spec section 8 crypto matrix.
+
+### Changed
+- Staging API preset targets `https://api-staging.cursor-sync.com` (separate env commit).
+
 ## v0.8.4-staging.5
 
 ### Fixed
