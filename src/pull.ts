@@ -24,6 +24,8 @@ import {
 } from "./sync-debug.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
+import { hasAppSession, executePullAppConfigs } from "./app-configs.js";
+import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
@@ -55,6 +57,11 @@ export async function executePull(
 
   let failed = false;
   try {
+    if (await hasAppSession(context)) {
+      const success = await executePullAppConfigs(context, { trigger });
+      failed = !success;
+      return success;
+    }
     const success = await doPull(context, trigger);
     failed = !success;
     return success;
@@ -159,7 +166,7 @@ async function doPull(
         category: gistResult.error.category,
         statusCode: gistResult.error.statusCode,
       }),
-      { title: `Pull failed: ${gistResult.error.message}` }
+      { title: `Pull from ${SYNC_DESTINATION_GIST_LABEL} failed: ${gistResult.error.message}` }
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Pull failed: ${gistResult.error.category} - ${gistResult.error.message}`
@@ -170,6 +177,7 @@ async function doPull(
       trigger,
       fileCount: 0,
       success: false,
+      destination: "github-gist",
       error: gistResult.error.message,
     });
     sendEvent(context, "sync_failed", {
@@ -309,7 +317,9 @@ async function doPull(
 
   if (filesToWrite.length === 0) {
     if (trigger === "manual") {
-      vscode.window.showInformationMessage("Pull complete: no files to update.");
+      vscode.window.showInformationMessage(
+        `Pull complete: no files to update from ${SYNC_DESTINATION_GIST_LABEL}.`
+      );
     }
     sendEvent(context, "sync_completed", { direction: "pull", file_count: 0, trigger });
     return true;
@@ -346,8 +356,7 @@ async function doPull(
   if (writeError) {
     logger.appendLine(`[${new Date().toISOString()}] Rolling back partial writes`);
     await rollbackFromBackup(writtenBackups);
-    const writeErrorMessage =
-      "Pull failed: file write error. Changes have been rolled back.";
+    const writeErrorMessage = `Pull from ${SYNC_DESTINATION_GIST_LABEL} failed: file write error. Changes have been rolled back.`;
     void showSyncFailureWithDebug(
       context,
       buildSyncDebugFailure("pull", trigger, writeErrorMessage, {
@@ -363,6 +372,7 @@ async function doPull(
       trigger,
       fileCount: 0,
       success: false,
+      destination: "github-gist",
       error: "File write error",
     });
     sendEvent(context, "sync_failed", { direction: "pull", reason: "FILE_SYSTEM_ERROR", trigger });
@@ -392,6 +402,7 @@ async function doPull(
     trigger,
     fileCount: filesToWrite.length,
     success: true,
+    destination: "github-gist",
   });
   sendEvent(context, "sync_completed", {
     direction: "pull",
@@ -401,7 +412,7 @@ async function doPull(
   await syncExtensionsAfterPull(gistData.files, logger);
 
   vscode.window.showInformationMessage(
-    `Pull complete: ${filesToWrite.length} file(s) updated.`
+    `Pull complete: ${filesToWrite.length} file(s) updated from ${SYNC_DESTINATION_GIST_LABEL}.`
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Pull succeeded: ${filesToWrite.length} files`

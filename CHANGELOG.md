@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.7
+
+### Fixed
+- Sidebar **Push** / **Pull** route to Cursor Sync storage when an app session is active; dedicated **Push storage** / **Pull storage** actions when logged in.
+- Sync toasts and **Show Status** name the destination (GitHub Gist vs Cursor Sync storage); app-storage push counts only successful R2 uploads and logs each key to the Output channel.
+- Sync roots derive the Cursor **User** directory from `globalStorageUri` (supports `--user-data-dir`); `skills-cursor` is excluded from default sync paths.
+
 ## v0.8.4-staging.5
 
 ### Fixed

@@ -30,11 +30,14 @@ vi.mock("vscode", () => ({
   },
 }));
 
+const addSyncHistoryEntryMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({
     appendLine: appendLineMock,
     show: vi.fn(),
   }),
+  addSyncHistoryEntry: addSyncHistoryEntryMock,
 }));
 
 vi.mock("../src/extensions.js", () => ({
@@ -121,6 +124,7 @@ describe("app-configs API", () => {
   beforeEach(() => {
     vi.resetModules();
     appendLineMock.mockReset();
+    addSyncHistoryEntryMock.mockReset();
     showErrorMessageMock.mockReset();
     showInformationMessageMock.mockReset();
     showQuickPickMock.mockReset();
@@ -270,6 +274,7 @@ describe("app-configs R2 sync", () => {
   beforeEach(() => {
     vi.resetModules();
     appendLineMock.mockReset();
+    addSyncHistoryEntryMock.mockReset();
     showErrorMessageMock.mockReset();
     showInformationMessageMock.mockReset();
     showQuickPickMock.mockReset();
@@ -337,6 +342,29 @@ describe("app-configs R2 sync", () => {
       sizeBytes: 7,
     });
     expect(body.payload.files["cursor-user/settings.json"].content).toBeUndefined();
+    expect(showInformationMessageMock).toHaveBeenCalledWith(
+      "Push complete: 1 file(s) synced to Cursor Sync storage."
+    );
+    expect(appendLineMock).toHaveBeenCalledWith(
+      expect.stringContaining("Uploaded cursor-user/settings.json")
+    );
+  });
+
+  it("fails when R2 upload errors and reports zero successful uploads", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-token");
+    putR2ObjectMock.mockRejectedValue(new Error("403 forbidden"));
+
+    const { executePushAppConfigs } = await import("../src/app-configs.js");
+    const ok = await executePushAppConfigs(makeContext());
+
+    expect(ok).toBe(false);
+    expect(showErrorMessageMock).toHaveBeenCalledWith(
+      expect.stringMatching(/Cursor Sync storage.*no files uploaded/i)
+    );
+    expect(addSyncHistoryEntryMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ success: false, fileCount: 0, destination: "cursor-sync-storage" })
+    );
   });
 
   it("pull prefers R2 bytes and falls back to legacy payload content", async () => {

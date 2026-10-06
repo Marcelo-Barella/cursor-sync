@@ -7,6 +7,8 @@ export type SidebarMessage =
         | "syncNow"
         | "push"
         | "pull"
+        | "pushAppConfigs"
+        | "pullAppConfigs"
         | "export"
         | "import"
         | "configure"
@@ -39,6 +41,12 @@ export async function dispatchSidebarMessage(
       break;
     case "pull":
       await vscode.commands.executeCommand("cursorSync.pull");
+      break;
+    case "pushAppConfigs":
+      await vscode.commands.executeCommand("cursorSync.pushAppConfigs");
+      break;
+    case "pullAppConfigs":
+      await vscode.commands.executeCommand("cursorSync.pullAppConfigs");
       break;
     case "export":
       await vscode.commands.executeCommand("cursorSync.export");

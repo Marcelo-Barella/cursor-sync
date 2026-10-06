@@ -94,7 +94,6 @@ export const workspace = {
           "extensions.json",
           "vsix/**",
           "skills/**",
-          "skills-cursor/**/SKILL.md",
           "commands/**/*.md",
           "rules/*.mdc",
         ],

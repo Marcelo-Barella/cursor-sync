@@ -155,7 +155,7 @@ describe("push/pull debug wiring", () => {
     });
     expect(failure.message).toContain("Server error (500)");
     expect(options).toMatchObject({
-      title: expect.stringContaining("Push failed:"),
+      title: expect.stringContaining("Push to GitHub Gist failed:"),
     });
   });
 
@@ -211,7 +211,7 @@ describe("push/pull debug wiring", () => {
     });
     expect(failure.message).toBe("Not Found");
     expect(options).toMatchObject({
-      title: expect.stringContaining("Pull failed:"),
+      title: expect.stringContaining("Pull from GitHub Gist failed:"),
     });
   });
 

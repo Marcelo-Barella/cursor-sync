@@ -323,6 +323,19 @@ export async function renderSidebarHtml(
     .action-btn:hover .codicon {
       color: #6ee7b7;
     }
+    .action-btn-app {
+      border-color: rgba(125, 211, 252, 0.2);
+      background: var(--cs-surface-sunken);
+    }
+    .action-btn-app .codicon {
+      color: #7dd3fc;
+    }
+    .action-btn-app:hover {
+      border-color: rgba(125, 211, 252, 0.35);
+    }
+    .action-btn-app:hover .codicon {
+      color: #bae6fd;
+    }
 
     /* ── History List ── */
     .history-list { display: flex; flex-direction: column; gap: 2px; }

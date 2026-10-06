@@ -33,9 +33,7 @@ const DENYLIST_GLOBS = ["Cookies*", "*.db", "*.db-journal", "*.db-wal", "*.log"]
 
 const MAX_SYNC_VSIX_BYTES = 50 * 1024 * 1024;
 
-export function resolveSyncRoots(
-  platform: NodeJS.Platform = process.platform
-): SyncRoots {
+function defaultSyncRoots(platform: NodeJS.Platform): SyncRoots {
   if (platform === "win32") {
     const appData = process.env["APPDATA"] || path.join(os.homedir(), "AppData", "Roaming");
     const userProfile = process.env["USERPROFILE"] || os.homedir();
@@ -60,6 +58,45 @@ export function resolveSyncRoots(
   };
 }
 
+export function deriveCursorUserDirFromGlobalStorage(
+  globalStorageUri: vscode.Uri
+): string | undefined {
+  const globalStoragePath = globalStorageUri.fsPath;
+  const globalStorageDir = path.dirname(globalStoragePath);
+  if (path.basename(globalStorageDir) !== "globalStorage") {
+    return undefined;
+  }
+  const userDir = path.dirname(globalStorageDir);
+  if (path.basename(userDir) !== "User") {
+    return undefined;
+  }
+  return userDir;
+}
+
+function resolveDotCursorDir(platform: NodeJS.Platform, fallback: string): string {
+  const fromEnv = process.env["CURSOR_DOT_DIR"]?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return fallback;
+}
+
+export function resolveSyncRoots(
+  platform: NodeJS.Platform = process.platform,
+  context?: vscode.ExtensionContext
+): SyncRoots {
+  const defaults = defaultSyncRoots(platform);
+  const fromContext =
+    context?.globalStorageUri !== undefined
+      ? deriveCursorUserDirFromGlobalStorage(context.globalStorageUri)
+      : undefined;
+
+  return {
+    cursorUser: fromContext ?? defaults.cursorUser,
+    dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
+  };
+}
+
 export async function enumerateSyncFiles(
   roots?: SyncRoots
 ): Promise<SyncFileEntry[]> {
@@ -80,7 +117,7 @@ export async function enumerateSyncFiles(
   );
   const dotCursorGlobs = enabledPaths.filter(
     (g) =>
-      g.startsWith("skills") ||
+      (g.startsWith("skills") && !g.startsWith("skills-cursor")) ||
       g.startsWith("commands") ||
       g.startsWith("rules")
   );
@@ -125,6 +162,10 @@ async function collectFiles(
     const rel = path.relative(rootDir, absPath).split(path.sep).join("/");
 
     if (isDenylisted(rel)) {
+      continue;
+    }
+
+    if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
       continue;
     }
 
@@ -218,7 +259,6 @@ export function getDefaultEnabledPaths(): string[] {
     "extensions.json",
     "vsix/**",
     "skills/**",
-    "skills-cursor/**/SKILL.md",
     "commands/**/*.md",
     "rules/*.mdc",
   ];

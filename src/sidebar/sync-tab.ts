@@ -134,6 +134,11 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
+  const appStorageActions = state.appSessionActive
+    ? `<button class="action-btn action-btn-app" data-command="pushAppConfigs"><span class="codicon codicon-cloud-upload"></span> Push storage</button>
+      <button class="action-btn action-btn-app" data-command="pullAppConfigs"><span class="codicon codicon-cloud-download"></span> Pull storage</button>`
+    : "";
+
   return `<div id="sync-pane" class="tab-pane">
   <div class="status-card ${state.status}">
     <div class="status-icon-wrapper">
@@ -159,6 +164,7 @@ export function renderSyncPane(state: SyncTabState): string {
     <div class="action-grid">
       <button class="action-btn" data-command="push"><span class="codicon codicon-cloud-upload"></span> Push</button>
       <button class="action-btn" data-command="pull"><span class="codicon codicon-cloud-download"></span> Pull</button>
+      ${appStorageActions}
       <button class="action-btn" data-command="export"><span class="codicon codicon-export"></span> Export</button>
       <button class="action-btn" data-command="import"><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>

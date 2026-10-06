@@ -1,3 +1,5 @@
+import type { SyncDestinationId } from "./sync-destination.js";
+
 export interface SyncFileEntry {
   absolutePath: string;
   relativeSyncKey: string;
@@ -88,5 +90,6 @@ export interface SyncHistoryEntry {
   trigger: "manual" | "scheduled";
   fileCount: number;
   success: boolean;
+  destination?: SyncDestinationId;
   error?: string;
 }

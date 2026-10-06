@@ -21,6 +21,8 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { SyncState } from "./types.js";
+import { hasAppSession, executePushAppConfigs } from "./app-configs.js";
+import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
@@ -52,6 +54,11 @@ export async function executePush(
 
   let failed = false;
   try {
+    if (await hasAppSession(context)) {
+      const success = await executePushAppConfigs(context, { trigger });
+      failed = !success;
+      return success;
+    }
     const success = await doPush(context, trigger);
     failed = !success;
     return success;
@@ -177,7 +184,7 @@ async function doPush(
           category: result.error.category,
           statusCode: result.error.statusCode,
         }),
-        { title: `Push failed: ${result.error.message}` }
+        { title: `Push to ${SYNC_DESTINATION_GIST_LABEL} failed: ${result.error.message}` }
       );
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
@@ -188,6 +195,7 @@ async function doPush(
         trigger,
         fileCount: 0,
         success: false,
+        destination: "github-gist",
         error: result.error.message,
       });
       sendEvent(context, "sync_failed", {
@@ -228,7 +236,7 @@ async function doPush(
           category: result.error.category,
           statusCode: result.error.statusCode,
         }),
-        { title: `Push failed: ${result.error.message}` }
+        { title: `Push to ${SYNC_DESTINATION_GIST_LABEL} failed: ${result.error.message}` }
       );
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
@@ -239,6 +247,7 @@ async function doPush(
         trigger,
         fileCount: 0,
         success: false,
+        destination: "github-gist",
         error: result.error.message,
       });
       sendEvent(context, "sync_failed", {
@@ -273,6 +282,7 @@ async function doPush(
     trigger,
     fileCount,
     success: true,
+    destination: "github-gist",
   });
   sendEvent(context, "sync_completed", {
     direction: "push",
@@ -281,7 +291,7 @@ async function doPush(
     is_new_gist: isNewGist,
   });
   vscode.window.showInformationMessage(
-    `Push complete: ${fileCount} file(s) synced.`
+    `Push complete: ${fileCount} file(s) synced to ${SYNC_DESTINATION_GIST_LABEL}.`
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Push succeeded: ${fileCount} files`

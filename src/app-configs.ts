@@ -9,7 +9,8 @@ import {
   putR2Object,
 } from "./app-r2-storage.js";
 import { generateExtensionsJson } from "./extensions.js";
-import { getLogger } from "./diagnostics.js";
+import { addSyncHistoryEntry, getLogger } from "./diagnostics.js";
+import { syncDestinationLabel } from "./sync-destination.js";
 import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
@@ -147,9 +148,11 @@ export function buildMetadataOnlyPayload(
   };
 }
 
-export async function buildLocalAppConfigsPayload(): Promise<AppConfigsPayloadV1> {
+export async function buildLocalAppConfigsPayload(
+  context?: vscode.ExtensionContext
+): Promise<AppConfigsPayloadV1> {
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = resolveSyncRoots().cursorUser;
+  const cursorUserRoot = resolveSyncRoots(process.platform, context).cursorUser;
   const extensionsPath = path.join(cursorUserRoot, "extensions.json");
   await fs.mkdir(path.dirname(extensionsPath), { recursive: true });
   await fs.writeFile(extensionsPath, extensionsJson, "utf-8");
@@ -237,22 +240,38 @@ function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
   );
 }
 
+export type AppConfigsSyncOptions = {
+  trigger?: "manual" | "scheduled";
+};
+
 export async function executePushAppConfigs(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: AppConfigsSyncOptions
 ): Promise<boolean> {
+  const trigger = options?.trigger ?? "manual";
+  const destination = "cursor-sync-storage" as const;
+  const destinationLabel = syncDestinationLabel(destination);
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
   try {
-    const localPayload = await buildLocalAppConfigsPayload();
+    const localPayload = await buildLocalAppConfigsPayload(context);
     const credentials = await getR2StorageCredentials(context);
     if (!credentials) {
       return false;
     }
 
+    const skipped: Array<{ syncKey: string; reason: string }> = [];
+    let uploadedCount = 0;
+
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
       const manifestEntry = localPayload.manifest.files[syncKey];
-      if (!manifestEntry || file.content === undefined) {
+      if (!manifestEntry) {
+        skipped.push({ syncKey, reason: "missing manifest entry" });
+        continue;
+      }
+      if (file.content === undefined) {
+        skipped.push({ syncKey, reason: "no inline content to upload" });
         continue;
       }
       const encoding =
@@ -263,7 +282,39 @@ export async function executePushAppConfigs(
         encoding === "base64"
           ? Buffer.from(file.content, "base64")
           : Buffer.from(file.content, "utf-8");
-      await putR2Object(credentials, syncKey, body);
+      try {
+        await putR2Object(credentials, syncKey, body);
+        uploadedCount += 1;
+        logger.appendLine(
+          `[${new Date().toISOString()}] Uploaded ${syncKey} (${body.length} bytes) status=200`
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        skipped.push({ syncKey, reason });
+        logger.appendLine(
+          `[${new Date().toISOString()}] Upload failed ${syncKey}: ${reason}`
+        );
+      }
+    }
+
+    if (uploadedCount === 0 || skipped.length > 0) {
+      const detail = skipped.map((s) => `${s.syncKey}: ${s.reason}`).join("; ");
+      const message =
+        uploadedCount === 0
+          ? `Push to ${destinationLabel} failed: no files uploaded.${detail ? ` Skipped: ${detail}` : ""}`
+          : `Push to ${destinationLabel} failed: ${skipped.length} file(s) skipped or errored. ${detail}`;
+      logger.appendLine(`[${new Date().toISOString()}] Push app configs failed: ${message}`);
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: uploadedCount,
+        success: false,
+        destination,
+        error: message,
+      });
+      vscode.window.showErrorMessage(message);
+      return false;
     }
 
     const payload = buildMetadataOnlyPayload(
@@ -275,12 +326,19 @@ export async function executePushAppConfigs(
       return false;
     }
 
-    const fileCount = Object.keys(payload.files).length;
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "push",
+      trigger,
+      fileCount: uploadedCount,
+      success: true,
+      destination,
+    });
     vscode.window.showInformationMessage(
-      `App configs push complete: ${fileCount} file(s) synced.`
+      `Push complete: ${uploadedCount} file(s) synced to ${destinationLabel}.`
     );
     logger.appendLine(
-      `[${new Date().toISOString()}] Push app configs succeeded: ${fileCount} files`
+      `[${new Date().toISOString()}] Push app configs succeeded: ${uploadedCount} files`
     );
     return true;
   } catch (err) {
@@ -288,14 +346,27 @@ export async function executePushAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
     );
-    vscode.window.showErrorMessage(`Push app configs failed: ${message}`);
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "push",
+      trigger,
+      fileCount: 0,
+      success: false,
+      destination,
+      error: message,
+    });
+    vscode.window.showErrorMessage(`Push to ${destinationLabel} failed: ${message}`);
     return false;
   }
 }
 
 export async function executePullAppConfigs(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: AppConfigsSyncOptions
 ): Promise<boolean> {
+  const trigger = options?.trigger ?? "manual";
+  const destination = "cursor-sync-storage" as const;
+  const destinationLabel = syncDestinationLabel(destination);
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
@@ -306,7 +377,9 @@ export async function executePullAppConfigs(
     }
 
     if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
-      vscode.window.showInformationMessage("Pull app configs complete: no remote configs.");
+      vscode.window.showInformationMessage(
+        `Pull complete: no remote configs in ${destinationLabel}.`
+      );
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs: empty or invalid payload`
       );
@@ -314,7 +387,7 @@ export async function executePullAppConfigs(
     }
 
     const { manifest, files } = response.payload;
-    const roots = resolveSyncRoots();
+    const roots = resolveSyncRoots(process.platform, context);
     const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> =
       [];
 
@@ -372,7 +445,9 @@ export async function executePullAppConfigs(
     }
 
     if (filesToWrite.length === 0) {
-      vscode.window.showInformationMessage("Pull app configs complete: no files to update.");
+      vscode.window.showInformationMessage(
+        `Pull complete: no files to update from ${destinationLabel}.`
+      );
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
       );
@@ -401,17 +476,33 @@ export async function executePullAppConfigs(
           `[${new Date().toISOString()}] Pull app configs write failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
         );
         await rollbackFromBackup(writtenBackups);
-        vscode.window.showErrorMessage(
-          "Pull app configs failed: file write error. Changes have been rolled back."
-        );
+        const writeErrorMessage = `Pull from ${destinationLabel} failed: file write error. Changes have been rolled back.`;
+        await addSyncHistoryEntry(context, {
+          timestamp: new Date().toISOString(),
+          direction: "pull",
+          trigger,
+          fileCount: 0,
+          success: false,
+          destination,
+          error: writeErrorMessage,
+        });
+        vscode.window.showErrorMessage(writeErrorMessage);
         return false;
       }
     }
 
     await pruneOldBackups(context);
 
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: filesToWrite.length,
+      success: true,
+      destination,
+    });
     vscode.window.showInformationMessage(
-      `Pull app configs complete: ${filesToWrite.length} file(s) updated.`
+      `Pull complete: ${filesToWrite.length} file(s) updated from ${destinationLabel}.`
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
@@ -422,7 +513,16 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs failed: ${message}`
     );
-    vscode.window.showErrorMessage(`Pull app configs failed: ${message}`);
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: 0,
+      success: false,
+      destination,
+      error: message,
+    });
+    vscode.window.showErrorMessage(`Pull from ${destinationLabel} failed: ${message}`);
     return false;
   }
 }
