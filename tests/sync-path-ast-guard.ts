@@ -103,6 +103,9 @@ function stringHasForbiddenPathContent(text: string): boolean {
   if (text.includes("/environ")) {
     return true;
   }
+  if (/os\.environ\s*\[\s*['"]HOME['"]\s*\]/.test(text)) {
+    return true;
+  }
   if (/\/environ\b/.test(text) || /\benviron\b/.test(text)) {
     if (!/\benvironment\b/i.test(text) && (text.includes("/") || text.includes("\\"))) {
       return true;

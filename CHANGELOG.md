@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.27
+
+### Fixed
+- SQL safety: mask string/blob/quoted identifiers before comment stripping and statement splitting so chat titles and message bodies with `;`, `attach`, `VACUUM`, etc. still sync; strip comments without joining tokens for keyword scans; reject NUL in `escapeSqlLiteral`.
+- Bundle guard: allow `node_modules` only for declared runtime dependencies and their transitive names from each package's `package.json` (not `require.resolve` hoisting tricks).
+
 ## v0.8.4-staging.26
 
 ### Fixed

@@ -36,6 +36,56 @@ describe("assertSafeSqlScript", () => {
     expect(() => assertSafeSqlScript("SELECT readfile('/etc/passwd');")).toThrow(
       UnsafeSqlScriptError
     );
+    expect(() => assertSafeSqlScript("SELECT edit('/tmp/x');")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("SELECT fts3_tokenizer('custom');")).toThrow(
+      UnsafeSqlScriptError
+    );
+  });
+
+  it("rejects comment-split forbidden calls", () => {
+    expect(() => assertSafeSqlScript("SELECT load_exten/**/sion('x');")).toThrow(
+      UnsafeSqlScriptError
+    );
+    expect(() => assertSafeSqlScript("SELECT writ/**/efile('/tmp/x','y');")).toThrow(
+      UnsafeSqlScriptError
+    );
+  });
+
+  it("rejects risky PRAGMA, second statements, CTE, and DDL", () => {
+    expect(() => assertSafeSqlScript("PRAGMA integrity_check;")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("SELECT 1; ATTACH 'x' AS y;")).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertSafeSqlScript("WITH cte AS (SELECT 1) SELECT * FROM cte;")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("CREATE TABLE t(x);")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("DROP TABLE ItemTable;")).toThrow(UnsafeSqlScriptError);
+  });
+
+  it("allows user chat text inside SQL string literals", () => {
+    const userJson = JSON.stringify({
+      allComposers: [{ name: "My notes; part 2", composerId: "c1" }],
+    });
+    const escaped = userJson.replace(/'/g, "''");
+    const script =
+      `BEGIN IMMEDIATE;\n` +
+      `UPDATE ItemTable SET value = '${escaped}' WHERE key = 'composer.composerHeaders';\n` +
+      `COMMIT;\n`;
+    expect(() => assertSafeSqlScript(script)).not.toThrow();
+    expect(() =>
+      assertSafeSqlScript(
+        `INSERT INTO meta(key,value) VALUES ('0', '${"please attach the file".replace(/'/g, "''")}');`
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertSafeSqlScript(
+        `INSERT INTO meta(key,value) VALUES ('0', '${"how to detach a branch".replace(/'/g, "''")}');`
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertSafeSqlScript(
+        `INSERT INTO meta(key,value) VALUES ('0', '${"robot vacuum review".replace(/'/g, "''")}');`
+      )
+    ).not.toThrow();
   });
 
   it("allows real sync-engine style DML scripts", () => {

@@ -32,6 +32,8 @@ const FORBIDDEN_NORMALIZED_PATTERNS: RegExp[] = [
   /\bfts3_tokenizer\s*\(/i,
 ];
 
+const LITERAL_PLACEHOLDER = " ";
+
 export class UnsafeSqlScriptError extends Error {
   constructor(message: string) {
     super(message);
@@ -43,58 +45,181 @@ function stripUnicodeFormatChars(text: string): string {
   return text.replace(/\p{Cf}/gu, "");
 }
 
-/** Remove SQL comments and collapse whitespace for security matching. */
+function isHexDigit(ch: string): boolean {
+  return /[0-9a-f]/i.test(ch);
+}
+
+/**
+ * Replace SQL literal contents with placeholders so `;`, keywords, and comments inside
+ * user data do not affect safety analysis. Supports '', X'..', "...", `...`, and [...] identifiers.
+ */
+export function maskSqlLiterals(script: string): string {
+  let out = "";
+  let i = 0;
+  while (i < script.length) {
+    const ch = script[i]!;
+    const next = script[i + 1];
+
+    if (ch === "'") {
+      out += "'";
+      i++;
+      let closed = false;
+      while (i < script.length) {
+        const c = script[i]!;
+        if (c === "'") {
+          if (script[i + 1] === "'") {
+            out += "''";
+            i += 2;
+            continue;
+          }
+          out += "'";
+          i++;
+          closed = true;
+          break;
+        }
+        out += LITERAL_PLACEHOLDER;
+        i++;
+      }
+      if (!closed) {
+        throw new UnsafeSqlScriptError("SQL script contains an unterminated string literal");
+      }
+      continue;
+    }
+
+    if ((ch === "X" || ch === "x") && next === "'") {
+      out += "X'";
+      i += 2;
+      let closed = false;
+      while (i < script.length) {
+        const c = script[i]!;
+        if (c === "'") {
+          out += "'";
+          i++;
+          closed = true;
+          break;
+        }
+        if (!isHexDigit(c)) {
+          throw new UnsafeSqlScriptError("SQL script contains invalid X'...' blob literal");
+        }
+        out += LITERAL_PLACEHOLDER;
+        i++;
+      }
+      if (!closed) {
+        throw new UnsafeSqlScriptError("SQL script contains an unterminated X'...' blob literal");
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      out += '"';
+      i++;
+      while (i < script.length) {
+        const c = script[i]!;
+        if (c === '"') {
+          if (script[i + 1] === '"') {
+            out += '""';
+            i += 2;
+            continue;
+          }
+          out += '"';
+          i++;
+          break;
+        }
+        out += LITERAL_PLACEHOLDER;
+        i++;
+      }
+      if (!out.endsWith('"') || out.length < 2) {
+        throw new UnsafeSqlScriptError("SQL script contains an unterminated double-quoted literal");
+      }
+      continue;
+    }
+
+    if (ch === "`") {
+      out += "`";
+      i++;
+      while (i < script.length) {
+        const c = script[i]!;
+        if (c === "`") {
+          out += "`";
+          i++;
+          break;
+        }
+        out += LITERAL_PLACEHOLDER;
+        i++;
+      }
+      if (!out.endsWith("`")) {
+        throw new UnsafeSqlScriptError("SQL script contains an unterminated backtick-quoted literal");
+      }
+      continue;
+    }
+
+    if (ch === "[") {
+      out += "[";
+      i++;
+      while (i < script.length) {
+        const c = script[i]!;
+        if (c === "]") {
+          out += "]";
+          i++;
+          break;
+        }
+        out += LITERAL_PLACEHOLDER;
+        i++;
+      }
+      if (!out.endsWith("]")) {
+        throw new UnsafeSqlScriptError("SQL script contains an unterminated bracket-quoted identifier");
+      }
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Remove block and line comments entirely (no placeholder spaces). */
+export function removeSqlComments(script: string): string {
+  let out = "";
+  let i = 0;
+  while (i < script.length) {
+    const ch = script[i]!;
+    const next = script[i + 1];
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < script.length) {
+        if (script[i] === "*" && script[i + 1] === "/") {
+          i += 2;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      i += 2;
+      while (i < script.length && script[i] !== "\n" && script[i] !== "\r") {
+        i++;
+      }
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Collapse whitespace after literals are masked and comments stripped. */
 export function normalizeSqlForSafetyAnalysis(script: string): string {
-  let s = stripUnicodeFormatChars(script);
-  s = s.replace(/\/\*[\s\S]*?\*\//g, " ");
-  s = s.replace(/--[^\n\r]*/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
+  const stripped = stripUnicodeFormatChars(script);
+  const masked = maskSqlLiterals(stripped);
+  const withoutComments = removeSqlComments(masked);
+  return withoutComments.replace(/\s+/g, " ").trim();
 }
 
 function lineLooksLikeDotCommand(line: string): boolean {
   const t = line.trimStart();
   return t.length > 0 && t.startsWith(".");
-}
-
-function forEachSqlLineOutsideStrings(
-  script: string,
-  onLine: (line: string, lineNumber: number) => void
-): void {
-  let inSingle = false;
-  let line = "";
-  let lineNumber = 1;
-  for (let i = 0; i < script.length; i++) {
-    const ch = script[i]!;
-    if (ch === "'" && !inSingle) {
-      inSingle = true;
-      line += ch;
-      continue;
-    }
-    if (ch === "'" && inSingle) {
-      if (script[i + 1] === "'") {
-        line += "''";
-        i++;
-        continue;
-      }
-      inSingle = false;
-      line += ch;
-      continue;
-    }
-    if (!inSingle && (ch === "\n" || ch === "\r")) {
-      if (ch === "\r" && script[i + 1] === "\n") {
-        i++;
-      }
-      onLine(line, lineNumber);
-      line = "";
-      lineNumber++;
-      continue;
-    }
-    line += ch;
-  }
-  if (line.length > 0) {
-    onLine(line, lineNumber);
-  }
 }
 
 function splitSqlStatements(normalized: string): string[] {
@@ -145,15 +270,20 @@ function assertNormalizedForbiddenTokens(normalized: string): void {
  * Reject manifest- or user-supplied SQL that could escape the SQL API (dot-commands, ATTACH, VACUUM, extensions).
  */
 export function assertSafeSqlScript(script: string): void {
-  forEachSqlLineOutsideStrings(script, (line, lineNumber) => {
-    if (lineLooksLikeDotCommand(line)) {
+  const stripped = stripUnicodeFormatChars(script);
+  const masked = maskSqlLiterals(stripped);
+
+  const maskedLines = masked.split(/\r\n|\n|\r/);
+  for (let lineNumber = 0; lineNumber < maskedLines.length; lineNumber++) {
+    if (lineLooksLikeDotCommand(maskedLines[lineNumber]!)) {
       throw new UnsafeSqlScriptError(
-        `SQL script line ${lineNumber}: sqlite dot-commands are not allowed`
+        `SQL script line ${lineNumber + 1}: sqlite dot-commands are not allowed`
       );
     }
-  });
+  }
 
-  const normalized = normalizeSqlForSafetyAnalysis(script);
+  const withoutComments = removeSqlComments(masked);
+  const normalized = withoutComments.replace(/\s+/g, " ").trim();
   assertNormalizedForbiddenTokens(normalized);
 
   for (const statement of splitSqlStatements(normalized)) {

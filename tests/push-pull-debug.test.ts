@@ -69,11 +69,10 @@ function extensionVersion(): string {
   ).version;
 }
 
-describe("push/pull debug wiring", () => {
+describe.sequential("push/pull debug wiring", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
 
     const vscode = await import("vscode");
@@ -355,11 +354,10 @@ vi.mock("../src/app-configs.js", async (importOriginal) => {
   };
 });
 
-describe("sync now debug wiring", () => {
+describe.sequential("sync now debug wiring", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
     determineSyncActionMock.mockReset();
     hasAppSessionMock.mockReset().mockResolvedValue(false);

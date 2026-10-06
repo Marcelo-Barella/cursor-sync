@@ -1,8 +1,5 @@
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as path from "node:path";
-
-const require = createRequire(import.meta.url);
 
 const ALLOWLIST = new Set(["src/paths.ts", "src/os-runtime.ts"]);
 const FORBIDDEN = new Set([
@@ -93,28 +90,40 @@ function isUnderRoot(realPath, rootPath) {
   return real === root || real.startsWith(root + path.sep);
 }
 
-function declaredDepEntryPaths(nmRoot, runtimeDeps) {
-  const paths = [];
-  for (const dep of runtimeDeps) {
-    paths.push(path.join(nmRoot, ...dep.split("/")));
+function readPackageJsonDeps(nmRoot, packageName) {
+  const pkgJsonPath = path.join(nmRoot, ...packageName.split("/"), "package.json");
+  try {
+    const data = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
+    const merged = {};
+    for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+      const block = data[section];
+      if (block && typeof block === "object") {
+        Object.assign(merged, block);
+      }
+    }
+    return Object.keys(merged);
+  } catch {
+    return [];
   }
-  return paths;
 }
 
-/** Hoisted transitive packages must resolve from a declared dependency tree, not repo root alone. */
-function isReachableTransitiveRuntimeDep(pkgName, nmRoot, runtimeDeps) {
-  for (const depDir of declaredDepEntryPaths(nmRoot, runtimeDeps)) {
-    try {
-      require.resolve(`${pkgName}/package.json`, { paths: [depDir] });
-      return true;
-    } catch {
-      // not reachable from this declared dependency
+/** Declared runtime deps plus transitive names from each package's package.json (no require.resolve). */
+function collectAllowedRuntimePackageNames(nmRoot, runtimeDeps) {
+  const allowed = new Set(runtimeDeps);
+  const queue = [...runtimeDeps];
+  while (queue.length > 0) {
+    const pkg = queue.shift();
+    for (const dep of readPackageJsonDeps(nmRoot, pkg)) {
+      if (!allowed.has(dep)) {
+        allowed.add(dep);
+        queue.push(dep);
+      }
     }
   }
-  return false;
+  return allowed;
 }
 
-function assertNodeModulesInputAllowed(normalizedKey, real, nmRoot, runtimeDeps, offenders) {
+function assertNodeModulesInputAllowed(normalizedKey, real, nmRoot, allowedPackages, offenders) {
   const relFromNm = path.relative(nmRoot, real);
   const pkgName = packageNameFromNodeModulesRel(relFromNm);
   if (!pkgName) {
@@ -122,9 +131,7 @@ function assertNodeModulesInputAllowed(normalizedKey, real, nmRoot, runtimeDeps,
     return;
   }
 
-  const declared = runtimeDeps.has(pkgName);
-  const transitiveOk = !declared && isReachableTransitiveRuntimeDep(pkgName, nmRoot, runtimeDeps);
-  if (!declared && !transitiveOk) {
+  if (!allowedPackages.has(pkgName)) {
     offenders.push(
       `${normalizedKey}: realpath ${real} is under node_modules but package "${pkgName}" is not a declared or reachable runtime dependency`
     );
@@ -154,6 +161,7 @@ export function assertBundleInputsUnderSrc(metafile, repoRoot) {
   const srcRoot = path.resolve(repoRoot, "src");
   const nmRoot = path.resolve(repoRoot, "node_modules");
   const runtimeDeps = readRuntimeDependencyNames(repoRoot);
+  const allowedPackages = collectAllowedRuntimePackageNames(nmRoot, runtimeDeps);
   const offenders = [];
 
   for (const inputPath of Object.keys(metafile.inputs ?? {})) {
@@ -172,7 +180,7 @@ export function assertBundleInputsUnderSrc(metafile, repoRoot) {
     }
 
     if (isUnderRoot(real, nmRoot)) {
-      assertNodeModulesInputAllowed(normalizedKey, real, nmRoot, runtimeDeps, offenders);
+      assertNodeModulesInputAllowed(normalizedKey, real, nmRoot, allowedPackages, offenders);
       continue;
     }
 
