@@ -15,10 +15,14 @@ const refreshSidebarMock = vi.hoisted(() => vi.fn());
 
 const testRedirectUri = "cursor://MarceloBarella.cursor-sync/auth";
 
-vi.mock("../src/config/urls.js", () => ({
-  getAppApiUrl: getAppApiUrlMock,
-  getAppWebsiteUrl: getAppWebsiteUrlMock,
-}));
+vi.mock("../src/config/urls.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/config/urls.js")>();
+  return {
+    ...original,
+    getAppApiUrl: getAppApiUrlMock,
+    getAppWebsiteUrl: getAppWebsiteUrlMock,
+  };
+});
 
 vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: refreshSidebarMock,

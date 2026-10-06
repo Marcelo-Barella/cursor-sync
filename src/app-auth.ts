@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
+import { getAppApiUrl, getAppWebsiteUrl, isTrustedAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
 export { getAppApiUrl } from "./config/urls.js";
@@ -497,6 +497,12 @@ export async function executeLoginToCursorSync(
     storePendingAuthHandoff(redirectUri, state, Date.now(), context);
     const websiteBase = getAppWebsiteUrl();
     const loginUrl = buildSignInUrl(websiteBase, redirectUri, state);
+    if (!isTrustedAppWebsiteUrl(loginUrl)) {
+      vscode.window.showErrorMessage(
+        "Login URL is not from a trusted Cursor Sync website origin. Check Cursor Sync developer environment settings."
+      );
+      return;
+    }
     logger.appendLine(
       `[${new Date().toISOString()}] App login redirect_uri=${redirectUri}`
     );

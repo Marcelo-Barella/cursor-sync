@@ -393,7 +393,7 @@
             "custom"
           ],
           "default": "staging",
-          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging-sync.bergamota.dev and https://staging.sync.bergamota.dev. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
+          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging.cursor-sync.com and https://staging.cursor-sync.com. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl (for example the legacy staging hosts https://api-staging-sync.bergamota.dev and https://staging.sync.bergamota.dev); explicit URL values win over presets only when environment is **custom**."
         },
         "cursorSync.developer.apiUrl": {
           "type": "string",

@@ -4,6 +4,9 @@ import {
   DEFAULT_PRODUCTION_WEBSITE_URL,
   STAGING_API_URL,
   STAGING_WEBSITE_URL,
+  LEGACY_STAGING_API_URL,
+  LEGACY_STAGING_WEBSITE_URL,
+  isTrustedAppWebsiteUrl,
   DEFAULT_DEVELOPER_ENVIRONMENT,
   LOCAL_API_URL,
   LOCAL_WEBSITE_URL,
@@ -173,6 +176,32 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
         })
       )
     ).toBe("https://custom.web.example");
+  });
+});
+
+describe("config/urls trusted website origins", () => {
+  it("allows staging and legacy staging sign-in URLs", () => {
+    expect(
+      isTrustedAppWebsiteUrl(
+        "https://staging.cursor-sync.com/sign-in?redirect_uri=x&state=y"
+      )
+    ).toBe(true);
+    expect(
+      isTrustedAppWebsiteUrl(
+        "https://staging.sync.bergamota.dev/sign-in?redirect_uri=x&state=y"
+      )
+    ).toBe(true);
+  });
+
+  it("allows legacy bergamota staging website via custom preset", () => {
+    expect(
+      isTrustedAppWebsiteUrl("https://staging.sync.bergamota.dev/sign-in", {
+        environment: "custom",
+        explicitApiUrl: LEGACY_STAGING_API_URL,
+        explicitWebsiteUrl: LEGACY_STAGING_WEBSITE_URL,
+        legacyApiUrl: undefined,
+      })
+    ).toBe(true);
   });
 });
 

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Staging developer preset API/website URLs now point at `api-staging.cursor-sync.com` and `staging.cursor-sync.com`; legacy bergamota staging hosts remain available via the **custom** preset.
+
 ## v0.8.4-staging.7
 
 ### Fixed
