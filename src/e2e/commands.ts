@@ -376,10 +376,6 @@ export async function executeE2eLock(context: vscode.ExtensionContext): Promise<
   vscode.window.showInformationMessage("Sync locked on this device.");
 }
 
-export async function executeE2eUnlock(context: vscode.ExtensionContext): Promise<void> {
-  await runUnlockFlow(context);
-}
-
 export async function executeE2eChangePassphrase(context: vscode.ExtensionContext): Promise<void> {
   const unlocked = await requireE2eUnlocked(context);
   if (!isE2eDekUnlocked(unlocked)) {

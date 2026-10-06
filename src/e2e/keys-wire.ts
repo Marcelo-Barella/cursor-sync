@@ -1,4 +1,4 @@
-import { assertDekVerifierHex, type KdfParamsWire, type KeyWrapBytes } from "./key-material.js";
+import type { KdfParamsWire, KeyWrapBytes } from "./key-material.js";
 
 export class KeysWireParseError extends Error {
   constructor(message: string) {
@@ -76,10 +76,6 @@ export function parseKeyMaterialResponse(data: Record<string, unknown>): ServerK
     passWrap,
     recoveryWrap,
   };
-}
-
-export function assertPutKeysBodyDekVerifier(dekVerifier: string): void {
-  assertDekVerifierHex(dekVerifier);
 }
 
 export function serializeKeyMaterialToWire(

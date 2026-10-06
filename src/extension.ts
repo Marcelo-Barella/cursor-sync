@@ -68,9 +68,9 @@ import {
   executeE2eChangePassphrase,
   executeE2eLock,
   executeE2eRotateRecoveryKey,
-  executeE2eUnlock,
   runRecheckEmailVerification,
   runRetryKeysGateFlow,
+  runUnlockFlow,
 } from "./e2e/commands.js";
 let configListener: vscode.Disposable | undefined;
 
@@ -168,7 +168,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.e2e.unlock", () =>
-      executeE2eUnlock(context)
+      runUnlockFlow(context)
     )
   );
   context.subscriptions.push(

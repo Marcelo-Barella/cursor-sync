@@ -101,9 +101,6 @@ export async function determineSyncAction(
   let manifestJson: string | undefined;
   if (tryReadGistE2eMarker(gistFiles)) {
     const e2e = await requireE2eUnlocked(context, { gistSync: true });
-    if (!e2e.ok) {
-      return { action: "error", reason: "e2e_locked" };
-    }
     if (!e2e.ok || e2e.kind !== "dek") {
       return { action: "error", reason: "e2e_locked" };
     }

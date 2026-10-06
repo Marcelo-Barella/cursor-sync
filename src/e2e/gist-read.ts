@@ -75,23 +75,6 @@ export function readLogicalFileFromGistMap(
   return decryptGistFileContent(dek, enc, userId, keyVersion, logicalName);
 }
 
-export function listPlaintextGistFilesForMigration(
-  files: Record<string, { content?: string } | undefined>,
-  encryptedFileNames: Set<string>
-): string[] {
-  const out: string[] = [];
-  for (const name of Object.keys(files)) {
-    if (name === GIST_E2E_MARKER_FILE) {
-      continue;
-    }
-    if (encryptedFileNames.has(name)) {
-      continue;
-    }
-    out.push(name);
-  }
-  return out;
-}
-
 export function encryptedGistFileNamesForLogical(
   dek: Buffer,
   logicalNames: string[]

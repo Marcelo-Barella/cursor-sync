@@ -8,21 +8,7 @@ import {
 } from "./storage-plaintext.js";
 import { loadMigrationState, saveMigrationState } from "./migration.js";
 import { getLogger } from "../diagnostics.js";
-import { hasLegacyConfigsPayload } from "./configs-legacy-payload.js";
-
-function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as AppConfigsPayloadV1;
-  return (
-    candidate.schemaVersion === 1 &&
-    typeof candidate.manifest === "object" &&
-    candidate.manifest !== null &&
-    typeof candidate.files === "object" &&
-    candidate.files !== null
-  );
-}
+import { hasLegacyConfigsPayload, isAppConfigsPayloadV1 } from "./configs-legacy-payload.js";
 
 export function legacyPlaintextSyncKeysFromPayload(payload: AppConfigsPayloadV1): string[] {
   return Object.keys(payload.files).sort();
@@ -39,7 +25,7 @@ export function legacyPlaintextKeysFromConfigsResponse(
     remote.payload && isAppConfigsPayloadV1(remote.payload)
       ? legacyPlaintextSyncKeysFromPayload(remote.payload)
       : [];
-  return [...new Set([...fromField, ...fromPayload])].sort();
+  return unionKeys(fromField, fromPayload);
 }
 
 function unionKeys(...lists: string[][]): string[] {

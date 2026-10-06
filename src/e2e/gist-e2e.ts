@@ -1,13 +1,9 @@
-import { GIST_E2E_FORMAT, GIST_E2E_MARKER_FILE } from "./constants.js";
+import { GIST_E2E_FORMAT } from "./constants.js";
 import { envelopeToBase64Wire, envelopeFromBase64Wire } from "./envelope.js";
 import { deriveGistFileNameHex, encryptObjectPayload, decryptObjectPayload } from "./key-material.js";
 
 export function buildGistMarkerJson(keyVersion: number): string {
   return JSON.stringify({ format: GIST_E2E_FORMAT, keyVersion }, null, 2);
-}
-
-export function isGistE2eMarkerFileName(fileName: string): boolean {
-  return fileName === GIST_E2E_MARKER_FILE;
 }
 
 export function encryptGistFileContent(

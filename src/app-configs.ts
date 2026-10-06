@@ -18,6 +18,7 @@ import {
 import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
 import { runAppStorageLegacyCleanup } from "./e2e/app-storage-cleanup.js";
+import { isAppConfigsPayloadV1 } from "./e2e/configs-legacy-payload.js";
 import { hasLegacyConfigsPayload } from "./e2e/configs-legacy-payload.js";
 import { legacyPlaintextKeysFromConfigsResponse } from "./e2e/legacy-cleanup.js";
 import { KeysApiError } from "./e2e/keys-client.js";
@@ -244,20 +245,6 @@ async function resolveRemoteFileContent(
   return decodePayloadFileContent(file, manifestEntry);
 }
 
-function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as AppConfigsPayloadV1;
-  return (
-    candidate.schemaVersion === APP_CONFIGS_PAYLOAD_SCHEMA_VERSION &&
-    typeof candidate.manifest === "object" &&
-    candidate.manifest !== null &&
-    typeof candidate.files === "object" &&
-    candidate.files !== null
-  );
-}
-
 export async function executePushAppConfigs(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
@@ -266,12 +253,10 @@ export async function executePushAppConfigs(
 
   try {
     const e2e = await requireE2eUnlocked(context);
-    if (!e2e.ok) {
-      vscode.window.showErrorMessage(e2e.message);
-      return false;
-    }
     if (!isE2eDekUnlocked(e2e)) {
-      vscode.window.showErrorMessage("Encrypted app sync requires an unlocked sync passphrase.");
+      vscode.window.showErrorMessage(
+        e2e.ok ? "Encrypted app sync requires an unlocked sync passphrase." : e2e.message
+      );
       return false;
     }
     const localPayload = await buildLocalAppConfigsPayload();

@@ -1,5 +1,5 @@
 import type { R2StorageCredentials } from "../app-r2-storage.js";
-import { buildScopedObjectKey, getR2Object, putR2Object } from "../app-r2-storage.js";
+import { getR2Object, putR2Object } from "../app-r2-storage.js";
 import { deriveObjectStorageKeyHex, decryptObjectPayload, encryptObjectPayload } from "./key-material.js";
 
 export async function putEncryptedR2Object(
@@ -28,11 +28,4 @@ export async function getEncryptedR2Object(
     return undefined;
   }
   return decryptObjectPayload(dek, envelope, userId, keyVersion, logicalSyncKey);
-}
-
-export function r2ScopedPath(credentials: R2StorageCredentials, dek: Buffer, logicalSyncKey: string): string {
-  return buildScopedObjectKey(
-    credentials.prefix,
-    deriveObjectStorageKeyHex(dek, logicalSyncKey)
-  );
 }

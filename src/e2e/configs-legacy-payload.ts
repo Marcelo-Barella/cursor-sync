@@ -1,6 +1,6 @@
 import type { AppConfigsPayloadV1 } from "../app-configs.js";
 
-function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
+export function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
   if (!value || typeof value !== "object") {
     return false;
   }

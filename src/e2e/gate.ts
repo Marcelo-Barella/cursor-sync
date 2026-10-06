@@ -136,20 +136,7 @@ export async function refreshE2eGateContext(
   context: vscode.ExtensionContext,
   options?: { refreshKeys?: boolean; bypassCache?: boolean }
 ): Promise<E2eGateSnapshot> {
-  let snapshot: E2eGateSnapshot;
-  try {
-    snapshot = await resolveE2eGateSnapshot(context, options);
-  } catch (err) {
-    if (err instanceof KeysApiError && err.status === 429) {
-      snapshot = {
-        phase: "keys_unavailable",
-        keysStatusMessage: err.message,
-      };
-      cachedSnapshot = snapshot;
-    } else {
-      throw err;
-    }
-  }
+  const snapshot = await resolveE2eGateSnapshot(context, options);
   await vscode.commands.executeCommand(
     "setContext",
     "cursorSync.e2e.unlocked",
@@ -202,15 +189,7 @@ export async function requireE2eUnlocked(
     return { ok: false, message: "Log in to Cursor Sync to use encrypted sync." };
   }
 
-  let snapshot: E2eGateSnapshot;
-  try {
-    snapshot = await resolveE2eGateSnapshot(context);
-  } catch (err) {
-    if (err instanceof KeysApiError && err.status === 429) {
-      return { ok: false, message: err.message };
-    }
-    throw err;
-  }
+  const snapshot = await resolveE2eGateSnapshot(context);
   if (snapshot.phase === "keys_unavailable") {
     return {
       ok: false,

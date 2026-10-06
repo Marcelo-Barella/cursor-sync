@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { E2E_MAGIC, GCM_NONCE_BYTE_LENGTH } from "./constants.js";
+import { E2E_MAGIC, GCM_NONCE_BYTE_LENGTH, AAD_OBJECT_PREFIX } from "./constants.js";
 
 export class E2eCryptoError extends Error {
   constructor(
@@ -110,5 +110,5 @@ export function decryptAes256Gcm(
 }
 
 export function buildObjectAad(userId: string, keyVersion: number, syncKey: string): string {
-  return `cursor-sync/obj/v1|${userId}|${keyVersion}|${syncKey}`;
+  return `${AAD_OBJECT_PREFIX}${userId}|${keyVersion}|${syncKey}`;
 }

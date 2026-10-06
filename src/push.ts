@@ -168,7 +168,7 @@ async function doPush(
     logicalGistFiles[gistFileName] = { content: value.content };
   }
 
-  const usePlaintextGist = e2e.ok && e2e.kind === "gist_plaintext";
+  const usePlaintextGist = e2e.kind === "gist_plaintext";
   if (usePlaintextGist) {
     const guard = await assertPlaintextGistWriteAllowed(client, syncState?.gistId);
     if (!guard.ok) {
@@ -186,7 +186,7 @@ async function doPush(
   let gistFiles: Record<string, { content: string }>;
   if (usePlaintextGist) {
     gistFiles = logicalGistFiles;
-  } else if (e2e.ok && e2e.kind === "dek") {
+  } else if (e2e.kind === "dek") {
     gistFiles = wrapGistFilesForUpload(
       e2e.dek,
       e2e.userId,
@@ -245,7 +245,7 @@ async function doPush(
   } else {
     const existingResult = await withRetry(() => client.getGist(gistId!));
     let filesToDelete: Record<string, null> = {};
-    if (existingResult.ok && !usePlaintextGist && e2e.ok && e2e.kind === "dek") {
+    if (existingResult.ok && !usePlaintextGist && e2e.kind === "dek") {
       const encNames = encryptedGistFileNamesForLogical(
         e2e.dek,
         Object.keys(logicalGistFiles)

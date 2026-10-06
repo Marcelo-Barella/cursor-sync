@@ -11,7 +11,7 @@ import {
   HMAC_OBJECT_KEY_PREFIX,
   SALT_BYTE_LENGTH,
 } from "./constants.js";
-import { E2eCryptoError, encryptAes256Gcm, decryptAes256Gcm, packCse1Envelope } from "./envelope.js";
+import { E2eCryptoError, encryptAes256Gcm, decryptAes256Gcm, buildObjectAad } from "./envelope.js";
 import { createCipheriv, createDecipheriv, randomBytes as nodeRandomBytes } from "node:crypto";
 
 export interface KdfParamsWire {
@@ -189,7 +189,7 @@ export function encryptObjectPayload(
   keyVersion: number,
   syncKey: string
 ): Buffer {
-  const aad = `cursor-sync/obj/v1|${userId}|${keyVersion}|${syncKey}`;
+  const aad = buildObjectAad(userId, keyVersion, syncKey);
   return encryptAes256Gcm(dek, plaintext, aad, keyVersion);
 }
 
@@ -200,10 +200,6 @@ export function decryptObjectPayload(
   keyVersion: number,
   syncKey: string
 ): Buffer {
-  const aad = `cursor-sync/obj/v1|${userId}|${keyVersion}|${syncKey}`;
+  const aad = buildObjectAad(userId, keyVersion, syncKey);
   return decryptAes256Gcm(dek, envelopeBytes, aad);
-}
-
-export function wrapBytesToCse1(keyVersion: number, wrap: KeyWrapBytes): Buffer {
-  return packCse1Envelope(keyVersion, wrap.nonce, wrap.ct);
 }

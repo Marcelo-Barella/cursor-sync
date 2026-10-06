@@ -28,7 +28,6 @@ import { listChatsWorkspaceDirs, type WorkspaceDir } from "./chat-export-ux.js";
 import { resolveSyncRoots } from "./paths.js";
 import {
   assertCanReadE2eGist,
-  GIST_LOCKED_MESSAGE,
   readLogicalFileFromGistMap,
 } from "./e2e/gist-read.js";
 import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
@@ -60,9 +59,6 @@ interface ImportFromGistResult {
   warnings: string[];
 }
 
-/**
- * Main entry point: imports agent transcripts from any GitHub Gist URL or ID.
- */
 export async function executeImportTranscriptsFromGist(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -160,9 +156,7 @@ async function importTranscriptsFromGist(
   if (tryReadGistE2eMarker(gistFiles)) {
     const access = await assertCanReadE2eGist(context, gistFiles);
     if (!access.ok) {
-      throw new Error(
-        access.message === GIST_LOCKED_MESSAGE ? GIST_LOCKED_MESSAGE : access.message
-      );
+      throw new Error(access.message);
     }
     readGistFile = (logicalFileName) =>
       readLogicalFileFromGistMap(
