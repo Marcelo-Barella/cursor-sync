@@ -250,7 +250,6 @@ export function isE2eDekUnlocked(result: E2eUnlockedResult): result is E2eDekUnl
 
 const APP_LOGIN_REQUIRED_MESSAGE = "Log in to Cursor Sync to use encrypted sync.";
 
-/** Gist-only sync without an app session is allowed only on devices that never set up E2E. */
 export async function gistPlaintextAllowedWithoutAppSession(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
