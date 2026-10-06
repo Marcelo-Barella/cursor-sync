@@ -152,12 +152,12 @@ export async function buildLocalAppConfigsPayload(
   context?: vscode.ExtensionContext
 ): Promise<AppConfigsPayloadV1> {
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = resolveSyncRoots(process.platform, context).cursorUser;
-  const extensionsPath = path.join(cursorUserRoot, "extensions.json");
+  const roots = resolveSyncRoots(process.platform, context);
+  const extensionsPath = path.join(roots.cursorUser, "extensions.json");
   await fs.mkdir(path.dirname(extensionsPath), { recursive: true });
   await fs.writeFile(extensionsPath, extensionsJson, "utf-8");
 
-  const files = await enumerateSyncFiles();
+  const files = await enumerateSyncFiles(roots);
   const config = vscode.workspace.getConfiguration("cursorSync");
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(files, profileName);

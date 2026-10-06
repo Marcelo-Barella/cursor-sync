@@ -21,7 +21,6 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { SyncState } from "./types.js";
-import { hasAppSession, executePushAppConfigs } from "./app-configs.js";
 import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
 
 export type PushTrigger = "manual" | "scheduled";
@@ -54,11 +53,6 @@ export async function executePush(
 
   let failed = false;
   try {
-    if (await hasAppSession(context)) {
-      const success = await executePushAppConfigs(context, { trigger });
-      failed = !success;
-      return success;
-    }
     const success = await doPush(context, trigger);
     failed = !success;
     return success;

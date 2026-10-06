@@ -12,9 +12,7 @@ vi.mock("../src/app-configs.js", () => ({
 }));
 
 vi.mock("../src/auth.js", () => ({
-  validateStoredToken: () => {
-    throw new Error("Gist push path should not run when app session is active");
-  },
+  validateStoredToken: async () => false,
   requireToken: async () => undefined,
 }));
 
@@ -40,6 +38,15 @@ vi.mock("../src/diagnostics.js", () => ({
   loadSyncState: async () => undefined,
 }));
 
+vi.mock("../src/sync-debug.js", () => ({
+  buildSyncDebugFailure: vi.fn(),
+  showSyncFailureWithDebug: vi.fn(),
+}));
+
+vi.mock("../src/analytics.js", () => ({
+  sendEvent: vi.fn(),
+}));
+
 vi.mock("vscode", () => ({
   window: { showWarningMessage: vi.fn() },
 }));
@@ -48,38 +55,34 @@ function makeContext(): vscode.ExtensionContext {
   return { secrets: {} } as vscode.ExtensionContext;
 }
 
-describe("executePush app session routing", () => {
+describe("executePush with app session", () => {
   beforeEach(() => {
     vi.resetModules();
     hasAppSessionMock.mockReset().mockResolvedValue(false);
     executePushAppConfigsMock.mockReset().mockResolvedValue(true);
   });
 
-  it("delegates to executePushAppConfigs when an app session exists", async () => {
+  it("does not delegate to executePushAppConfigs when an app session exists", async () => {
     hasAppSessionMock.mockResolvedValue(true);
     const { executePush } = await import("../src/push.js");
     const ok = await executePush(makeContext(), { trigger: "manual" });
-    expect(ok).toBe(true);
-    expect(executePushAppConfigsMock).toHaveBeenCalledWith(expect.anything(), {
-      trigger: "manual",
-    });
+    expect(ok).toBe(false);
+    expect(executePushAppConfigsMock).not.toHaveBeenCalled();
   });
 });
 
-describe("executePull app session routing", () => {
+describe("executePull with app session", () => {
   beforeEach(() => {
     vi.resetModules();
     hasAppSessionMock.mockReset().mockResolvedValue(false);
     executePullAppConfigsMock.mockReset().mockResolvedValue(true);
   });
 
-  it("delegates to executePullAppConfigs when an app session exists", async () => {
+  it("does not delegate to executePullAppConfigs when an app session exists", async () => {
     hasAppSessionMock.mockResolvedValue(true);
     const { executePull } = await import("../src/pull.js");
     const ok = await executePull(makeContext(), { trigger: "scheduled" });
-    expect(ok).toBe(true);
-    expect(executePullAppConfigsMock).toHaveBeenCalledWith(expect.anything(), {
-      trigger: "scheduled",
-    });
+    expect(ok).toBe(false);
+    expect(executePullAppConfigsMock).not.toHaveBeenCalled();
   });
 });

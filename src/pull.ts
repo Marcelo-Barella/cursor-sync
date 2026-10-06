@@ -24,7 +24,6 @@ import {
 } from "./sync-debug.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
-import { hasAppSession, executePullAppConfigs } from "./app-configs.js";
 import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
 
 export type PullTrigger = "manual" | "scheduled";
@@ -57,11 +56,6 @@ export async function executePull(
 
   let failed = false;
   try {
-    if (await hasAppSession(context)) {
-      const success = await executePullAppConfigs(context, { trigger });
-      failed = !success;
-      return success;
-    }
     const success = await doPull(context, trigger);
     failed = !success;
     return success;
