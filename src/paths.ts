@@ -127,11 +127,18 @@ export function resolveSyncRoots(
   };
 }
 
-export async function enumerateSyncFiles(
-  context: vscode.ExtensionContext,
-  roots?: SyncRoots
-): Promise<SyncFileEntry[]> {
-  const resolved = roots ?? resolveSyncRoots(process.platform, context);
+export interface SyncEnumerationConfig {
+  enabledPaths: string[];
+  excludeGlobs: string[];
+  maxFileSizeKB: number;
+  maxBytes: number;
+  cursorUserGlobs: string[];
+  dotCursorGlobs: string[];
+}
+
+export function getSyncEnumerationConfig(
+  context: vscode.ExtensionContext
+): SyncEnumerationConfig {
   const config = vscode.workspace.getConfiguration("cursorSync");
   const enabledPaths = config.get<string[]>("enabledPaths") ?? getDefaultEnabledPaths();
   const excludeGlobs = config.get<string[]>("excludeGlobs") ?? [];
@@ -152,6 +159,67 @@ export async function enumerateSyncFiles(
       g.startsWith("commands") ||
       g.startsWith("rules")
   );
+
+  return {
+    enabledPaths,
+    excludeGlobs,
+    maxFileSizeKB,
+    maxBytes,
+    cursorUserGlobs,
+    dotCursorGlobs,
+  };
+}
+
+export function syncKeyToAbsolutePath(
+  syncKey: string,
+  roots: SyncRoots
+): string | undefined {
+  if (syncKey.startsWith("cursor-user/")) {
+    const rel = syncKey.slice("cursor-user/".length);
+    return path.join(roots.cursorUser, ...rel.split("/"));
+  }
+  if (syncKey.startsWith("dot-cursor/")) {
+    const rel = syncKey.slice("dot-cursor/".length);
+    return path.join(roots.dotCursor, ...rel.split("/"));
+  }
+  return undefined;
+}
+
+export function isSyncKeyExcludedByConfig(
+  syncKey: string,
+  enumConfig: SyncEnumerationConfig
+): boolean {
+  const slash = syncKey.indexOf("/");
+  if (slash < 0) {
+    return true;
+  }
+  const prefix = syncKey.slice(0, slash);
+  const rel = syncKey.slice(slash + 1);
+  if (prefix !== "cursor-user" && prefix !== "dot-cursor") {
+    return true;
+  }
+  if (isDenylisted(rel)) {
+    return true;
+  }
+  if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
+    return true;
+  }
+  const globs =
+    prefix === "cursor-user" ? enumConfig.cursorUserGlobs : enumConfig.dotCursorGlobs;
+  const matchesInclude = globs.some((g) => minimatch(rel, g));
+  if (!matchesInclude) {
+    return true;
+  }
+  return enumConfig.excludeGlobs.some((g) => minimatch(rel, g));
+}
+
+export async function enumerateSyncFiles(
+  context: vscode.ExtensionContext,
+  roots?: SyncRoots
+): Promise<SyncFileEntry[]> {
+  const resolved = roots ?? resolveSyncRoots(process.platform, context);
+  const enumConfig = getSyncEnumerationConfig(context);
+  const { excludeGlobs, maxBytes, cursorUserGlobs, dotCursorGlobs } = enumConfig;
 
   const entries: SyncFileEntry[] = [];
 

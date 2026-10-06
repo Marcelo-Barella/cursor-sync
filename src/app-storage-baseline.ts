@@ -15,6 +15,11 @@ export interface AppStorageBaseline {
   remoteUpdatedAt: string;
   localChecksums: Record<string, string>;
   remoteChecksums: Record<string, string>;
+  trackingScope?: {
+    enabledPaths: string[];
+    excludeGlobs: string[];
+    maxFileSizeKB: number;
+  };
 }
 
 interface AppStorageBaselineStoreV2 {
@@ -64,14 +69,30 @@ export function baselineKeyTracked(baseline: AppStorageBaseline, key: string): b
   );
 }
 
+export async function clearAllAppStorageBaselines(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  try {
+    await fs.unlink(baselinePath(context));
+  } catch {
+    // missing file is fine
+  }
+}
+
 export function filterScheduledAppStoragePullKeys(
   keys: string[],
-  baseline: AppStorageBaseline | undefined
+  baseline: AppStorageBaseline | undefined,
+  localChecksums: Record<string, string>
 ): string[] {
-  if (!baselineHasEntries(baseline)) {
-    return [];
-  }
-  return keys.filter((key) => baselineKeyTracked(baseline!, key));
+  return keys.filter((key) => {
+    if (localChecksums[key] === undefined) {
+      return true;
+    }
+    if (!baselineHasEntries(baseline)) {
+      return false;
+    }
+    return baselineKeyTracked(baseline!, key);
+  });
 }
 
 export function baselineHasEntries(baseline: AppStorageBaseline | undefined): boolean {
@@ -174,7 +195,9 @@ export function classifyAppStorageKeys(
   baseline: AppStorageBaseline | undefined,
   localScan?: LocalConfigFileScan
 ): ClassifiedAppStorageKeys {
-  const unreadable = localScan?.unreadableKeys ?? new Set<string>();
+  const unreadable = localScan?.skippedUnknownKeys ?? localScan?.unreadableKeys ?? new Set<string>();
+  const provablyAbsent = localScan?.provablyAbsentKeys ?? new Set<string>();
+  const untracked = localScan?.untrackedKeys ?? new Set<string>();
   const byKey: Record<string, AppStorageKeyClassification> = {};
   const pushKeys: string[] = [];
   const pullKeys: string[] = [];
@@ -202,7 +225,12 @@ export function classifyAppStorageKeys(
     const wasRemote = baseRemote[key];
 
     if (hasBaseline && wasLocal !== undefined && curLocal === undefined) {
-      if (unreadable.has(key)) {
+      if (untracked.has(key)) {
+        byKey[key] = "baseline_refresh";
+        baselineRefreshKeys.push(key);
+        continue;
+      }
+      if (unreadable.has(key) || !provablyAbsent.has(key)) {
         byKey[key] = "unchanged";
         unchangedKeys.push(key);
         continue;
@@ -390,6 +418,7 @@ export async function updateAppStorageBaselineAfterSync(
     deletedKeys: string[];
     localChecksums: Record<string, string>;
     remoteChecksums: Record<string, string>;
+    trackingScope?: AppStorageBaseline["trackingScope"];
   }
 ): Promise<void> {
   const existing =
@@ -426,5 +455,19 @@ export async function updateAppStorageBaselineAfterSync(
     remoteUpdatedAt: input.remoteUpdatedAt,
     localChecksums: nextLocal,
     remoteChecksums: nextRemote,
+    trackingScope: input.trackingScope ?? existing.trackingScope,
   });
+}
+
+export async function updateAppStorageBaselineTrackingScope(
+  context: vscode.ExtensionContext,
+  accountKey: string,
+  destination: SyncDestinationId,
+  trackingScope: AppStorageBaseline["trackingScope"]
+): Promise<void> {
+  const existing = await loadAppStorageBaseline(context, accountKey, destination);
+  if (!existing) {
+    return;
+  }
+  await saveAppStorageBaseline(context, { ...existing, trackingScope });
 }

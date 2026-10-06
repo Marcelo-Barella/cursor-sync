@@ -19,6 +19,13 @@ const emptyScan: LocalConfigFileScan = {
   checksums: {},
   unreadableKeys: new Set(),
   enoentKeys: new Set(),
+  provablyAbsentKeys: new Set(["cursor-user/commands/r8.md"]),
+  skippedUnknownKeys: new Set(),
+  untrackedKeys: new Set(),
+  deletesAllowed: true,
+  enumeratedCount: 5,
+  rootsHealthy: true,
+  trackingScopeMismatch: false,
 };
 
 describe("app storage staging.12", () => {
@@ -64,7 +71,7 @@ describe("app storage staging.12", () => {
     expect(classified.baselineRefreshKeys).toEqual(["cursor-user/commands/r8.md"]);
   });
 
-  it("scheduled pull strips keys that have no baseline entry", () => {
+  it("scheduled pull keeps absent-local keys and drops local-present keys without baseline", () => {
     const baseline = {
       schemaVersion: 1 as const,
       accountKey: "acct",
@@ -76,12 +83,17 @@ describe("app storage staging.12", () => {
     expect(
       filterScheduledAppStoragePullKeys(
         ["cursor-user/settings.json", "cursor-user/new.json"],
-        baseline
+        baseline,
+        { "cursor-user/settings.json": "local" }
       )
-    ).toEqual(["cursor-user/settings.json"]);
-    expect(filterScheduledAppStoragePullKeys(["cursor-user/new.json"], undefined)).toEqual(
-      []
-    );
+    ).toEqual(["cursor-user/settings.json", "cursor-user/new.json"]);
+    expect(
+      filterScheduledAppStoragePullKeys(
+        ["cursor-user/new.json"],
+        undefined,
+        { "cursor-user/new.json": "local-changed" }
+      )
+    ).toEqual([]);
   });
 
   it("no baseline local vs remote mismatch is conflict (scheduler must not auto-overwrite)", () => {

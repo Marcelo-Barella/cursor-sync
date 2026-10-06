@@ -36,6 +36,7 @@ import {
   hasAppSession,
   notifyAppStorageConflicts,
 } from "./app-configs.js";
+import { isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import { setActiveExtensionContext } from "./extension-host-context.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
@@ -469,12 +470,16 @@ export async function executeSyncNow(
     logger.appendLine(
       `[${new Date().toISOString()}] Sync Now failed: ${errMessage}`
     );
-    const errorMessage = `Sync failed: ${errMessage}`;
-    void showSyncFailureWithDebug(
-      context,
-      buildSyncDebugFailure("syncNow", "syncNow", errMessage),
-      { title: errorMessage }
-    );
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      const errorMessage = `Sync failed: ${errMessage}`;
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("syncNow", "syncNow", errMessage),
+        { title: errorMessage }
+      );
+    } else {
+      vscode.window.showErrorMessage(errMessage);
+    }
   } finally {
     resetSyncOperation();
     await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);

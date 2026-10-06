@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.13
+
+### Fixed
+- **P0 mass delete:** baseline keys are classified as present, provably absent, skipped/unknown, or untracked (config/size). Only provably absent keys may be deleted remotely; empty or untrusted scans block all deletes.
+- Mass-delete guard: scheduler never applies large delete batches; manual runs require a modal above 3 files or 50% of tracked keys.
+- Safe-mode remote/local delete pickers default to nothing selected; remote delete picker copy updated.
+- Reset clears app-storage baselines when paths/limits are reset.
+- No-baseline keys absent locally auto-pull on schedule and are pre-selected on manual pull; local present + different remains conflict.
+- `/configs` 5xx records a single history entry on Sync Now, scheduler, push, and pull (no duplicate outer catch).
+
+### Changed
+- Path guard patterns extended (`os` homedir import, `userInfo`, `process.env["HOME"]`); mixed pull+delete toast mentions both.
+
 ## v0.8.4-staging.12
 
 ### Fixed

@@ -328,11 +328,14 @@ export async function scheduledTick(
       `[${new Date().toISOString()}] Scheduled sync failed: ${errMessage}`
     );
     sendEvent(context, "scheduled_sync_failed", { reason: "exception" });
-    const errorMessage = `Scheduled sync failed: ${errMessage}`;
-    void showSyncFailureWithDebug(
-      context,
-      buildSyncDebugFailure("scheduler", "scheduled", errMessage),
-      { title: errorMessage }
-    );
+    const { isAppConfigsFetchError } = await import("./app-config-fetch-errors.js");
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      const errorMessage = `Scheduled sync failed: ${errMessage}`;
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("scheduler", "scheduled", errMessage),
+        { title: errorMessage }
+      );
+    }
   }
 }

@@ -55,6 +55,21 @@ vi.mock("../src/paths.js", () => ({
       relativeSyncKey: "cursor-user/settings.json",
     },
   ],
+  getSyncEnumerationConfig: () => ({
+    enabledPaths: ["settings.json"],
+    excludeGlobs: [],
+    maxFileSizeKB: 512,
+    maxBytes: 512 * 1024,
+    cursorUserGlobs: ["settings.json"],
+    dotCursorGlobs: [],
+  }),
+  isSyncKeyExcludedByConfig: () => false,
+  syncKeyToAbsolutePath: (syncKey: string) => {
+    if (syncKey === "cursor-user/settings.json") {
+      return "/tmp/cursor-user/settings.json";
+    }
+    return undefined;
+  },
 }));
 
 vi.mock("../src/packaging.js", () => ({

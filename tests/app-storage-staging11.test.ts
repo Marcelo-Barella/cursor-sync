@@ -23,6 +23,13 @@ describe("app storage staging.11", () => {
       checksums: {},
       unreadableKeys: new Set(["cursor-user/secret.json"]),
       enoentKeys: new Set(),
+      provablyAbsentKeys: new Set(),
+      skippedUnknownKeys: new Set(["cursor-user/secret.json"]),
+      untrackedKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: 5,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
     };
     const classified = classifyAppStorageKeys(
       {},
@@ -47,6 +54,13 @@ describe("app storage staging.11", () => {
       checksums: {},
       unreadableKeys: new Set(),
       enoentKeys: new Set(["cursor-user/gone.json"]),
+      provablyAbsentKeys: new Set(["cursor-user/gone.json"]),
+      skippedUnknownKeys: new Set(),
+      untrackedKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: 5,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
     };
     const classified = classifyAppStorageKeys(
       {},
@@ -69,6 +83,13 @@ describe("app storage staging.11", () => {
       checksums: {},
       unreadableKeys: new Set(),
       enoentKeys: new Set(["cursor-user/gone.json"]),
+      provablyAbsentKeys: new Set(["cursor-user/gone.json"]),
+      skippedUnknownKeys: new Set(),
+      untrackedKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: 5,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
     };
     const classified = classifyAppStorageKeys(
       {},

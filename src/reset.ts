@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { clearAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
+import { clearAllAppStorageBaselines } from "./app-storage-baseline.js";
 import { clearToken } from "./auth.js";
 import { clearSyncState } from "./diagnostics.js";
 import { refreshSidebar } from "./sidebar/index.js";
@@ -24,6 +25,7 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
   await clearPersistedAuthHandoff(context);
 
   await clearSyncState(context);
+  await clearAllAppStorageBaselines(context);
 
   // Reset Configuration Settings
   const config = vscode.workspace.getConfiguration("cursorSync");

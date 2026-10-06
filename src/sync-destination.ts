@@ -27,6 +27,15 @@ export function formatPullSuccessToast(
 ): string {
   const wrote = options?.wroteFiles ?? fileCount;
   const deleted = options?.deletedLocally ?? 0;
+  if (deleted > 0 && wrote > 0) {
+    const parts: string[] = [];
+    parts.push(`Pulled ${wrote} ${wrote === 1 ? "file" : "files"}`);
+    parts.push(`removed ${deleted} local ${deleted === 1 ? "file" : "files"}`);
+    if (destination === "cursor-sync-storage") {
+      return `${parts[0]} from Cursor Sync storage and ${parts[1]}`;
+    }
+    return `${parts[0]} from GitHub Gist and ${parts[1]}`;
+  }
   if (deleted > 0 && wrote === 0) {
     const noun = deleted === 1 ? "file" : "files";
     if (destination === "cursor-sync-storage") {

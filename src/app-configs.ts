@@ -21,7 +21,12 @@ import {
   formatPushSuccessToast,
   syncDestinationLabel,
 } from "./sync-destination.js";
-import { scanLocalAppConfigFiles } from "./app-config-local-scan.js";
+import {
+  buildTrackingScopeForBaseline,
+  scanLocalAppConfigFiles,
+} from "./app-config-local-scan.js";
+import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
+import { evaluateRemoteDeleteBatch } from "./app-storage-delete-guard.js";
 import {
   alignGeneratedOnlyLocalChecksums,
   GENERATED_EXTENSIONS_SYNC_KEY,
@@ -31,12 +36,13 @@ import {
   baselineHasEntries,
   baselineKeyTracked,
   classifyAppStorageKeys,
+  baselineKeyTracked,
   filterScheduledAppStoragePullKeys,
   loadAppStorageBaseline,
   shouldPullAppConfigFile,
   updateAppStorageBaselineAfterSync,
 } from "./app-storage-baseline.js";
-import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
+import { enumerateSyncFiles, resolveSyncRoots, syncKeyToAbsolutePath } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
 import { computeChecksum } from "./packaging.js";
@@ -124,11 +130,13 @@ export async function fetchAppConfigs(
   options?: {
     trigger?: AppConfigsSyncTrigger;
     recordAuthFailure?: boolean;
+    recordHttpFailureInHistory?: boolean;
     authFailureDirection?: "push" | "pull";
   }
 ): Promise<AppConfigsResponse | undefined> {
   const trigger = options?.trigger ?? "manual";
   const recordAuthFailure = options?.recordAuthFailure ?? true;
+  const recordHttpFailureInHistory = options?.recordHttpFailureInHistory ?? true;
   const authFailureDirection = options?.authFailureDirection ?? "pull";
   const session = await requireAppSession(context);
   if (!session) {
@@ -152,7 +160,8 @@ export async function fetchAppConfigs(
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     const message = `Failed to fetch app configs (${response.status})${text ? `: ${text}` : ""}`;
-    if (response.status >= 500 && recordAuthFailure) {
+    let historyRecorded = false;
+    if (response.status >= 500 && recordHttpFailureInHistory) {
       await addSyncHistoryEntry(context, {
         timestamp: new Date().toISOString(),
         direction: authFailureDirection,
@@ -162,8 +171,9 @@ export async function fetchAppConfigs(
         destination: "cursor-sync-storage",
         error: message,
       });
+      historyRecorded = true;
     }
-    throw new Error(message);
+    throw new AppConfigsFetchError(message, historyRecorded);
   }
 
   return (await response.json()) as AppConfigsResponse;
@@ -414,6 +424,8 @@ export async function determineAppStorageSyncAction(
   const response = await fetchAppConfigs(context, {
     ...options,
     recordAuthFailure: false,
+    recordHttpFailureInHistory: true,
+    authFailureDirection: "pull",
   });
   if (!response) {
     await recordAppStorageSessionExpired(context, trigger);
@@ -422,8 +434,6 @@ export async function determineAppStorageSyncAction(
 
   const roots = resolveSyncRoots(process.platform, context);
   const extensionsEmpty = await localExtensionsJsonIsEmpty(roots);
-  const localScan = await scanLocalAppConfigFiles(context);
-  let localChecksums = { ...localScan.checksums };
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
   const baseline = await loadAppStorageBaseline(
     context,
@@ -431,6 +441,8 @@ export async function determineAppStorageSyncAction(
     "cursor-sync-storage",
     session
   );
+  const localScan = await scanLocalAppConfigFiles(context, baseline);
+  let localChecksums = { ...localScan.checksums };
 
   if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
     const build = await buildLocalAppConfigsPayload(context);
@@ -483,10 +495,35 @@ export async function determineAppStorageSyncAction(
       localChecksums,
       remoteChecksums
     );
-    pushKeys = pushKeys.filter((k) => !localScan.unreadableKeys.has(k));
-    const deletions = derived.deletions.filter(
-      (k) => !localScan.unreadableKeys.has(k)
+    pushKeys = pushKeys.filter((k) => !localScan.skippedUnknownKeys.has(k));
+    let deletions = derived.deletions.filter((k) =>
+      localScan.provablyAbsentKeys.has(k)
     );
+    if (!localScan.deletesAllowed) {
+      deletions = [];
+    }
+    const trackedCount = baseline
+      ? Object.keys(baseline.localChecksums).length
+      : 0;
+    const deleteDecision = evaluateRemoteDeleteBatch(
+      deletions,
+      trackedCount,
+      trigger,
+      localScan
+    );
+    if (deleteDecision.schedulerBlocked && deletions.length > 0) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination: "cursor-sync-storage",
+        error: deleteDecision.reason,
+      });
+      void vscode.window.showWarningMessage(deleteDecision.reason ?? "Scheduled delete blocked");
+      deletions = [];
+    }
     if (pushKeys.length === 0 && deletions.length === 0) {
       if (localScan.unreadableKeys.size > 0) {
         return { action: "none" };
@@ -507,15 +544,44 @@ export async function determineAppStorageSyncAction(
   if (derived.action === "pull") {
     let pullKeys = derived.keys;
     if (trigger === "scheduled") {
-      pullKeys = filterScheduledAppStoragePullKeys(pullKeys, baseline);
+      pullKeys = filterScheduledAppStoragePullKeys(
+        pullKeys,
+        baseline,
+        localChecksums
+      );
     }
-    if (pullKeys.length === 0 && derived.remoteDeletions.length === 0) {
+    let remoteDeletions = [...derived.remoteDeletions];
+    const trackedCountPull = baseline
+      ? Object.keys(baseline.localChecksums).length
+      : 0;
+    const localDeleteDecision = evaluateRemoteDeleteBatch(
+      remoteDeletions,
+      trackedCountPull,
+      trigger,
+      localScan
+    );
+    if (localDeleteDecision.schedulerBlocked && remoteDeletions.length > 0) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "pull",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination: "cursor-sync-storage",
+        error: localDeleteDecision.reason,
+      });
+      void vscode.window.showWarningMessage(
+        localDeleteDecision.reason ?? "Scheduled local delete blocked"
+      );
+      remoteDeletions = [];
+    }
+    if (pullKeys.length === 0 && remoteDeletions.length === 0) {
       return { action: "none" };
     }
     return {
       action: "pull",
       keys: pullKeys,
-      remoteDeletions: derived.remoteDeletions,
+      remoteDeletions,
     };
   }
 
@@ -532,7 +598,13 @@ export async function applyAppStorageBaselineRefresh(
     return;
   }
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
-  const localScan = await scanLocalAppConfigFiles(context);
+  const baseline = await loadAppStorageBaseline(
+    context,
+    accountKey,
+    "cursor-sync-storage",
+    session
+  );
+  const localScan = await scanLocalAppConfigFiles(context, baseline);
   const localChecksums = localScan.checksums;
   const response = await fetchAppConfigs(context, { recordAuthFailure: false });
   const remoteChecksums: Record<string, string> = {};
@@ -554,6 +626,7 @@ export async function applyAppStorageBaselineRefresh(
     deletedKeys,
     localChecksums,
     remoteChecksums,
+    trackingScope: buildTrackingScopeForBaseline(context),
   });
 }
 
@@ -583,23 +656,6 @@ export async function notifyAppStorageConflicts(
   } else {
     await vscode.window.showErrorMessage(message);
   }
-}
-
-function syncKeyToAbsolutePath(
-  syncKey: string,
-  roots: { cursorUser: string; dotCursor: string }
-): string | undefined {
-  if (syncKey.startsWith("cursor-user/")) {
-    const rel = syncKey.slice("cursor-user/".length);
-    return path.join(roots.cursorUser, ...rel.split("/"));
-  }
-
-  if (syncKey.startsWith("dot-cursor/")) {
-    const rel = syncKey.slice("dot-cursor/".length);
-    return path.join(roots.dotCursor, ...rel.split("/"));
-  }
-
-  return undefined;
 }
 
 function decodePayloadFileContent(
@@ -744,11 +800,11 @@ export async function executePushAppConfigs(
     const config = vscode.workspace.getConfiguration("cursorSync");
     const safeMode = config.get<boolean>("safeMode") ?? true;
     if (safeMode && deletions.length > 0) {
-      const items = deletions.map((key) => ({ label: key, picked: true }));
+      const items = deletions.map((key) => ({ label: key, picked: false }));
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
         title: "Cursor Sync storage: files to remove from remote",
-        placeHolder: "Deselect files you want to keep on the server",
+        placeHolder: "Select files to remove from the server",
       });
       if (!selected) {
         vscode.window.showInformationMessage(
@@ -761,6 +817,41 @@ export async function executePushAppConfigs(
         if (!allowed.has(deletions[i]!)) {
           deletions.splice(i, 1);
         }
+      }
+    }
+
+    const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
+    for (let i = deletions.length - 1; i >= 0; i--) {
+      if (!pushScan.provablyAbsentKeys.has(deletions[i]!)) {
+        deletions.splice(i, 1);
+      }
+    }
+    const trackedForDelete = baselineEarly
+      ? Object.keys(baselineEarly.localChecksums).length
+      : 0;
+    const pushDeleteDecision = evaluateRemoteDeleteBatch(
+      deletions,
+      trackedForDelete,
+      trigger,
+      pushScan
+    );
+    if (!pushDeleteDecision.proceed && deletions.length > 0) {
+      if (pushDeleteDecision.needsModalConfirm) {
+        const confirm = await vscode.window.showWarningMessage(
+          pushDeleteDecision.reason ??
+            `Delete ${deletions.length} files from Cursor Sync storage?`,
+          { modal: true },
+          "Delete remotely",
+          "Cancel"
+        );
+        if (confirm !== "Delete remotely") {
+          deletions.length = 0;
+        }
+      } else {
+        vscode.window.showWarningMessage(
+          pushDeleteDecision.reason ?? "Remote delete blocked"
+        );
+        deletions.length = 0;
       }
     }
 
@@ -926,6 +1017,7 @@ export async function executePushAppConfigs(
         deletedKeys: deletedKeys,
         localChecksums,
         remoteChecksums,
+        trackingScope: buildTrackingScopeForBaseline(context),
       });
     }
 
@@ -973,15 +1065,17 @@ export async function executePushAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
     );
-    await addSyncHistoryEntry(context, {
-      timestamp: new Date().toISOString(),
-      direction: "push",
-      trigger,
-      fileCount: 0,
-      success: false,
-      destination,
-      error: message,
-    });
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination,
+        error: message,
+      });
+    }
     vscode.window.showErrorMessage(`Push to ${destinationLabel} failed: ${message}`);
     return false;
   }
@@ -1098,7 +1192,7 @@ export async function executePullAppConfigs(
     if (safeMode && filesToWrite.length > 0) {
       const items = filesToWrite.map((f) => ({
         label: f.syncKey,
-        picked: pullBaseline ? baselineKeyTracked(pullBaseline, f.syncKey) : false,
+        picked: !pullBaseline || !baselineKeyTracked(pullBaseline, f.syncKey),
       }));
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
@@ -1120,7 +1214,7 @@ export async function executePullAppConfigs(
     if (safeMode && filesToDelete.length > 0) {
       const items = filesToDelete.map((f) => ({
         label: f.syncKey,
-        picked: true,
+        picked: false,
       }));
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
@@ -1152,6 +1246,7 @@ export async function executePullAppConfigs(
           deletedKeys: [],
           localChecksums,
           remoteChecksums,
+          trackingScope: buildTrackingScopeForBaseline(context),
         });
       }
       vscode.window.showInformationMessage(formatPullEmptyToast(destination));
@@ -1255,6 +1350,7 @@ export async function executePullAppConfigs(
         deletedKeys: deletedLocally,
         localChecksums,
         remoteChecksums,
+        trackingScope: buildTrackingScopeForBaseline(context),
       });
     }
 
@@ -1303,15 +1399,17 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs failed: ${message}`
     );
-    await addSyncHistoryEntry(context, {
-      timestamp: new Date().toISOString(),
-      direction: "pull",
-      trigger,
-      fileCount: 0,
-      success: false,
-      destination,
-      error: message,
-    });
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "pull",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination,
+        error: message,
+      });
+    }
     vscode.window.showErrorMessage(`Pull from ${destinationLabel} failed: ${message}`);
     return false;
   }
