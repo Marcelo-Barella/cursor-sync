@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.36
+
+### Tests
+- F3-X integration: local edit → manual pull (decline overwrite) → Sync Now push → remote drift surfaces as conflict; safeMode true/false variants.
+- Held/partial: scheduler pull-push and Sync Now do not push after held/partial; executePull warning bar aligned with `deriveStorageSyncPresentation`.
+- SQLite guard: compiler-API mutation tests (unchecked runner copy, re-export, compose bypass, missing `assertSafeSqlScript`); production `SQLITE_PYTHON_EXECUTESCRIPT` is module-private in `transcripts-sqlite.ts`.
+
 ## v0.8.4-staging.35
 
 ### Fixed
