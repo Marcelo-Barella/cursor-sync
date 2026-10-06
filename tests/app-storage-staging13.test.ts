@@ -26,6 +26,7 @@ function scan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan
     provablyAbsentKeys: new Set(),
     skippedUnknownKeys: new Set(),
     untrackedKeys: new Set(),
+    absentEligibleKeys: new Set(),
     deletesAllowed: true,
     enumeratedCount: 6,
     rootsHealthy: true,
@@ -162,15 +163,17 @@ describe("app storage staging.13 mass-delete safety", () => {
 
   it("scheduler auto-pulls absent-local remote keys without baseline", () => {
     const remote = { "cursor-user/settings.json": "remote" };
-    const classified = classifyAppStorageKeys({}, remote, undefined, scan());
+    const absentScan = scan({
+      absentEligibleKeys: new Set(["cursor-user/settings.json"]),
+      provablyAbsentKeys: new Set(["cursor-user/settings.json"]),
+    });
+    const classified = classifyAppStorageKeys({}, remote, undefined, absentScan);
     expect(classified.pullKeys).toEqual(["cursor-user/settings.json"]);
     expect(
       filterScheduledAppStoragePullKeys(
         classified.pullKeys,
         undefined,
-        scan({
-          provablyAbsentKeys: new Set(["cursor-user/settings.json"]),
-        }),
+        absentScan,
         remote
       )
     ).toEqual(["cursor-user/settings.json"]);

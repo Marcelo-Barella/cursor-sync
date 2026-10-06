@@ -1,3 +1,37 @@
+/**
+ * App storage sync decision table (single source of truth).
+ *
+ * Dimensions per sync key:
+ * - Baseline: absent | present (tracked in baseline store)
+ * - Local: present | provably_absent | absent_eligible (proven) | skipped_unknown | untracked
+ * - Remote: absent | present_same | present_changed
+ *
+ * Actions: push | pull | delete_remote | delete_local | conflict | noop | baseline_refresh
+ * pullPreselected: manual pull overwrite picker default when action is pull
+ *
+ * | Baseline | Local              | Remote          | Action           | Pull preselected |
+ * |----------|--------------------|-----------------|------------------|------------------|
+ * | absent   | present            | absent          | push             | n/a              |
+ * | absent   | present            | present_same    | baseline_refresh | n/a              |
+ * | absent   | present            | present_changed | conflict         | false            |
+ * | absent   | absent_eligible    | present_*       | pull             | true             |
+ * | absent   | provably_absent    | present_*       | pull             | true             |
+ * | absent   | provably_absent    | absent          | noop             | n/a              |
+ * | absent   | skipped/untracked  | present_*       | noop             | false            |
+ * | present  | present            | present_same    | noop             | n/a              |
+ * | present  | present            | present_changed | pull             | true             |
+ * | present  | present            | absent          | delete_local     | n/a (threshold)  |
+ * | present  | provably_absent    | absent          | baseline_refresh | n/a              |
+ * | present  | provably_absent    | present_same    | delete_remote    | n/a              |
+ * | present  | provably_absent    | present_changed | conflict         | false            |
+ * | present  | skipped_unknown    | *               | noop             | false            |
+ * | present  | untracked          | local gone      | baseline_refresh | prune baseline |
+ *
+ * absent_eligible is never inferred: only set after lstat proves ENOENT under an in-scope root.
+ * Excluded/oversize/symlink/unreadable on disk are always skipped_unknown (never pulled).
+ * Skipped_unknown keys never participate in conflicts or pending pulls.
+ */
+
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { baselineHasEntries, baselineKeyTracked } from "./app-storage-baseline.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
@@ -41,7 +75,10 @@ export function localPresenceForKey(
   if (scan.provablyAbsentKeys.has(syncKey)) {
     return "provably_absent";
   }
-  return "absent_eligible";
+  if (scan.absentEligibleKeys.has(syncKey)) {
+    return "absent_eligible";
+  }
+  return "skipped_unknown";
 }
 
 export function remotePresenceForKey(
@@ -67,13 +104,7 @@ export function isLocallyAbsentSafeToPull(
   scan: LocalConfigFileScan
 ): boolean {
   const local = localPresenceForKey(syncKey, scan);
-  if (local === "untracked" || local === "skipped_unknown" || local === "present") {
-    return false;
-  }
-  if (local === "provably_absent" || local === "absent_eligible") {
-    return true;
-  }
-  return false;
+  return local === "provably_absent" || local === "absent_eligible";
 }
 
 export function shouldAllowPullWriteForKey(
@@ -81,7 +112,7 @@ export function shouldAllowPullWriteForKey(
   scan: LocalConfigFileScan
 ): boolean {
   const local = localPresenceForKey(syncKey, scan);
-  return local !== "untracked" && local !== "skipped_unknown";
+  return local === "present" || local === "provably_absent" || local === "absent_eligible";
 }
 
 export function decideSyncKey(input: {
@@ -128,7 +159,7 @@ export function decideSyncKey(input: {
   }
 
   if (wasLocal !== undefined && curLocal === undefined) {
-    if (local !== "provably_absent") {
+    if (local !== "provably_absent" && local !== "absent_eligible") {
       return { action: "noop", pullPreselected: false };
     }
     if (wasRemote !== undefined && curRemote === undefined) {
@@ -140,7 +171,13 @@ export function decideSyncKey(input: {
     return { action: "delete_remote", pullPreselected: false };
   }
 
-  if (wasRemote !== undefined && curRemote === undefined && curLocal === wasLocal) {
+  if (
+    wasLocal !== undefined &&
+    wasRemote !== undefined &&
+    curRemote === undefined &&
+    curLocal !== undefined &&
+    curLocal === wasLocal
+  ) {
     return { action: "delete_local", pullPreselected: false };
   }
 
@@ -160,10 +197,6 @@ export function decideSyncKey(input: {
 
   if (localChanged) {
     return { action: "push", pullPreselected: false };
-  }
-
-  if (curRemote === undefined) {
-    return { action: "delete_local", pullPreselected: false };
   }
 
   return { action: "pull", pullPreselected: true };
@@ -224,4 +257,10 @@ export function filterScheduledAppStoragePullKeys(
     }
     return isLocallyAbsentSafeToPull(key, localScan);
   });
+}
+
+export function isEffectiveSyncClassification(
+  classification: import("./app-storage-baseline.js").AppStorageKeyClassification
+): boolean {
+  return classification !== "unchanged" && classification !== "baseline_refresh";
 }

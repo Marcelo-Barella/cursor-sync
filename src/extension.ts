@@ -381,6 +381,9 @@ export async function executeSyncNow(
       case "none":
         vscode.window.showInformationMessage("Already in sync, nothing to do.");
         break;
+      case "blocked":
+        vscode.window.showWarningMessage(result.message);
+        break;
       case "baseline_refresh": {
         const remote = await fetchAppConfigs(context, { trigger: "syncNow" });
         if (remote) {

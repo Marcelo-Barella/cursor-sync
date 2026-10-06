@@ -28,17 +28,21 @@ import {
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import {
   clearSchedulerMassDeleteBlockIfResolved,
+  resetSchedulerMassDeleteBlockDedupe,
   evaluateEmptyRemoteManifestLocalDeletes,
   evaluateRemoteDeleteBatch,
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
+import { scanWithDiskProbes } from "./app-config-disk-probe.js";
 import {
-  addDeclinedPullOverwriteKeys,
-  clearDeclinedPullOverwriteKeys,
-  getDeclinedPullOverwriteKeys,
-} from "./app-storage-pull-declines.js";
+  clearSyncDeclines,
+  filterPushKeysRespectingDeclines,
+  pruneResolvedDeclines,
+  recordDeclinedLocalDelete,
+  recordDeclinedPullOverwrite,
+} from "./app-storage-sync-declines.js";
 import {
   isLocallyAbsentSafeToPull,
   shouldAllowPullWriteForKey,
@@ -321,6 +325,28 @@ function filterGeneratedOnlyPushKeys(
   return pushKeys.filter((key) => key !== GENERATED_EXTENSIONS_SYNC_KEY);
 }
 
+async function removeEmptyParentDirs(
+  filePath: string,
+  rootPrefix: string
+): Promise<void> {
+  let dir = path.dirname(filePath);
+  while (dir.length >= rootPrefix.length && dir.startsWith(rootPrefix)) {
+    if (dir === rootPrefix) {
+      break;
+    }
+    try {
+      const entries = await fs.readdir(dir);
+      if (entries.length > 0) {
+        break;
+      }
+      await fs.rmdir(dir);
+      dir = path.dirname(dir);
+    } catch {
+      break;
+    }
+  }
+}
+
 function isEmptyOrDefaultSettingsContent(content: string): boolean {
   const trimmed = content.trim();
   if (trimmed === "{}" || trimmed.length === 0) {
@@ -420,6 +446,7 @@ export async function computeLocalAppConfigChecksums(
 
 export type AppStorageSyncAction =
   | { action: "none" }
+  | { action: "blocked"; message: string }
   | { action: "pull"; keys: string[]; remoteDeletions: string[] }
   | { action: "push"; keys: string[]; deletions: string[] }
   | { action: "conflict"; keys: string[] }
@@ -476,6 +503,14 @@ export async function determineAppStorageSyncAction(
     remoteChecksums[key] = entry.checksum;
   }
 
+  const probeKeys = new Set([
+    ...Object.keys(remoteChecksums),
+    ...Object.keys(baseline?.localChecksums ?? {}),
+    ...Object.keys(baseline?.remoteChecksums ?? {}),
+    ...Object.keys(localChecksums),
+  ]);
+  const probedScan = await scanWithDiskProbes(context, localScan, probeKeys);
+
   localChecksums = alignGeneratedOnlyLocalChecksums(
     localChecksums,
     remoteChecksums,
@@ -487,7 +522,7 @@ export async function determineAppStorageSyncAction(
     localChecksums,
     remoteChecksums,
     baseline,
-    localScan
+    probedScan
   );
   const derived = appStorageSyncActionFromClassification(
     classified,
@@ -510,11 +545,14 @@ export async function determineAppStorageSyncAction(
       localChecksums,
       remoteChecksums
     );
-    pushKeys = pushKeys.filter((k) => !localScan.skippedUnknownKeys.has(k));
-    let deletions = derived.deletions.filter((k) =>
-      localScan.provablyAbsentKeys.has(k)
+    pushKeys = pushKeys.filter(
+      (k) =>
+        !probedScan.skippedUnknownKeys.has(k) && !probedScan.untrackedKeys.has(k)
     );
-    if (!localScan.deletesAllowed) {
+    let deletions = derived.deletions.filter((k) =>
+      probedScan.provablyAbsentKeys.has(k)
+    );
+    if (!probedScan.deletesAllowed) {
       deletions = [];
     }
     const trackedCount = baseline
@@ -524,7 +562,7 @@ export async function determineAppStorageSyncAction(
       deletions,
       trackedCount,
       trigger,
-      localScan
+      probedScan
     );
     if (deleteDecision.schedulerBlocked && deletions.length > 0) {
       const reason = deleteDecision.reason ?? "Scheduled delete blocked";
@@ -542,6 +580,9 @@ export async function determineAppStorageSyncAction(
       deletions = [];
     }
     if (pushKeys.length === 0 && deletions.length === 0) {
+      if (classified.baselineRefreshKeys.length > 0) {
+        return { action: "baseline_refresh", keys: classified.baselineRefreshKeys };
+      }
       return { action: "none" };
     }
     return { action: "push", keys: pushKeys, deletions };
@@ -561,7 +602,7 @@ export async function determineAppStorageSyncAction(
       pullKeys = filterScheduledAppStoragePullKeys(
         pullKeys,
         baseline,
-        localScan,
+        probedScan,
         remoteChecksums
       );
     }
@@ -586,7 +627,6 @@ export async function determineAppStorageSyncAction(
           void vscode.window.showWarningMessage(reason);
         }
       } else {
-        void vscode.window.showWarningMessage(reason);
         await addSyncHistoryEntry(context, {
           timestamp: new Date().toISOString(),
           direction: "pull",
@@ -596,6 +636,7 @@ export async function determineAppStorageSyncAction(
           destination: "cursor-sync-storage",
           error: reason,
         });
+        return { action: "blocked", message: reason };
       }
       remoteDeletions = [];
     }
@@ -606,7 +647,7 @@ export async function determineAppStorageSyncAction(
       remoteDeletions,
       trackedCountPull,
       trigger,
-      localScan
+      probedScan
     );
     if (pullDeleteDecision.schedulerBlocked && remoteDeletions.length > 0) {
       const reason =
@@ -786,13 +827,22 @@ export async function executePushAppConfigs(
     }));
 
     const meaningfulCount = countMeaningfulAppConfigKeys(localPayload);
-    const declinedPushSkips = await getDeclinedPullOverwriteKeys(context);
-    let keysToUpload = (
+    const localChecksumsForDecline = await computeLocalAppConfigChecksums(context);
+    await pruneResolvedDeclines(context, localChecksumsForDecline);
+    const explicitPush =
+      options?.keys !== undefined || trigger === "manual" || trigger === "syncNow";
+    let keysToUpload =
       options?.keys ??
       Object.keys(localPayload.files).filter(
         (k) => !isGeneratedOnlyAppConfigKey(k, localPayload)
-      )
-    ).filter((k) => !declinedPushSkips.has(k));
+      );
+    keysToUpload = await filterPushKeysRespectingDeclines(
+      context,
+      keysToUpload,
+      localChecksumsForDecline,
+      trigger,
+      explicitPush
+    );
     let deletions = [...(options?.deletions ?? [])];
 
     if (meaningfulCount === 0 && keysToUpload.length === 0 && deletions.length === 0) {
@@ -1113,6 +1163,9 @@ export async function executePushAppConfigs(
       });
     }
 
+    await clearSyncDeclines(context, [...uploadedKeys, ...deletedKeys]);
+    resetSchedulerMassDeleteBlockDedupe();
+
     const totalChanged = uploadedCount + deletedCount;
     const pushPartial = unreadableSkipCount > 0 && uploadSet.size > 0;
     const totalIntended = uploadedCount + unreadableSkipCount;
@@ -1219,7 +1272,9 @@ export async function executePullAppConfigs(
           sessionForBaseline
         )
       : undefined;
-    const pullLocalScan = await scanLocalAppConfigFiles(context, pullBaseline);
+    let pullLocalScan = await scanLocalAppConfigFiles(context, pullBaseline);
+    const manifestKeys = Object.keys(manifest.files);
+    pullLocalScan = await scanWithDiskProbes(context, pullLocalScan, manifestKeys);
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
@@ -1246,16 +1301,6 @@ export async function executePullAppConfigs(
 
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
         continue;
-      }
-      try {
-        const st = await fs.lstat(absolutePath);
-        if (!st.isFile()) {
-          continue;
-        }
-      } catch {
-        if (!isLocallyAbsentSafeToPull(syncKey, pullLocalScan)) {
-          continue;
-        }
       }
       if (
         localChecksum === undefined &&
@@ -1334,12 +1379,17 @@ export async function executePullAppConfigs(
 
       if (!selected) {
         pullCancelledByUser = true;
-        await addDeclinedPullOverwriteKeys(context, offeredPullKeys);
+        for (const f of filesToWrite) {
+          await recordDeclinedPullOverwrite(context, f.syncKey, f.localChecksum);
+        }
         filesToWrite.length = 0;
       } else {
         const selectedKeys = new Set(selected.map((s) => s.label));
-        const declined = offeredPullKeys.filter((k) => !selectedKeys.has(k));
-        await addDeclinedPullOverwriteKeys(context, declined);
+        for (const f of filesToWrite) {
+          if (!selectedKeys.has(f.syncKey)) {
+            await recordDeclinedPullOverwrite(context, f.syncKey, f.localChecksum);
+          }
+        }
         const filtered = filesToWrite.filter((f) => selectedKeys.has(f.syncKey));
         filesToWrite.length = 0;
         filesToWrite.push(...filtered);
@@ -1368,6 +1418,11 @@ export async function executePullAppConfigs(
         const filteredDeletes = filesToDelete.filter((f) =>
           selectedKeys.has(f.syncKey)
         );
+        for (const key of initialLocalDeletes) {
+          if (!selectedKeys.has(key)) {
+            await recordDeclinedLocalDelete(context, key);
+          }
+        }
         filesToDelete.length = 0;
         filesToDelete.push(...filteredDeletes);
         if (initialLocalDeletes.length > 0 && filesToDelete.length === 0) {
@@ -1531,6 +1586,14 @@ export async function executePullAppConfigs(
       try {
         await fs.unlink(file.absolutePath);
         deletedLocally.push(file.syncKey);
+        const rootPrefix = file.syncKey.startsWith("dot-cursor/")
+          ? roots.dotCursor
+          : file.syncKey.startsWith("cursor-user/")
+            ? roots.cursorUser
+            : "";
+        if (rootPrefix) {
+          await removeEmptyParentDirs(file.absolutePath, rootPrefix);
+        }
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== "ENOENT") {
@@ -1556,10 +1619,12 @@ export async function executePullAppConfigs(
     }
 
     await pruneOldBackups(context);
-    await clearDeclinedPullOverwriteKeys(
-      context,
-      filesToWrite.map((f) => f.syncKey)
-    );
+    await clearSyncDeclines(context, [
+      ...filesToWrite.map((f) => f.syncKey),
+      ...deletedLocally,
+    ]);
+    clearSchedulerMassDeleteBlockIfResolved([]);
+    resetSchedulerMassDeleteBlockDedupe();
 
     const session = await getAppSession(context);
     const wroteCount = filesToWrite.length;

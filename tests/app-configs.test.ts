@@ -119,6 +119,7 @@ const scanLocalAppConfigFilesMock = vi.hoisted(() =>
     provablyAbsentKeys: new Set(),
     skippedUnknownKeys: new Set(),
     untrackedKeys: new Set(),
+    absentEligibleKeys: new Set(),
     deletesAllowed: true,
     enumeratedCount: 1,
     rootsHealthy: true,
@@ -131,6 +132,31 @@ vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
   return {
     ...actual,
     scanLocalAppConfigFiles: scanLocalAppConfigFilesMock,
+  };
+});
+
+vi.mock("../src/app-config-disk-probe.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-config-disk-probe.js")>();
+  return {
+    ...actual,
+    scanWithDiskProbes: async (
+      _ctx: unknown,
+      scan: import("../src/app-config-local-scan.js").LocalConfigFileScan,
+      keys: Iterable<string>
+    ) => {
+      const next = {
+        ...scan,
+        absentEligibleKeys: new Set(scan.absentEligibleKeys),
+        provablyAbsentKeys: new Set(scan.provablyAbsentKeys),
+      };
+      for (const key of keys) {
+        if (key === "cursor-user/settings.json" && !next.checksums[key]) {
+          next.absentEligibleKeys.add(key);
+          next.provablyAbsentKeys.add(key);
+        }
+      }
+      return next;
+    },
   };
 });
 

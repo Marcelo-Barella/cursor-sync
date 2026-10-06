@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.16
+
+### Fixed
+- Pull eligibility is proven per key via `lstat` (`absent_eligible` never inferred); excluded/oversize/symlink on disk stay `skipped_unknown`.
+- Symlink/non-regular keys are noop in both directions and no longer block pushes or force false conflicts.
+- Delete guard uses user-content enumeration only (ignores generated `extensions.json`); m2 empty-scan deletes blocked.
+- Nested directory deletes mark all tracked descendants provably absent (walk ancestors on readdir failure).
+- Declined pull/delete decisions block resurrection on push until checksum changes or explicit Push/Sync Now; declines store checksums.
+- Mass-delete dedupe resets after successful pull/push; exclude-glob scope updates via baseline_refresh before "already in sync".
+- `delete_local` requires `wasLocal`; empty-remote Sync Now shows warning only; hashed backup index unchanged.
+- Pull removes empty parent dirs after deletes; decision table doc updated (cells U1, N3, B8, B11, m2).
+
 ## v0.8.4-staging.15
 
 ### Fixed

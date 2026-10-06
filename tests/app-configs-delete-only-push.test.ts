@@ -88,6 +88,7 @@ vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
       provablyAbsentKeys: new Set(["dot-cursor/removed.md"]),
       skippedUnknownKeys: new Set(),
       untrackedKeys: new Set(),
+      absentEligibleKeys: new Set(),
       deletesAllowed: true,
       enumeratedCount: 0,
       rootsHealthy: true,

@@ -22,6 +22,7 @@ const emptyScan: LocalConfigFileScan = {
   provablyAbsentKeys: new Set(["cursor-user/commands/r8.md"]),
   skippedUnknownKeys: new Set(),
   untrackedKeys: new Set(),
+  absentEligibleKeys: new Set(),
   deletesAllowed: true,
   enumeratedCount: 5,
   rootsHealthy: true,

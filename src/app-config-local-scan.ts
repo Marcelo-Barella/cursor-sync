@@ -11,6 +11,7 @@ import {
   type SyncRoots,
 } from "./paths.js";
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
+import { GENERATED_EXTENSIONS_SYNC_KEY } from "./app-config-extensions-align.js";
 
 export type BaselineKeyPresence = "present" | "provably_absent" | "skipped_unknown";
 
@@ -22,6 +23,8 @@ export interface LocalConfigFileScan {
   provablyAbsentKeys: Set<string>;
   skippedUnknownKeys: Set<string>;
   untrackedKeys: Set<string>;
+  /** Proven via lstat ENOENT + readable parent; never inferred by default. */
+  absentEligibleKeys: Set<string>;
   deletesAllowed: boolean;
   deleteBlockReason?: string;
   enumeratedCount: number;
@@ -136,6 +139,7 @@ export async function scanLocalAppConfigFiles(
   const provablyAbsentKeys = new Set<string>();
   const skippedUnknownKeys = new Set<string>();
   const untrackedKeys = new Set<string>();
+  const absentEligibleKeys = new Set<string>();
 
   for (const file of localFiles) {
     const key = file.relativeSyncKey;
@@ -195,7 +199,8 @@ export async function scanLocalAppConfigFiles(
           return;
         }
       } catch {
-        return;
+        dir = parentDir;
+        continue;
       }
       dir = parentDir;
     }
@@ -208,18 +213,35 @@ export async function scanLocalAppConfigFiles(
     }
     if (isSyncKeyExcludedByConfig(key, enumConfig)) {
       untrackedKeys.add(key);
+      const absExcluded = syncKeyToAbsolutePath(key, roots);
+      if (absExcluded) {
+        try {
+          await fs.lstat(absExcluded);
+          skippedUnknownKeys.add(key);
+          unreadableKeys.add(key);
+        } catch {
+          // excluded and absent
+        }
+      }
       continue;
     }
     const absPath = syncKeyToAbsolutePath(key, roots);
     if (absPath) {
       try {
-        const st = await fs.stat(absPath);
+        const st = await fs.lstat(absPath);
+        if (st.isSymbolicLink() || !st.isFile()) {
+          skippedUnknownKeys.add(key);
+          unreadableKeys.add(key);
+          continue;
+        }
         const rel = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
         const sizeLimit = rel.toLowerCase().endsWith(".vsix")
           ? 50 * 1024 * 1024
           : enumConfig.maxBytes;
-        if (st.isFile() && st.size > sizeLimit) {
+        if (st.size > sizeLimit) {
           untrackedKeys.add(key);
+          skippedUnknownKeys.add(key);
+          unreadableKeys.add(key);
           continue;
         }
       } catch {
@@ -262,13 +284,26 @@ export async function scanLocalAppConfigFiles(
   if (!rootsHealthy) {
     deletesAllowed = false;
     deleteBlockReason = "A sync root directory is missing or unreadable";
-  } else if (enumeratedKeys.size === 0) {
-    deletesAllowed = false;
-    deleteBlockReason =
-      baselineLocalKeys.length > 0
-        ? "Local scan returned no files while baseline has tracked keys"
-        : "Local scan returned no files";
-  } else if (trackingScopeMismatch) {
+  } else {
+    const baselineUserKeys = baselineLocalKeys.filter(
+      (k) => k !== GENERATED_EXTENSIONS_SYNC_KEY
+    );
+    const enumeratedUserKeys = [...enumeratedKeys].filter(
+      (k) => k !== GENERATED_EXTENSIONS_SYNC_KEY
+    );
+    const trackedUserSeen = baselineUserKeys.some(
+      (k) => checksums[k] !== undefined || provablyAbsentKeys.has(k)
+    );
+    if (
+      baselineUserKeys.length > 0 &&
+      (enumeratedUserKeys.length === 0 || !trackedUserSeen)
+    ) {
+      deletesAllowed = false;
+      deleteBlockReason =
+        "Local scan found no user content files while baseline has tracked keys";
+    }
+  }
+  if (deletesAllowed && trackingScopeMismatch) {
     deletesAllowed = false;
     deleteBlockReason = "Sync paths or limits changed since the baseline was saved";
   }
@@ -280,6 +315,7 @@ export async function scanLocalAppConfigFiles(
     provablyAbsentKeys,
     skippedUnknownKeys,
     untrackedKeys,
+    absentEligibleKeys,
     deletesAllowed,
     deleteBlockReason,
     enumeratedCount: enumeratedKeys.size,

@@ -192,6 +192,7 @@ export function classifyAppStorageKeys(
       provablyAbsentKeys: new Set(),
       skippedUnknownKeys: new Set(),
       untrackedKeys: new Set(),
+      absentEligibleKeys: new Set(),
       deletesAllowed: true,
       enumeratedCount: Object.keys(localChecksums).length,
       rootsHealthy: true,
@@ -218,12 +219,17 @@ export function classifyAppStorageKeys(
     ...Object.keys(baseRemote),
   ]);
 
+  const scanForDecision: LocalConfigFileScan = {
+    ...scan,
+    checksums: { ...scan.checksums, ...localChecksums },
+  };
+
   for (const key of allKeys) {
     const curLocal = localChecksums[key];
     const curRemote = remoteChecksums[key];
     const decision = decideSyncKey({
       syncKey: key,
-      scan,
+      scan: scanForDecision,
       baseline,
       curLocal,
       curRemote,
@@ -288,28 +294,43 @@ export function appStorageSyncActionFromClassification(
   remoteChecksums: Record<string, string>
 ): DerivedAppStorageSyncAction {
   const remoteNonempty = Object.keys(remoteChecksums).length > 0;
-  const pullKeys = [...classified.pullKeys, ...classified.remoteDeleteKeys];
+  const pullKeys = [
+    ...classified.pullKeys,
+    ...classified.remoteDeleteKeys.filter(
+      (k) => classified.byKey[k] === "remote_delete"
+    ),
+  ];
+  const pushKeysEffective = classified.pushKeys.filter(
+    (k) => classified.byKey[k] === "push"
+  );
+  const deleteKeysEffective = classified.deleteKeys.filter(
+    (k) => classified.byKey[k] === "delete"
+  );
 
-  if (classified.conflictKeys.length > 0) {
-    return { action: "conflict", keys: classified.conflictKeys };
+  const conflictKeysEffective = classified.conflictKeys.filter(
+    (k) => classified.byKey[k] === "conflict"
+  );
+
+  if (conflictKeysEffective.length > 0) {
+    return { action: "conflict", keys: conflictKeysEffective };
   }
 
   if (!classified.hasBaseline && remoteNonempty) {
-    if (pullKeys.length > 0 && classified.pushKeys.length === 0) {
+    if (pullKeys.length > 0 && pushKeysEffective.length === 0) {
       return {
         action: "pull",
         keys: classified.pullKeys,
         remoteDeletions: classified.remoteDeleteKeys,
       };
     }
-    if (classified.pushKeys.length > 0 && pullKeys.length === 0) {
+    if (pushKeysEffective.length > 0 && pullKeys.length === 0) {
       return {
         action: "push",
         keys: classified.pushKeys,
         deletions: classified.deleteKeys,
       };
     }
-    if (pullKeys.length > 0 || classified.pushKeys.length > 0) {
+    if (pullKeys.length > 0 || pushKeysEffective.length > 0) {
       return {
         action: "pull",
         keys: classified.pullKeys,
@@ -318,14 +339,13 @@ export function appStorageSyncActionFromClassification(
     }
   }
 
-  const hasPush =
-    classified.pushKeys.length > 0 || classified.deleteKeys.length > 0;
+  const hasPush = pushKeysEffective.length > 0 || deleteKeysEffective.length > 0;
   const hasPull = pullKeys.length > 0;
 
   if (hasPull && hasPush) {
     return {
       action: "conflict",
-      keys: [...classified.pushKeys, ...pullKeys],
+      keys: [...pushKeysEffective, ...pullKeys],
     };
   }
   if (hasPull) {

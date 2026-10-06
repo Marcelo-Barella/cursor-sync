@@ -19,6 +19,7 @@ function scan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan
     provablyAbsentKeys: new Set(),
     skippedUnknownKeys: new Set(),
     untrackedKeys: new Set(),
+    absentEligibleKeys: new Set(),
     deletesAllowed: true,
     enumeratedCount: 3,
     rootsHealthy: true,
