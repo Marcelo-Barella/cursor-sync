@@ -11,9 +11,17 @@ export function syncDestinationLabel(destination: SyncDestinationId): string {
 
 export function formatPushSuccessToast(
   fileCount: number,
-  destination: SyncDestinationId
+  destination: SyncDestinationId,
+  options?: { deletedRemotely?: number }
 ): string {
+  const deleted = options?.deletedRemotely ?? 0;
   const noun = fileCount === 1 ? "file" : "files";
+  const dest =
+    destination === "cursor-sync-storage" ? "Cursor Sync storage" : "GitHub Gist";
+  if (deleted > 0) {
+    const delNoun = deleted === 1 ? "file" : "files";
+    return `Pushed ${fileCount} ${noun} to ${dest} and removed ${deleted} remote ${delNoun}`;
+  }
   if (destination === "cursor-sync-storage") {
     return `Pushed ${fileCount} ${noun} to Cursor Sync storage`;
   }

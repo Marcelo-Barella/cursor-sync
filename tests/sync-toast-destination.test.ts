@@ -21,6 +21,11 @@ describe("sync destination labels", () => {
     expect(formatPushSuccessToast(4, "cursor-sync-storage")).toBe(
       "Pushed 4 files to Cursor Sync storage"
     );
+    expect(
+      formatPushSuccessToast(1, "cursor-sync-storage", { deletedRemotely: 1 })
+    ).toBe(
+      "Pushed 1 file to Cursor Sync storage and removed 1 remote file"
+    );
     expect(formatPullSuccessToast(1, "cursor-sync-storage")).toBe(
       "Pulled 1 file from Cursor Sync storage"
     );

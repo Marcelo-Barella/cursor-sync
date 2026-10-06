@@ -1194,7 +1194,9 @@ export async function executePushAppConfigs(
       );
     } else if (uploadedCount > 0) {
       vscode.window.showInformationMessage(
-        formatPushSuccessToast(uploadedCount, destination)
+        formatPushSuccessToast(uploadedCount, destination, {
+          deletedRemotely: deletedCount > 0 ? deletedCount : undefined,
+        })
       );
     } else if (deletedCount > 0) {
       vscode.window.showInformationMessage(
