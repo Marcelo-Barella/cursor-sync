@@ -63,6 +63,16 @@ export async function refreshE2eGateAfterCryptoChange(
   return snapshot;
 }
 
+function keysGateForCryptoFromCache(
+  keysCache: KeysGateCache,
+  usedOfflineKeysCache: boolean
+): E2eGateSnapshot["keysGateForCrypto"] | undefined {
+  if (!keysCache.keyMaterial) {
+    return undefined;
+  }
+  return { material: keysCache.keyMaterial, usedOfflineKeysCache };
+}
+
 export async function resolveE2eGateSnapshot(
   context: vscode.ExtensionContext,
   options?: { refreshKeys?: boolean; bypassCache?: boolean; skipNetwork?: boolean }
@@ -88,6 +98,7 @@ export async function resolveE2eGateSnapshot(
   const diskCache = getCachedKeysGate();
   let keysCache: KeysGateCache = diskCache;
   let usedOfflineKeysCache = false;
+  let freshKeysFromServer = false;
   const forceKeysFetch =
     options?.refreshKeys === true || keysCacheNeedsRefresh(diskCache);
   try {
@@ -95,22 +106,19 @@ export async function resolveE2eGateSnapshot(
       force: forceKeysFetch,
       skipNetwork: options?.skipNetwork,
     });
+    freshKeysFromServer = true;
   } catch (err) {
     if (err instanceof KeysApiError && err.status === 401) {
       cachedSnapshot = { phase: "no_app_session" };
       return cachedSnapshot;
     }
-    if (err instanceof KeysApiError && err.status === 429) {
-      if (diskCache.verification === "verified" && diskCache.presence !== "unknown") {
-        keysCache = diskCache;
-      } else {
-        cachedSnapshot = {
-          phase: "keys_unavailable",
-          userId: claims.userId,
-          keysStatusMessage: err.message,
-        };
-        return cachedSnapshot;
-      }
+    if (err instanceof KeysApiError && (err.status === 429 || err.status >= 500)) {
+      cachedSnapshot = {
+        phase: "keys_unavailable",
+        userId: claims.userId,
+        keysStatusMessage: err.message,
+      };
+      return cachedSnapshot;
     } else if (isTransientNetworkError(err)) {
       if (hasVerifiedKeysCacheForOfflineUnlock(diskCache)) {
         keysCache = diskCache;
@@ -152,9 +160,10 @@ export async function resolveE2eGateSnapshot(
   }
 
   const keyVersion = keysCache.keyMaterial?.keyVersion ?? 1;
-  const keysGateForCrypto = keysCache.keyMaterial
-    ? { material: keysCache.keyMaterial, usedOfflineKeysCache }
-    : undefined;
+  const keysGateForCrypto =
+    freshKeysFromServer || usedOfflineKeysCache
+      ? keysGateForCryptoFromCache(keysCache, usedOfflineKeysCache)
+      : undefined;
   const dek = await loadStoredDek(context, claims.userId, keyVersion);
   if (!dek) {
     cachedSnapshot = {

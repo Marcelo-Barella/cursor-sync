@@ -287,14 +287,9 @@ async function tryRecoveryUnlock(
 async function verifyCurrentUnlockCredential(
   context: vscode.ExtensionContext,
   userId: string,
-  expectedDek: Buffer
+  expectedDek: Buffer,
+  material: ServerKeyMaterialResponse
 ): Promise<boolean> {
-  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
-  if (!keyLoad.ok) {
-    vscode.window.showErrorMessage(keyLoad.message);
-    return false;
-  }
-
   const mode = await vscode.window.showQuickPick(
     [
       { label: "Current passphrase", id: "pass" },
@@ -311,7 +306,7 @@ async function verifyCurrentUnlockCredential(
     if (!passphrase) {
       return false;
     }
-    const dek = await tryPassphraseUnlock(userId, keyLoad.material, passphrase);
+    const dek = await tryPassphraseUnlock(userId, material, passphrase);
     if (!dek || !dekMatches(dek, expectedDek)) {
       vscode.window.showErrorMessage("Wrong passphrase.");
       return false;
@@ -327,7 +322,7 @@ async function verifyCurrentUnlockCredential(
   if (!recoveryInput) {
     return false;
   }
-  const dek = await tryRecoveryUnlock(userId, keyLoad.material, recoveryInput);
+  const dek = await tryRecoveryUnlock(userId, material, recoveryInput);
   if (!dek || !dekMatches(dek, expectedDek)) {
     vscode.window.showErrorMessage("Recovery key did not match.");
     return false;
@@ -467,16 +462,16 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
     return;
   }
 
-  if (!(await verifyCurrentUnlockCredential(context, unlocked.userId, unlocked.dek))) {
-    return;
-  }
-
   const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return;
   }
   const material = keyLoad.material;
+
+  if (!(await verifyCurrentUnlockCredential(context, unlocked.userId, unlocked.dek, material))) {
+    return;
+  }
 
   const newPass = await promptPassphrase("New sync passphrase");
   if (!newPass) {

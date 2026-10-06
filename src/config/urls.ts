@@ -9,6 +9,15 @@ export const LOCAL_WEBSITE_URL = "http://localhost:3000";
 
 export const DEFAULT_DEVELOPER_ENVIRONMENT = "staging" as const;
 
+export const INVALID_APP_API_URL_MESSAGE = "Invalid Cursor Sync API URL in settings.";
+
+export class InvalidAppApiUrlError extends Error {
+  constructor() {
+    super(INVALID_APP_API_URL_MESSAGE);
+    this.name = "InvalidAppApiUrlError";
+  }
+}
+
 export const LEGACY_APP_API_URL_KEY = "appApiUrl";
 export const DEVELOPER_API_URL_KEY = "developer.apiUrl";
 export const DEVELOPER_WEBSITE_URL_KEY = "developer.websiteUrl";
@@ -18,7 +27,6 @@ export type DeveloperEnvironment = "production" | "staging" | "local" | "custom"
 
 const CONFIG_SECTION = "cursorSync";
 
-let lastWarnedInvalidApiRaw: string | undefined;
 let lastWarnedInvalidWebsiteRaw: string | undefined;
 
 export interface UrlResolutionInputs {
@@ -81,16 +89,6 @@ export function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-function warnInvalidApi(raw: string, fallbackUrl: string): void {
-  if (lastWarnedInvalidApiRaw === raw) {
-    return;
-  }
-  lastWarnedInvalidApiRaw = raw;
-  void vscode.window.showWarningMessage(
-    `Cursor Sync: Invalid API URL "${raw}". Using ${fallbackUrl}.`
-  );
-}
-
 function warnInvalidWebsite(raw: string, fallbackUrl: string): void {
   if (lastWarnedInvalidWebsiteRaw === raw) {
     return;
@@ -122,11 +120,22 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
   if (inputs.environment === "custom") {
     const raw =
       inputs.explicitApiUrl !== undefined ? inputs.explicitApiUrl : inputs.legacyApiUrl;
-    const { url, usedFallback } = normalizeHttpUrl(raw, DEFAULT_PRODUCTION_API_URL);
-    if (usedFallback && raw !== undefined) {
-      warnInvalidApi(raw, DEFAULT_PRODUCTION_API_URL);
+    const trimmed = (raw ?? "").trim();
+    if (!trimmed) {
+      throw new InvalidAppApiUrlError();
     }
-    return url;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new InvalidAppApiUrlError();
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new InvalidAppApiUrlError();
+    }
+    const path = parsed.pathname.replace(/\/+$/, "");
+    const normalized = `${parsed.protocol}//${parsed.host}${path}${parsed.search}${parsed.hash}`;
+    return stripTrailingSlash(normalized);
   }
 
   return DEFAULT_PRODUCTION_API_URL;

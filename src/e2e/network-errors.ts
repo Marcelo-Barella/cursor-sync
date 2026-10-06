@@ -11,8 +11,13 @@ const OFFLINE_CAUSE_CODES = new Set([
   "UND_ERR_HEADERS_TIMEOUT",
 ]);
 
-const TLS_MESSAGE_RE =
-  /CERT_|ERR_TLS_|UNABLE_TO_VERIFY|self signed certificate|certificate has expired/i;
+const TLS_CAUSE_CODES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "CERT_HAS_EXPIRED",
+  "ERR_SSL_WRONG_VERSION_NUMBER",
+]);
 
 export const KEYS_GET_TIMEOUT_MS = 15_000;
 
@@ -25,9 +30,6 @@ export function extractNestedCauseCodes(err: unknown): string[] {
       if (typeof code === "string" && code.length > 0) {
         codes.push(code);
       }
-      if (current.name === "AbortError" || current.name === "TimeoutError") {
-        codes.push("ABORT_ERR");
-      }
       current = current.cause;
       continue;
     }
@@ -36,31 +38,30 @@ export function extractNestedCauseCodes(err: unknown): string[] {
   return codes;
 }
 
-function collectErrorMessages(err: unknown): string[] {
-  const messages: string[] = [];
-  let current: unknown = err;
-  for (let depth = 0; depth < 10 && current; depth++) {
-    if (current instanceof Error) {
-      messages.push(current.message);
-      current = current.cause;
-      continue;
-    }
-    messages.push(String(current));
-    break;
+function isTlsCauseCode(code: string): boolean {
+  if (TLS_CAUSE_CODES.has(code)) {
+    return true;
   }
-  return messages;
+  return code.startsWith("ERR_TLS_") || code.startsWith("ERR_SSL_");
 }
 
-function isTlsOrCertError(err: unknown): boolean {
-  return collectErrorMessages(err).some((m) => TLS_MESSAGE_RE.test(m));
+export function isTlsOrCertError(err: unknown): boolean {
+  return extractNestedCauseCodes(err).some(isTlsCauseCode);
 }
 
+/**
+ * True when the API host could not be reached (not TLS misconfig or HTTP responses).
+ * `TimeoutError` and bare `AbortError` are intentionally fail-closed (not offline).
+ */
 export function isTransientNetworkError(err: unknown): boolean {
   if (isTlsOrCertError(err)) {
     return false;
   }
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return false;
+  }
   if (err instanceof Error && err.name === "AbortError") {
-    return true;
+    return false;
   }
   const codes = extractNestedCauseCodes(err);
   if (codes.some((c) => OFFLINE_CAUSE_CODES.has(c))) {
@@ -75,7 +76,6 @@ export function userFriendlyConnectivityMessage(err: unknown): string {
   }
   const codes = extractNestedCauseCodes(err);
   if (
-    codes.includes("ABORT_ERR") ||
     codes.includes("ETIMEDOUT") ||
     codes.includes("UND_ERR_HEADERS_TIMEOUT") ||
     codes.includes("UND_ERR_CONNECT_TIMEOUT")

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getAppApiUrl } from "../config/urls.js";
+import { getAppApiUrl, InvalidAppApiUrlError } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
 import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
 import { rateLimitMessageFromResponse } from "./rate-limit.js";
@@ -152,7 +152,15 @@ async function authFetch(
   if (!session) {
     throw new KeysApiError("App session required", 401);
   }
-  const base = getAppApiUrl().replace(/\/$/, "");
+  let base: string;
+  try {
+    base = getAppApiUrl().replace(/\/$/, "");
+  } catch (err) {
+    if (err instanceof InvalidAppApiUrlError) {
+      throw new KeysApiError(err.message, 0, "INVALID_API_URL");
+    }
+    throw err;
+  }
   return fetch(`${base}${path}`, {
     ...init,
     headers: {
@@ -222,13 +230,21 @@ export async function keysGetResponseToCache(response: Response): Promise<KeysGa
   if (response.status === 401) {
     throw new KeysApiError("Log in to Cursor Sync again to continue.", 401, "UNAUTHORIZED");
   }
-  if (!response.ok) {
+  if (response.status === 503) {
     const body = await readAppApiErrorJson(response);
     throw new KeysApiError(
-      body.error ?? `GET /v1/keys failed (${response.status})`,
-      response.status,
-      body.error
+      "Cursor Sync API is temporarily unavailable. Try again later.",
+      503,
+      body.error ?? "SERVICE_UNAVAILABLE"
     );
+  }
+  if (!response.ok) {
+    const body = await readAppApiErrorJson(response);
+    const message =
+      response.status >= 500
+        ? "Cursor Sync API is temporarily unavailable. Try again later."
+        : (body.error ?? `GET /v1/keys failed (${response.status})`);
+    throw new KeysApiError(message, response.status, body.error);
   }
   const data = (await response.json()) as Record<string, unknown>;
   const keyMaterial = parseKeyMaterialResponse(data);

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.8
+
+### Fixed
+- **P1:** Gate no longer serves stale key material on `429` or `5xx`; unlock fail-closed with rate-limit / server-unavailable copy (cache fallback only for classified network errors).
+- Invalid custom API URL fails closed (`Invalid Cursor Sync API URL in settings`); never substitutes production default (prevents staging tokens hitting prod).
+- TLS errors classified by `cause.code` (`ERR_TLS_*`, `ERR_SSL_*`, cert errno); friendly TLS copy. `503` and other `5xx` use server-unavailable messaging.
+- Change passphrase reuses a single `GET /v1/keys` for verify + rewrap.
+
+### Notes
+- `TimeoutError` / bare `AbortError` without errno causes are intentionally **not** treated as offline (fail closed).
+- After **Lock**, offline unlock is not possible until an online keys refresh (lock clears persisted keys cache).
+
 ## v0.9.0-staging.7
 
 ### Fixed

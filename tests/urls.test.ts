@@ -10,6 +10,8 @@ import {
   normalizeHttpUrl,
   resolveAppApiUrlFromInputs,
   resolveAppWebsiteUrlFromInputs,
+  INVALID_APP_API_URL_MESSAGE,
+  InvalidAppApiUrlError,
   type UrlResolutionInputs,
 } from "../src/config/urls.js";
 
@@ -144,17 +146,27 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     ).toBe("https://new.api.example");
   });
 
-  it("falls back to production default for invalid custom API URL", async () => {
-    const { resolveAppApiUrlFromInputs: resolve } = await import("../src/config/urls.js");
-    expect(
-      resolve(
+  it("throws for invalid custom API URL instead of falling back to production", () => {
+    expect(() =>
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitApiUrl: "http://exa mple",
+        })
+      )
+    ).toThrow(InvalidAppApiUrlError);
+    expect(showWarningMessageMock).not.toHaveBeenCalled();
+    try {
+      resolveAppApiUrlFromInputs(
         inputs({
           environment: "custom",
           explicitApiUrl: "not-a-url",
         })
-      )
-    ).toBe(DEFAULT_PRODUCTION_API_URL);
-    expect(showWarningMessageMock).toHaveBeenCalled();
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidAppApiUrlError);
+      expect((err as Error).message).toBe(INVALID_APP_API_URL_MESSAGE);
+    }
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractNestedCauseCodes,
+  isTlsOrCertError,
   isTransientNetworkError,
   userFriendlyConnectivityMessage,
 } from "../src/e2e/network-errors.js";
@@ -32,25 +33,38 @@ describe("isTransientNetworkError", () => {
     });
   }
 
-  it("classifies AbortError as offline (request timeout)", () => {
+  // Intentionally fail-closed: AbortSignal / fetch timeouts surface as TimeoutError or AbortError
+  // without errno causes — they must not unlock from stale disk cache.
+  it("does not classify TimeoutError as offline (intended fail-closed)", () => {
+    const err = Object.assign(new Error("The operation timed out"), { name: "TimeoutError" });
+    expect(isTransientNetworkError(err)).toBe(false);
+  });
+
+  it("does not classify bare AbortError as offline", () => {
     const err = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
-    expect(isTransientNetworkError(err)).toBe(true);
-    expect(userFriendlyConnectivityMessage(err)).toContain("timed out");
+    expect(isTransientNetworkError(err)).toBe(false);
   });
 
   it("does not classify bare TypeError as offline", () => {
     expect(isTransientNetworkError(new TypeError("fetch failed"))).toBe(false);
   });
 
-  it("fails closed on TLS certificate errors", () => {
-    const err = new Error("unable to verify the first certificate: UNABLE_TO_VERIFY_LEAF_SIGNATURE");
+  it("classifies TLS failures by cause.code", () => {
+    const err = errWithCause("fetch failed", "DEPTH_ZERO_SELF_SIGNED_CERT");
+    expect(isTlsOrCertError(err)).toBe(true);
     expect(isTransientNetworkError(err)).toBe(false);
     expect(userFriendlyConnectivityMessage(err)).toContain("Secure connection");
   });
 
-  it("fails closed on ERR_TLS_CERT_ALTNAME_INVALID", () => {
-    const err = errWithCause("fetch failed", "ERR_TLS_CERT_ALTNAME_INVALID");
+  it("classifies ERR_SSL_WRONG_VERSION_NUMBER as TLS", () => {
+    const err = errWithCause("fetch failed", "ERR_SSL_WRONG_VERSION_NUMBER");
+    expect(isTlsOrCertError(err)).toBe(true);
     expect(isTransientNetworkError(err)).toBe(false);
+  });
+
+  it("does not infer TLS from message text alone", () => {
+    const err = new Error("unable to verify the first certificate");
+    expect(isTlsOrCertError(err)).toBe(false);
   });
 
   it("maps offline errors to friendly copy", () => {
