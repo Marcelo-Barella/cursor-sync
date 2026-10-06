@@ -1,0 +1,269 @@
+import * as vscode from "vscode";
+import { getAppApiUrl } from "../config/urls.js";
+import { getAppSession } from "../app-auth.js";
+import { assertDekVerifierHex, type KdfParamsWire, type KeyWrapBytes } from "./key-material.js";
+import {
+  parseKeyMaterialResponse,
+  type KeyWrapWire,
+  type ServerKeyMaterialResponse,
+} from "./keys-wire.js";
+
+export { parseKeyMaterialResponse, type ServerKeyMaterialResponse, type KeyWrapWire } from "./keys-wire.js";
+
+export class KeysApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string
+  ) {
+    super(message);
+    this.name = "KeysApiError";
+  }
+}
+
+export interface PutKeysBody {
+  keyVersion: 1;
+  kdf: "argon2id";
+  kdfParams: KdfParamsWire;
+  salt: string;
+  passWrap: KeyWrapWire;
+  recoveryWrap: KeyWrapWire;
+  dekVerifier: string;
+}
+
+export interface RewrapPassphraseBody {
+  keyVersion: number;
+  dekVerifier: string;
+  kdfParams: KdfParamsWire;
+  salt: string;
+  passWrap: KeyWrapWire;
+}
+
+export interface RotateRecoveryBody {
+  keyVersion: number;
+  dekVerifier: string;
+  recoveryWrap: KeyWrapWire;
+}
+
+function b64(buf: Buffer): string {
+  return buf.toString("base64");
+}
+
+async function readApiError(response: Response): Promise<{ error?: string; message?: string }> {
+  try {
+    return (await response.json()) as { error?: string; message?: string };
+  } catch {
+    return {};
+  }
+}
+
+export type KeysPresence = "unknown" | "not_set" | "set";
+
+export interface KeysGateCache {
+  presence: KeysPresence;
+  keyMaterial?: ServerKeyMaterialResponse;
+  fetchedAtMs?: number;
+}
+
+let inMemoryKeysCache: KeysGateCache = { presence: "unknown" };
+
+export function getCachedKeysGate(): KeysGateCache {
+  return inMemoryKeysCache;
+}
+
+export function setCachedKeysGate(cache: KeysGateCache): void {
+  inMemoryKeysCache = cache;
+}
+
+export function invalidateKeysGateCache(): void {
+  inMemoryKeysCache = { presence: "unknown" };
+}
+
+async function authFetch(
+  context: vscode.ExtensionContext,
+  path: string,
+  init?: RequestInit
+): Promise<Response> {
+  const session = await getAppSession(context);
+  if (!session) {
+    throw new KeysApiError("App session required", 401);
+  }
+  const base = getAppApiUrl().replace(/\/$/, "");
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${session}`,
+      Accept: "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+export async function fetchServerKeyMaterial(
+  context: vscode.ExtensionContext,
+  options?: { force?: boolean }
+): Promise<KeysGateCache> {
+  if (!options?.force && inMemoryKeysCache.presence !== "unknown") {
+    return inMemoryKeysCache;
+  }
+
+  const response = await authFetch(context, "/v1/keys", { method: "GET" });
+  if (response.status === 404) {
+    const body = await readApiError(response);
+    if (body.error && body.error !== "KEYS_NOT_SET") {
+      throw new KeysApiError(body.error, 404, body.error);
+    }
+    const cache: KeysGateCache = { presence: "not_set", fetchedAtMs: Date.now() };
+    inMemoryKeysCache = cache;
+    return cache;
+  }
+  if (response.status === 429) {
+    const body = await readApiError(response);
+    const retryAfter = response.headers.get("Retry-After") ?? "900";
+    throw new KeysApiError(
+      `Rate limited (${body.error ?? "RATE_LIMITED"}). Retry after ${retryAfter}s.`,
+      429,
+      body.error ?? "RATE_LIMITED"
+    );
+  }
+  if (response.status === 403) {
+    const body = await readApiError(response);
+    if (body.error === "EMAIL_NOT_VERIFIED") {
+      throw new KeysApiError("Verify your email before setting up sync encryption.", 403, "EMAIL_NOT_VERIFIED");
+    }
+    throw new KeysApiError(body.error ?? "Forbidden", 403, body.error);
+  }
+  if (response.status === 401) {
+    throw new KeysApiError("Unauthorized", 401);
+  }
+  if (!response.ok) {
+    const body = await readApiError(response);
+    throw new KeysApiError(
+      body.error ?? `GET /v1/keys failed (${response.status})`,
+      response.status,
+      body.error
+    );
+  }
+  const data = (await response.json()) as Record<string, unknown>;
+  const keyMaterial = parseKeyMaterialResponse(data);
+  const cache: KeysGateCache = {
+    presence: "set",
+    keyMaterial,
+    fetchedAtMs: Date.now(),
+  };
+  inMemoryKeysCache = cache;
+  return cache;
+}
+
+export async function putServerKeyMaterial(
+  context: vscode.ExtensionContext,
+  body: PutKeysBody
+): Promise<ServerKeyMaterialResponse> {
+  assertDekVerifierHex(body.dekVerifier);
+  const response = await authFetch(context, "/v1/keys", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & {
+    error?: string;
+    message?: string;
+  };
+  if (response.status === 409 && data.error === "KEYS_ALREADY_SET") {
+    throw new KeysApiError("Encryption keys already exist on the server.", 409, "KEYS_ALREADY_SET");
+  }
+  if (response.status === 400 && data.error === "INVALID_PAYLOAD") {
+    throw new KeysApiError(data.message ?? "Invalid key setup payload.", 400, "INVALID_PAYLOAD");
+  }
+  if (response.status !== 201) {
+    throw new KeysApiError(
+      data.error ?? `PUT /v1/keys failed (${response.status})`,
+      response.status,
+      data.error
+    );
+  }
+  const material = parseKeyMaterialResponse(data);
+  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  return material;
+}
+
+export async function rewrapPassphraseOnServer(
+  context: vscode.ExtensionContext,
+  body: RewrapPassphraseBody
+): Promise<ServerKeyMaterialResponse> {
+  assertDekVerifierHex(body.dekVerifier);
+  const response = await authFetch(context, "/v1/keys/rewrap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & {
+    error?: string;
+  };
+  if (response.status === 403 && data.error === "DEK_VERIFIER_MISMATCH") {
+    throw new KeysApiError("Passphrase change rejected (verifier mismatch).", 403, "DEK_VERIFIER_MISMATCH");
+  }
+  if (response.status === 409 && data.error === "KEY_VERSION_MISMATCH") {
+    throw new KeysApiError("Key version mismatch.", 409, "KEY_VERSION_MISMATCH");
+  }
+  if (!response.ok) {
+    throw new KeysApiError(
+      data.error ?? `POST /v1/keys/rewrap failed (${response.status})`,
+      response.status,
+      data.error
+    );
+  }
+  const material = parseKeyMaterialResponse(data);
+  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  return material;
+}
+
+export async function rotateRecoveryOnServer(
+  context: vscode.ExtensionContext,
+  body: RotateRecoveryBody
+): Promise<ServerKeyMaterialResponse> {
+  assertDekVerifierHex(body.dekVerifier);
+  const response = await authFetch(context, "/v1/keys/recovery", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown> & {
+    error?: string;
+  };
+  if (response.status === 403 && data.error === "DEK_VERIFIER_MISMATCH") {
+    throw new KeysApiError("Recovery rotation rejected (verifier mismatch).", 403, "DEK_VERIFIER_MISMATCH");
+  }
+  if (response.status === 409 && data.error === "KEY_VERSION_MISMATCH") {
+    throw new KeysApiError("Key version mismatch.", 409, "KEY_VERSION_MISMATCH");
+  }
+  if (!response.ok) {
+    throw new KeysApiError(
+      data.error ?? `POST /v1/keys/recovery failed (${response.status})`,
+      response.status,
+      data.error
+    );
+  }
+  const material = parseKeyMaterialResponse(data);
+  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  return material;
+}
+
+export function buildPutKeysBody(
+  keyVersion: 1,
+  salt: Buffer,
+  kdfParams: KdfParamsWire,
+  passWrap: KeyWrapBytes,
+  recoveryWrap: KeyWrapBytes,
+  dekVerifier: string
+): PutKeysBody {
+  return {
+    keyVersion,
+    kdf: "argon2id",
+    kdfParams,
+    salt: b64(salt),
+    passWrap: { nonce: b64(passWrap.nonce), ct: b64(passWrap.ct) },
+    recoveryWrap: { nonce: b64(recoveryWrap.nonce), ct: b64(recoveryWrap.ct) },
+    dekVerifier,
+  };
+}

@@ -21,6 +21,8 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { SyncState } from "./types.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
@@ -73,6 +75,19 @@ async function doPush(
 ): Promise<boolean> {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push started`);
+
+  const e2e = await requireE2eUnlocked(context);
+  if (!e2e.ok) {
+    void showSyncFailureWithDebug(
+      context,
+      buildSyncDebugFailure("push", trigger, e2e.message, {
+        direction: "push",
+        category: "AUTH_FAILED",
+      }),
+      { title: e2e.message }
+    );
+    return false;
+  }
 
   const authFailedMessage =
     "GitHub token not configured. Configure your token to sync.";
@@ -147,13 +162,20 @@ async function doPush(
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(files, profileName);
 
-  const gistFiles: Record<string, { content: string }> = {};
-  gistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
+  const logicalGistFiles: Record<string, { content: string }> = {};
+  logicalGistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
 
   for (const [key, value] of packaged) {
     const gistFileName = syncKeyToGistFileName(key);
-    gistFiles[gistFileName] = { content: value.content };
+    logicalGistFiles[gistFileName] = { content: value.content };
   }
+
+  const gistFiles = wrapGistFilesForUpload(
+    e2e.dek,
+    e2e.userId,
+    e2e.keyVersion,
+    logicalGistFiles
+  );
 
   let gistId = syncState?.gistId;
   let isNewGist = false;

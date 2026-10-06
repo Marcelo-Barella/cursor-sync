@@ -89,6 +89,17 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     ).toBe("https://custom.api.example");
   });
 
+  it("allows legacy bergamota staging hosts via custom preset", () => {
+    expect(
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitApiUrl: "https://api-staging-sync.bergamota.dev",
+        })
+      )
+    ).toBe("https://api-staging-sync.bergamota.dev");
+  });
+
   it("ignores legacy appApiUrl when environment preset is production", () => {
     expect(
       resolveAppApiUrlFromInputs(
