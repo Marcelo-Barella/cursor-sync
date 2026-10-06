@@ -41,13 +41,6 @@ export function legacyPlaintextKeysFromConfigsResponse(
   return [...new Set([...fromField, ...fromPayload])].sort();
 }
 
-/** @deprecated Prefer listPlaintextObjectKeys */
-export async function listRemoteLegacyPlaintextKeys(
-  context: vscode.ExtensionContext
-): Promise<string[]> {
-  return listPlaintextObjectKeys(context);
-}
-
 function unionKeys(...lists: string[][]): string[] {
   return [...new Set(lists.flat())].sort();
 }
@@ -62,10 +55,7 @@ export interface LegacyPlaintextCleanupResult {
 
 export async function runLegacyPlaintextCleanup(
   context: vscode.ExtensionContext,
-  options?: {
-    /** Keys captured from GET /configs before clearLegacyPayload */
-    extraKeysFromConfigs?: string[];
-  }
+  options?: { extraKeysFromConfigs?: string[] }
 ): Promise<LegacyPlaintextCleanupResult> {
   const logger = getLogger();
   const remote = await fetchConfigsApi(context);

@@ -139,8 +139,3 @@ export async function deletePlaintextR2Objects(
   }
   return outcomeFromRows(rows, partial);
 }
-
-/** @deprecated Use deletePlaintextR2Objects outcome.settled */
-export function settledKeysFromDeleteOutcome(outcome: PlaintextDeleteOutcome): string[] {
-  return outcome.settled;
-}

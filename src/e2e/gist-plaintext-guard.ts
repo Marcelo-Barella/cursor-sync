@@ -1,5 +1,5 @@
 import type { GistClient } from "../gist.js";
-import { remoteGistHasE2eMarker } from "./gist-read.js";
+import { tryReadGistE2eMarker } from "./gist-bundle.js";
 
 export const PLAINTEXT_GIST_BLOCKED_MESSAGE =
   "This Gist is encrypted with Cursor Sync. Log in and unlock before writing plaintext.";
@@ -20,7 +20,7 @@ export async function remoteSyncGistIsEncrypted(
   if (!gist.ok) {
     return false;
   }
-  return remoteGistHasE2eMarker(gist.data.files);
+  return tryReadGistE2eMarker(gist.data.files) !== undefined;
 }
 
 export async function assertPlaintextGistWriteAllowed(
