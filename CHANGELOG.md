@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.29
+
+### Fixed
+- SQL safety: single-pass lexer tokenizes comments and quoted regions together (quotes inside `--`/`/* */` no longer desync masking); Python `executescript` runner adds `set_authorizer`, `SQLITE_LIMIT_ATTACHED` when available, and per-statement refusal of ATTACH/DETACH/VACUUM and forbidden functions.
+
 ## v0.8.4-staging.28
 
 ### Fixed

@@ -227,6 +227,27 @@ export function isSqlite3UnavailableError(error: unknown): boolean {
   return false;
 }
 
+/** Run Python executescript without TS safety checks (tests / defense-in-depth verification only). */
+export async function runSqlitePythonExecutescriptUnchecked(
+  dbPath: string,
+  script: string
+): Promise<void> {
+  const execOpts = {
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: SQLITE_SUBPROCESS_TIMEOUT_MS,
+  };
+  const py = await resolvePythonInterpreterForSqlite();
+  const timeoutSec = Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000);
+  const args = [
+    ...py.argvPrefix,
+    "-c",
+    SQLITE_PYTHON_EXECUTESCRIPT,
+    dbPath,
+    String(timeoutSec),
+  ];
+  await execFileWithStdinAsync(py.command, args, script, execOpts);
+}
+
 export async function runSqliteScript(dbPath: string, script: string): Promise<void> {
   const scriptWithBusy = `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};\n${script}`;
   const sanitized = scriptWithBusy.replace(/[\ud800-\udfff]/g, "\ufffd");
