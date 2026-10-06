@@ -190,6 +190,8 @@ export async function scanLocalAppConfigFiles(
         if (!listing.includes(dirName)) {
           provablyAbsentKeys.add(syncKey);
           enoentKeys.add(syncKey);
+          skippedUnknownKeys.delete(syncKey);
+          unreadableKeys.delete(syncKey);
           return;
         }
       } catch {
@@ -224,18 +226,26 @@ export async function scanLocalAppConfigFiles(
       }
     }
     if (provablyAbsentKeys.has(key) || enoentKeys.has(key)) {
+      skippedUnknownKeys.delete(key);
+      unreadableKeys.delete(key);
+      continue;
+    }
+    await markAbsentWhenAncestorDirectoryRemoved(key);
+    if (provablyAbsentKeys.has(key)) {
+      skippedUnknownKeys.delete(key);
+      unreadableKeys.delete(key);
+      enoentKeys.add(key);
       continue;
     }
     const presence = await classifyBaselineKey(context, roots, key, enumeratedKeys);
     if (presence === "provably_absent") {
       provablyAbsentKeys.add(key);
       enoentKeys.add(key);
+      skippedUnknownKeys.delete(key);
+      unreadableKeys.delete(key);
     } else if (presence === "skipped_unknown") {
       skippedUnknownKeys.add(key);
       unreadableKeys.add(key);
-    }
-    if (!provablyAbsentKeys.has(key)) {
-      await markAbsentWhenAncestorDirectoryRemoved(key);
     }
   }
 
@@ -252,9 +262,12 @@ export async function scanLocalAppConfigFiles(
   if (!rootsHealthy) {
     deletesAllowed = false;
     deleteBlockReason = "A sync root directory is missing or unreadable";
-  } else if (enumeratedKeys.size === 0 && baselineLocalKeys.length > 0) {
+  } else if (enumeratedKeys.size === 0) {
     deletesAllowed = false;
-    deleteBlockReason = "Local scan returned no files while baseline has tracked keys";
+    deleteBlockReason =
+      baselineLocalKeys.length > 0
+        ? "Local scan returned no files while baseline has tracked keys"
+        : "Local scan returned no files";
   } else if (trackingScopeMismatch) {
     deletesAllowed = false;
     deleteBlockReason = "Sync paths or limits changed since the baseline was saved";

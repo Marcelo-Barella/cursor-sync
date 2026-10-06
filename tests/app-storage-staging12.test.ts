@@ -89,9 +89,13 @@ describe("app storage staging.12", () => {
       filterScheduledAppStoragePullKeys(
         ["cursor-user/settings.json", "cursor-user/new.json"],
         baseline,
-        presentScan
+        presentScan,
+        {
+          "cursor-user/settings.json": "remote-changed",
+          "cursor-user/new.json": "nx",
+        }
       )
-    ).toEqual(["cursor-user/new.json"]);
+    ).toEqual(["cursor-user/settings.json", "cursor-user/new.json"]);
     expect(
       filterScheduledAppStoragePullKeys(
         ["cursor-user/new.json"],
@@ -99,7 +103,8 @@ describe("app storage staging.12", () => {
         {
           ...emptyScan,
           checksums: { "cursor-user/new.json": "local-changed" },
-        }
+        },
+        { "cursor-user/new.json": "remote" }
       )
     ).toEqual([]);
   });
@@ -125,7 +130,12 @@ describe("app storage staging.12", () => {
     );
     expect(classified.conflictKeys).toContain("cursor-user/settings.json");
     expect(
-      filterScheduledAppStoragePullKeys(classified.pullKeys, undefined, emptyScan)
+      filterScheduledAppStoragePullKeys(
+        classified.pullKeys,
+        undefined,
+        emptyScan,
+        remoteChecksums
+      )
     ).toEqual([]);
   });
 

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  pullOverwriteShouldBePreselected,
-} from "../src/app-storage-baseline.js";
+import { pullOverwriteShouldBePreselected } from "../src/app-storage-sync-decisions.js";
 import {
   evaluateRemoteDeleteBatch,
   exceedsMassDeleteThreshold,
@@ -66,11 +64,14 @@ describe("app storage staging.14 mass-delete threshold (OR)", () => {
 
 describe("app storage staging.14 pull overwrite preselection", () => {
   it("pre-selects when baseline tracks the key (remote-only change)", () => {
+    const s = scan({ checksums: { "cursor-user/settings.json": "local" } });
     expect(
       pullOverwriteShouldBePreselected(
         "cursor-user/settings.json",
         baselineTracked,
-        "local-changed"
+        "local",
+        s,
+        "remote-new"
       )
     ).toBe(true);
   });
@@ -81,11 +82,14 @@ describe("app storage staging.14 pull overwrite preselection", () => {
       localChecksums: { "cursor-user/other.json": "local" },
       remoteChecksums: { "cursor-user/other.json": "remote" },
     };
+    const s = scan({ checksums: { "cursor-user/settings.json": "only-local" } });
     expect(
       pullOverwriteShouldBePreselected(
         "cursor-user/settings.json",
         baselineOtherOnly,
-        "only-local"
+        "only-local",
+        s,
+        "remote"
       )
     ).toBe(false);
   });

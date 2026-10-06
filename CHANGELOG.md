@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.15
+
+### Fixed
+- Single sync decision table (`app-storage-sync-decisions.ts`) drives classify, scheduler filter, pull preselection, and tests.
+- Push delete batch returns a copied array (`resolveMassDeleteBatch`); delete-only push succeeds again.
+- Pull absent-local rule: safe absent under enabled roots without baseline provably-absent mark; scheduler auto-pulls tracked remote edits.
+- Directory-delete keys are provably absent only (not skipped); mutually exclusive scan states.
+- No-baseline local≠remote is conflict and not pull-preselected; pull writes honor scan skip/untracked/symlink via `shouldAllowPullWriteForKey`.
+- Declined pull overwrites are not re-uploaded on the next push; empty remote manifest refuses local deletes with warning/history.
+- Mass-delete and conflict scheduler warnings dedupe by signature and reset when resolved.
+- All-missing storage pull reports failure + history; backup files use hashed names (long paths).
+
 ## v0.8.4-staging.14
 
 ### Fixed

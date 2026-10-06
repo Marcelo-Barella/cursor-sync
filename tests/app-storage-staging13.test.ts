@@ -170,7 +170,8 @@ describe("app storage staging.13 mass-delete safety", () => {
         undefined,
         scan({
           provablyAbsentKeys: new Set(["cursor-user/settings.json"]),
-        })
+        }),
+        remote
       )
     ).toEqual(["cursor-user/settings.json"]);
   });

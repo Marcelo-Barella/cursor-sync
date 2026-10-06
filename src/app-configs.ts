@@ -27,10 +27,22 @@ import {
 } from "./app-config-local-scan.js";
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import {
+  clearSchedulerMassDeleteBlockIfResolved,
+  evaluateEmptyRemoteManifestLocalDeletes,
   evaluateRemoteDeleteBatch,
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
 } from "./app-storage-delete-guard.js";
+import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
+import {
+  addDeclinedPullOverwriteKeys,
+  clearDeclinedPullOverwriteKeys,
+  getDeclinedPullOverwriteKeys,
+} from "./app-storage-pull-declines.js";
+import {
+  isLocallyAbsentSafeToPull,
+  shouldAllowPullWriteForKey,
+} from "./app-storage-sync-decisions.js";
 import {
   alignGeneratedOnlyLocalChecksums,
   GENERATED_EXTENSIONS_SYNC_KEY,
@@ -521,6 +533,7 @@ export async function determineAppStorageSyncAction(
         trigger,
         "push",
         reason,
+        deletions,
         addSyncHistoryEntry
       );
       if (recorded) {
@@ -548,9 +561,47 @@ export async function determineAppStorageSyncAction(
   if (derived.action === "pull") {
     let pullKeys = derived.keys;
     if (trigger === "scheduled") {
-      pullKeys = filterScheduledAppStoragePullKeys(pullKeys, baseline, localScan);
+      pullKeys = filterScheduledAppStoragePullKeys(
+        pullKeys,
+        baseline,
+        localScan,
+        remoteChecksums
+      );
     }
     let remoteDeletions = [...derived.remoteDeletions];
+    const emptyRemotePull = evaluateEmptyRemoteManifestLocalDeletes(
+      Object.keys(remoteChecksums).length,
+      baseline,
+      remoteDeletions
+    );
+    if (emptyRemotePull.blocked && remoteDeletions.length > 0) {
+      const reason = emptyRemotePull.reason ?? "Empty remote manifest";
+      if (trigger === "scheduled") {
+        const recorded = await recordSchedulerMassDeleteBlock(
+          context,
+          trigger,
+          "pull",
+          reason,
+          remoteDeletions,
+          addSyncHistoryEntry
+        );
+        if (recorded) {
+          void vscode.window.showWarningMessage(reason);
+        }
+      } else {
+        void vscode.window.showWarningMessage(reason);
+        await addSyncHistoryEntry(context, {
+          timestamp: new Date().toISOString(),
+          direction: "pull",
+          trigger,
+          fileCount: 0,
+          success: false,
+          destination: "cursor-sync-storage",
+          error: reason,
+        });
+      }
+      remoteDeletions = [];
+    }
     const trackedCountPull = baseline
       ? Object.keys(baseline.localChecksums).length
       : 0;
@@ -568,6 +619,7 @@ export async function determineAppStorageSyncAction(
         trigger,
         "pull",
         reason,
+        remoteDeletions,
         addSyncHistoryEntry
       );
       if (recorded) {
@@ -648,16 +700,18 @@ export async function notifyAppStorageConflicts(
     ? `Scheduled Cursor Sync storage sync skipped: ${keys.length} conflicting file(s) (${preview}${suffix}). Resolve manually.`
     : `Cursor Sync storage conflict on ${keys.length} file(s): ${preview}${suffix}. Nothing was overwritten.`;
   const trigger = options?.trigger ?? (options?.scheduled ? "scheduled" : "syncNow");
-  await addSyncHistoryEntry(context, {
-    timestamp: new Date().toISOString(),
-    direction: "pull",
-    trigger,
-    fileCount: keys.length,
-    success: false,
-    conflict: true,
-    destination: "cursor-sync-storage",
-    error: message,
-  });
+  if (shouldRecordConflictWarning(keys)) {
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: keys.length,
+      success: false,
+      conflict: true,
+      destination: "cursor-sync-storage",
+      error: message,
+    });
+  }
   if (options?.scheduled) {
     await vscode.window.showWarningMessage(message);
   } else {
@@ -735,12 +789,14 @@ export async function executePushAppConfigs(
     }));
 
     const meaningfulCount = countMeaningfulAppConfigKeys(localPayload);
-    const keysToUpload =
+    const declinedPushSkips = await getDeclinedPullOverwriteKeys(context);
+    let keysToUpload = (
       options?.keys ??
       Object.keys(localPayload.files).filter(
         (k) => !isGeneratedOnlyAppConfigKey(k, localPayload)
-      );
-    const deletions = options?.deletions ?? [];
+      )
+    ).filter((k) => !declinedPushSkips.has(k));
+    let deletions = [...(options?.deletions ?? [])];
 
     if (meaningfulCount === 0 && keysToUpload.length === 0 && deletions.length === 0) {
       const message = `Push to ${destinationLabel} failed: no syncable files found under ${formatSyncRootsSummary(roots)}.`;
@@ -832,6 +888,10 @@ export async function executePushAppConfigs(
     }
 
     const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
+    keysToUpload = keysToUpload.filter(
+      (k) =>
+        !pushScan.skippedUnknownKeys.has(k) && !pushScan.untrackedKeys.has(k)
+    );
     for (let i = deletions.length - 1; i >= 0; i--) {
       if (!pushScan.provablyAbsentKeys.has(deletions[i]!)) {
         deletions.splice(i, 1);
@@ -842,7 +902,7 @@ export async function executePushAppConfigs(
       : 0;
     const deletionsBeforeMassGuard = [...deletions];
     const confirmedDeletions = await resolveMassDeleteBatch(
-      deletions,
+      [...deletions],
       trackedForDelete,
       trigger,
       pushScan,
@@ -871,8 +931,8 @@ export async function executePushAppConfigs(
     ) {
       pushCancelledByUser = true;
     }
-    deletions.length = 0;
-    deletions.push(...confirmedDeletions);
+    deletions = [...confirmedDeletions];
+    clearSchedulerMassDeleteBlockIfResolved(deletions);
 
     if (
       pushCancelledByUser &&
@@ -1187,18 +1247,22 @@ export async function executePullAppConfigs(
         localChecksum = undefined;
       }
 
-      if (pullLocalScan.untrackedKeys.has(syncKey)) {
+      if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
         continue;
       }
-      if (
-        pullLocalScan.skippedUnknownKeys.has(syncKey) &&
-        localChecksum === undefined
-      ) {
-        continue;
+      try {
+        const st = await fs.lstat(absolutePath);
+        if (!st.isFile()) {
+          continue;
+        }
+      } catch {
+        if (!isLocallyAbsentSafeToPull(syncKey, pullLocalScan)) {
+          continue;
+        }
       }
       if (
         localChecksum === undefined &&
-        !pullLocalScan.provablyAbsentKeys.has(syncKey)
+        !isLocallyAbsentSafeToPull(syncKey, pullLocalScan)
       ) {
         continue;
       }
@@ -1247,13 +1311,22 @@ export async function executePullAppConfigs(
     const safeMode = config.get<boolean>("safeMode") ?? true;
     let pullCancelledByUser = false;
 
+    const pullWriteCandidates = filesToWrite.filter((f) =>
+      shouldAllowPullWriteForKey(f.syncKey, pullLocalScan)
+    );
+    filesToWrite.length = 0;
+    filesToWrite.push(...pullWriteCandidates);
+
+    const offeredPullKeys = filesToWrite.map((f) => f.syncKey);
     if (safeMode && filesToWrite.length > 0) {
       const items = filesToWrite.map((f) => ({
         label: f.syncKey,
         picked: pullOverwriteShouldBePreselected(
           f.syncKey,
           pullBaseline,
-          f.localChecksum
+          f.localChecksum,
+          pullLocalScan,
+          manifest.files[f.syncKey]?.checksum
         ),
       }));
       const selected = await vscode.window.showQuickPick(items, {
@@ -1264,9 +1337,12 @@ export async function executePullAppConfigs(
 
       if (!selected) {
         pullCancelledByUser = true;
+        await addDeclinedPullOverwriteKeys(context, offeredPullKeys);
         filesToWrite.length = 0;
       } else {
         const selectedKeys = new Set(selected.map((s) => s.label));
+        const declined = offeredPullKeys.filter((k) => !selectedKeys.has(k));
+        await addDeclinedPullOverwriteKeys(context, declined);
         const filtered = filesToWrite.filter((f) => selectedKeys.has(f.syncKey));
         filesToWrite.length = 0;
         filesToWrite.push(...filtered);
@@ -1350,6 +1426,27 @@ export async function executePullAppConfigs(
         `Pull from ${destinationLabel} cancelled. Nothing was changed.`
       );
       logger.appendLine(`[${new Date().toISOString()}] Pull app configs cancelled by user`);
+      return false;
+    }
+
+    if (
+      filesToWrite.length === 0 &&
+      filesToDelete.length === 0 &&
+      pullCandidates > 0 &&
+      missingRemoteKeys.length > 0 &&
+      missingRemoteKeys.length === pullCandidates
+    ) {
+      const message = `Pull from ${destinationLabel} failed: none of the selected files were found in storage (${missingRemoteKeys.length} missing).`;
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "pull",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination,
+        error: message,
+      });
+      vscode.window.showErrorMessage(message);
       return false;
     }
 
@@ -1462,6 +1559,10 @@ export async function executePullAppConfigs(
     }
 
     await pruneOldBackups(context);
+    await clearDeclinedPullOverwriteKeys(
+      context,
+      filesToWrite.map((f) => f.syncKey)
+    );
 
     const session = await getAppSession(context);
     const wroteCount = filesToWrite.length;

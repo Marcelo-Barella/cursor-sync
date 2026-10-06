@@ -3,7 +3,13 @@ import * as path from "node:path";
 import type * as vscode from "vscode";
 import type { SyncDestinationId } from "./sync-destination.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
+import { decideSyncKey } from "./app-storage-sync-decisions.js";
 import { accountKeyFromAppSession } from "./app-session-identity.js";
+
+export {
+  filterScheduledAppStoragePullKeys,
+  pullOverwriteShouldBePreselected,
+} from "./app-storage-sync-decisions.js";
 
 export const APP_STORAGE_BASELINE_SCHEMA_VERSION = 1 as const;
 export const APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION = 2 as const;
@@ -76,45 +82,6 @@ export async function clearAllAppStorageBaselines(
     await fs.unlink(baselinePath(context));
   } catch {
   }
-}
-
-export function filterScheduledAppStoragePullKeys(
-  keys: string[],
-  baseline: AppStorageBaseline | undefined,
-  localScan: import("./app-config-local-scan.js").LocalConfigFileScan
-): string[] {
-  return keys.filter((key) => {
-    if (localScan.skippedUnknownKeys.has(key) || localScan.untrackedKeys.has(key)) {
-      return false;
-    }
-    if (localScan.checksums[key] !== undefined) {
-      return false;
-    }
-    if (!localScan.provablyAbsentKeys.has(key)) {
-      return false;
-    }
-    if (!baselineHasEntries(baseline)) {
-      return true;
-    }
-    if (!baselineKeyTracked(baseline!, key)) {
-      return true;
-    }
-    return true;
-  });
-}
-
-export function pullOverwriteShouldBePreselected(
-  syncKey: string,
-  pullBaseline: AppStorageBaseline | undefined,
-  localChecksum: string | undefined
-): boolean {
-  if (pullBaseline && baselineKeyTracked(pullBaseline, syncKey)) {
-    return true;
-  }
-  if (!pullBaseline) {
-    return true;
-  }
-  return localChecksum === undefined;
 }
 
 export function baselineHasEntries(baseline: AppStorageBaseline | undefined): boolean {
@@ -217,9 +184,20 @@ export function classifyAppStorageKeys(
   baseline: AppStorageBaseline | undefined,
   localScan?: LocalConfigFileScan
 ): ClassifiedAppStorageKeys {
-  const unreadable = localScan?.skippedUnknownKeys ?? localScan?.unreadableKeys ?? new Set<string>();
-  const provablyAbsent = localScan?.provablyAbsentKeys ?? new Set<string>();
-  const untracked = localScan?.untrackedKeys ?? new Set<string>();
+  const scan: LocalConfigFileScan =
+    localScan ?? {
+      checksums: localChecksums,
+      unreadableKeys: new Set(),
+      enoentKeys: new Set(),
+      provablyAbsentKeys: new Set(),
+      skippedUnknownKeys: new Set(),
+      untrackedKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: Object.keys(localChecksums).length,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
+    };
+
   const byKey: Record<string, AppStorageKeyClassification> = {};
   const pushKeys: string[] = [];
   const pullKeys: string[] = [];
@@ -243,104 +221,46 @@ export function classifyAppStorageKeys(
   for (const key of allKeys) {
     const curLocal = localChecksums[key];
     const curRemote = remoteChecksums[key];
-    const wasLocal = baseLocal[key];
-    const wasRemote = baseRemote[key];
+    const decision = decideSyncKey({
+      syncKey: key,
+      scan,
+      baseline,
+      curLocal,
+      curRemote,
+    });
 
-    if (hasBaseline && wasLocal !== undefined && curLocal === undefined) {
-      if (untracked.has(key)) {
-        byKey[key] = "baseline_refresh";
-        baselineRefreshKeys.push(key);
-        continue;
-      }
-      if (unreadable.has(key) || !provablyAbsent.has(key)) {
-        byKey[key] = "unchanged";
-        unchangedKeys.push(key);
-        continue;
-      }
-      if (wasRemote !== undefined && curRemote === undefined) {
-        byKey[key] = "baseline_refresh";
-        baselineRefreshKeys.push(key);
-        continue;
-      }
-      if (curRemote !== wasRemote) {
-        byKey[key] = "conflict";
-        conflictKeys.push(key);
-        continue;
-      }
-      byKey[key] = "delete";
-      deleteKeys.push(key);
-      continue;
-    }
-
-    if (
-      hasBaseline &&
-      wasRemote !== undefined &&
-      curRemote === undefined &&
-      curLocal === wasLocal
-    ) {
-      byKey[key] = "remote_delete";
-      remoteDeleteKeys.push(key);
-      continue;
-    }
-
-    if (!hasBaseline) {
-      const remoteExists = curRemote !== undefined;
-      const localExists = curLocal !== undefined;
-      if (remoteExists && localExists) {
-        if (curLocal === curRemote) {
-          byKey[key] = "baseline_refresh";
-          baselineRefreshKeys.push(key);
-        } else {
-          byKey[key] = "conflict";
-          conflictKeys.push(key);
-        }
-      } else if (remoteExists && !localExists) {
-        byKey[key] = "pull";
-        pullKeys.push(key);
-      } else if (!remoteExists && localExists) {
-        byKey[key] = "push";
+    let classification: AppStorageKeyClassification;
+    switch (decision.action) {
+      case "push":
+        classification = "push";
         pushKeys.push(key);
-      } else {
-        byKey[key] = "unchanged";
-        unchangedKeys.push(key);
-      }
-      continue;
-    }
-
-    const localChanged = curLocal !== wasLocal;
-    const remoteChanged = curRemote !== wasRemote;
-
-    if (!localChanged && !remoteChanged) {
-      byKey[key] = "unchanged";
-      unchangedKeys.push(key);
-      continue;
-    }
-
-    if (localChanged && remoteChanged) {
-      if (curLocal === curRemote) {
-        byKey[key] = "baseline_refresh";
-        baselineRefreshKeys.push(key);
-      } else {
-        byKey[key] = "conflict";
+        break;
+      case "pull":
+        classification = "pull";
+        pullKeys.push(key);
+        break;
+      case "delete_remote":
+        classification = "delete";
+        deleteKeys.push(key);
+        break;
+      case "delete_local":
+        classification = "remote_delete";
+        remoteDeleteKeys.push(key);
+        break;
+      case "conflict":
+        classification = "conflict";
         conflictKeys.push(key);
-      }
-      continue;
+        break;
+      case "baseline_refresh":
+        classification = "baseline_refresh";
+        baselineRefreshKeys.push(key);
+        break;
+      default:
+        classification = "unchanged";
+        unchangedKeys.push(key);
+        break;
     }
-
-    if (localChanged) {
-      byKey[key] = "push";
-      pushKeys.push(key);
-      continue;
-    }
-
-    if (curRemote === undefined) {
-      byKey[key] = "remote_delete";
-      remoteDeleteKeys.push(key);
-      continue;
-    }
-
-    byKey[key] = "pull";
-    pullKeys.push(key);
+    byKey[key] = classification;
   }
 
   return {

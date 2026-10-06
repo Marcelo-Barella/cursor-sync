@@ -1,7 +1,16 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type * as vscode from "vscode";
 import { getLogger } from "./diagnostics.js";
+
+const BACKUP_INDEX_FILE = "index.json";
+
+function backupFileNameForPath(absPath: string): string {
+  const hash = crypto.createHash("sha256").update(absPath).digest("hex");
+  const base = path.basename(absPath).replace(/[^\w.-]+/g, "_").slice(0, 80);
+  return `${hash}-${base}`;
+}
 
 const MAX_BACKUPS = 3;
 
@@ -28,21 +37,30 @@ export async function createBackup(
 
   const entries: BackupEntry[] = [];
   const failedPaths: string[] = [];
+  const index: Record<string, string> = {};
 
   for (const absPath of filePaths) {
     try {
       await fs.access(absPath);
-      const relative = absPath.replace(/[/\\]/g, "--");
-      const backupPath = path.join(backupDir, relative);
+      const backupPath = path.join(backupDir, backupFileNameForPath(absPath));
       try {
         await fs.copyFile(absPath, backupPath);
         entries.push({ absolutePath: absPath, backupPath });
+        index[backupPath] = absPath;
       } catch {
         failedPaths.push(absPath);
       }
     } catch {
       // File doesn't exist yet, no backup needed
     }
+  }
+
+  if (Object.keys(index).length > 0) {
+    await fs.writeFile(
+      path.join(backupDir, BACKUP_INDEX_FILE),
+      JSON.stringify(index, null, 2),
+      "utf-8"
+    );
   }
 
   return { backupDir, entries, failedPaths };

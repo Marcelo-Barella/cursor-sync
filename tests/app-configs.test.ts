@@ -165,6 +165,10 @@ vi.mock("../src/app-r2-storage.js", () => ({
 function makeContext(): vscode.ExtensionContext {
   return {
     globalStorageUri: { fsPath: "/tmp/cursor-sync-app-configs-test" },
+    globalState: {
+      get: () => undefined,
+      update: async () => {},
+    },
     secrets: {
       get: async () => undefined,
       store: async () => {},

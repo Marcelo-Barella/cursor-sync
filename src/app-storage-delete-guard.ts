@@ -13,20 +13,39 @@ export interface MassDeleteDecision {
 export const MASS_DELETE_MAX_WITHOUT_CONFIRM = 3;
 export const MASS_DELETE_FRACTION_WITHOUT_CONFIRM = 0.5;
 
-let lastSchedulerMassDeleteBlockReason: string | undefined;
+let lastSchedulerMassDeleteBlockSignature: string | undefined;
 
 export function resetSchedulerMassDeleteBlockDedupe(): void {
-  lastSchedulerMassDeleteBlockReason = undefined;
+  lastSchedulerMassDeleteBlockSignature = undefined;
 }
 
-export function shouldRecordSchedulerMassDeleteBlock(reason: string): boolean {
-  if (reason === lastSchedulerMassDeleteBlockReason) {
+export function massDeleteBlockSignature(
+  direction: "push" | "pull",
+  deletions: string[],
+  reason: string
+): string {
+  return `${direction}:${reason}:${[...deletions].sort().join("\0")}`;
+}
+
+export function shouldRecordSchedulerMassDeleteBlock(
+  signature: string
+): boolean {
+  if (signature === lastSchedulerMassDeleteBlockSignature) {
     return false;
   }
-  lastSchedulerMassDeleteBlockReason = reason;
+  lastSchedulerMassDeleteBlockSignature = signature;
   return true;
 }
 
+export function clearSchedulerMassDeleteBlockIfResolved(
+  deletions: string[]
+): void {
+  if (deletions.length === 0) {
+    lastSchedulerMassDeleteBlockSignature = undefined;
+  }
+}
+
+/** True when deletes exceed policy: count > 3 OR count > 50% of tracked (strict >). */
 export function exceedsMassDeleteThreshold(
   deletionCount: number,
   trackedKeyCount: number
@@ -112,7 +131,7 @@ export async function resolveMassDeleteBatch(
   );
 
   if (decision.proceed) {
-    return deletions;
+    return [...deletions];
   }
 
   if (decision.schedulerBlocked) {
@@ -124,10 +143,30 @@ export async function resolveMassDeleteBatch(
       decision.reason ??
         `Delete ${deletions.length} ${options.direction === "push" ? "remote" : "local"} file(s)?`
     );
-    return ok ? deletions : [];
+    return ok ? [...deletions] : [];
   }
 
   return [];
+}
+
+export function evaluateEmptyRemoteManifestLocalDeletes(
+  remoteKeyCount: number,
+  baseline: import("./app-storage-baseline.js").AppStorageBaseline | undefined,
+  localDeleteCandidates: string[]
+): { blocked: boolean; reason?: string } {
+  if (remoteKeyCount > 0 || localDeleteCandidates.length === 0) {
+    return { blocked: false };
+  }
+  const tracked =
+    baseline && Object.keys(baseline.localChecksums).length > 0;
+  if (!tracked) {
+    return { blocked: false };
+  }
+  return {
+    blocked: true,
+    reason:
+      "Remote manifest is empty but this machine still has tracked files; local deletes were refused. Pull or reset baseline after confirming the remote was intentionally cleared.",
+  };
 }
 
 export async function recordSchedulerMassDeleteBlock(
@@ -135,6 +174,7 @@ export async function recordSchedulerMassDeleteBlock(
   trigger: DeleteGuardTrigger,
   direction: "push" | "pull",
   reason: string,
+  deletions: string[],
   addHistory: (
     context: vscode.ExtensionContext,
     entry: {
@@ -148,7 +188,8 @@ export async function recordSchedulerMassDeleteBlock(
     }
   ) => Promise<void>
 ): Promise<boolean> {
-  if (!shouldRecordSchedulerMassDeleteBlock(reason)) {
+  const signature = massDeleteBlockSignature(direction, deletions, reason);
+  if (!shouldRecordSchedulerMassDeleteBlock(signature)) {
     return false;
   }
   await addHistory(context, {
