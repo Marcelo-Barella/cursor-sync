@@ -172,6 +172,89 @@ describe("assertSafeSqlScript", () => {
   it("rejects minimal comment-quote VACUUM INTO escape", () => {
     expect(() => assertSafeSqlScript("--'\nVACUUM INTO'b.db'--'")).toThrow(UnsafeSqlScriptError);
   });
+
+  it("ends -- line comments only at newline (not CR)", () => {
+    expect(() =>
+      assertSafeSqlScript("SELECT 1 --\r'\n; ATTACH 'x.db' AS y;")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertSafeSqlScript("SELECT 1 --\r\nstill comment\n; ATTACH 'x.db' AS y;")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertSafeSqlScript("SELECT 1 --\rATTACH on same line\n; ATTACH 'x.db' AS y;")
+    ).toThrow(UnsafeSqlScriptError);
+  });
+
+  it("rejects lone UTF-16 surrogates", () => {
+    expect(() => assertSafeSqlScript("SELECT '\uD800';")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("SELECT '\uDC00';")).toThrow(UnsafeSqlScriptError);
+  });
+});
+
+describe("Python runner authorizer (TS filter bypassed)", () => {
+  const manifestStyleScript =
+    "BEGIN IMMEDIATE;\n" +
+    "UPDATE ItemTable SET value = 'x' WHERE key = 'composer.composerHeaders';\n" +
+    "INSERT INTO ItemTable (key, value) SELECT 'composer.composerHeaders', 'x' " +
+    "WHERE NOT EXISTS (SELECT 1 FROM ItemTable WHERE key = 'composer.composerHeaders');\n" +
+    "COMMIT;\n";
+
+  async function withFreshDb(
+    fn: (db: string) => Promise<void>
+  ): Promise<void> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-sql-engine-"));
+    const db = path.join(dir, "main.db");
+    await fs.writeFile(db, "", "utf8");
+    await fn(db);
+  }
+
+  it("runs manifest-style DML", async () => {
+    await withFreshDb(async (db) => {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const exec = promisify(execFile);
+      await exec("python3", [
+        "-c",
+        [
+          "import sqlite3, sys",
+          "c = sqlite3.connect(sys.argv[1])",
+          "c.execute('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)')",
+          "c.commit()",
+          "c.close()",
+        ].join(";"),
+        db,
+      ]);
+      await runSqlitePythonExecutescriptUnchecked(db, manifestStyleScript);
+    });
+  });
+
+  it("denies CREATE and DROP at the engine", async () => {
+    await withFreshDb(async (db) => {
+      await expect(
+        runSqlitePythonExecutescriptUnchecked(db, "CREATE TABLE evil(x);")
+      ).rejects.toThrow();
+      await expect(
+        runSqlitePythonExecutescriptUnchecked(db, "DROP TABLE ItemTable;")
+      ).rejects.toThrow();
+    });
+  });
+
+  it("denies fts3_tokenizer via SQLITE_FUNCTION arg2 (1- and 2-arg forms)", async () => {
+    await withFreshDb(async (db) => {
+      await expect(
+        runSqlitePythonExecutescriptUnchecked(
+          db,
+          "SELECT fts3_tokenizer('simple');"
+        )
+      ).rejects.toThrow();
+      await expect(
+        runSqlitePythonExecutescriptUnchecked(
+          db,
+          "SELECT fts3_tokenizer('custom', 'prefix');"
+        )
+      ).rejects.toThrow();
+    });
+  });
 });
 
 describe("fuzz escape corpus", () => {

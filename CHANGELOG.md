@@ -7,7 +7,8 @@
 ### Fixed
 - App storage: excluded/oversize keys no longer enter `untracked` or `baseline_refresh`, so peer deletes are not undone when exclude/size limits toggle; empty-scan hold runs before baseline refresh when all tracked files are out of scope.
 - UX: single root-ensure warning on pull; scheduled root-held markers clear on clean ticks; scheduled pull history summarizes file count; manual pull shows up to date when nothing changes; never-synced symlink skip labels deduped; TOCTOU pull writes labeled changed during write.
-- SQL transport: preserve UTF-8 emoji/ZWJ/CJK in `runSqliteScript` (no surrogate-pair stripping).
+- SQL transport: preserve UTF-8 emoji/ZWJ/CJK in `runSqliteScript` (no surrogate-pair stripping); reject lone surrogates.
+- SQL engine: authorizer allow-by-action (SELECT/READ/INSERT/UPDATE/DELETE/TRANSACTION/SAVEPOINT/PRAGMA/safe FUNCTION only); `SQLITE_FUNCTION` checks arg2; `--` comments end at `\n` only (TS lexer + Python splitter).
 
 ## v0.8.4-staging.29
 

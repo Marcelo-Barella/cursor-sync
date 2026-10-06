@@ -1326,4 +1326,11 @@ SELECT 1; ATTACH 'f5420.db' AS z5420 ;
 SELECT 1; ATTACH 'f2952.db' AS z2952
 /* 
 `a\ */
-/*a\"--*/
+/*a\"--*/SELECT 1 --\r'
+; ATTACH 'f-cr-lf.db' AS z1;
+
+SELECT 1 --\r\nstill comment
+; ATTACH 'f-crlf.db' AS z2;
+
+SELECT 1 --ATTACH on same line
+; ATTACH 'f-lone-cr.db' AS z3;

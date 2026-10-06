@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { UnsafeSqlScriptError } from "../src/sqlite-script-safety.js";
 import { runSqliteScript } from "../src/transcripts-sqlite.js";
 import { __transcriptsTestUtils } from "../src/transcripts.js";
 
@@ -51,5 +52,14 @@ describe("runSqliteScript UTF-8 round-trip", () => {
       retries: 1,
     });
     expect(rows[0]?.value).toBe(ZWJ_TITLE);
+  });
+
+  it("rejects lone surrogates before executing", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-utf8-bad-"));
+    const db = path.join(dir, "t.db");
+    await fs.writeFile(db, "", "utf8");
+    await expect(
+      runSqliteScript(db, "SELECT '\uD800';\n")
+    ).rejects.toThrow(UnsafeSqlScriptError);
   });
 });

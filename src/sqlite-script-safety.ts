@@ -102,7 +102,7 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
 
   const consumeLineComment = (start: number): number => {
     let j = start + 2;
-    while (j < script.length && script[j] !== "\n" && script[j] !== "\r") {
+    while (j < script.length && script[j] !== "\n") {
       j++;
     }
     tokens.push({ kind: "comment", start, end: j });
@@ -505,8 +505,27 @@ function assertNormalizedForbiddenTokens(normalized: string): void {
 /**
  * Reject manifest- or user-supplied SQL that could escape the SQL API (dot-commands, ATTACH, VACUUM, extensions).
  */
+/** Reject lone UTF-16 surrogates (valid emoji/ZWJ pairs are allowed). */
+export function assertValidSqlScriptUnicode(script: string): void {
+  for (let i = 0; i < script.length; i++) {
+    const code = script.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = script.charCodeAt(i + 1);
+      if (next < 0xdc00 || next > 0xdfff) {
+        throw new UnsafeSqlScriptError("SQL script contains a lone UTF-16 surrogate");
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      const prev = script.charCodeAt(i - 1);
+      if (prev < 0xd800 || prev > 0xdbff) {
+        throw new UnsafeSqlScriptError("SQL script contains a lone UTF-16 surrogate");
+      }
+    }
+  }
+}
+
 export function assertSafeSqlScript(script: string): void {
   const stripped = stripUnicodeFormatChars(script);
+  assertValidSqlScriptUnicode(stripped);
   const tokens = tokenizeSqlScript(stripped);
   const statements = buildStatementSecuritySurfaces(stripped, tokens);
 
@@ -534,16 +553,28 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "FORBIDDEN_CALL = re.compile(",
   '    r"\\b(load_extension|writefile|readfile|edit|fts3_tokenizer)\\s*\\(", re.I',
   ")",
+  "ALLOWED_AUTHORIZER_ACTIONS = frozenset({",
+  "    sqlite3.SQLITE_SELECT,",
+  "    sqlite3.SQLITE_READ,",
+  "    sqlite3.SQLITE_INSERT,",
+  "    sqlite3.SQLITE_UPDATE,",
+  "    sqlite3.SQLITE_DELETE,",
+  "    sqlite3.SQLITE_TRANSACTION,",
+  "    sqlite3.SQLITE_SAVEPOINT,",
+  "    sqlite3.SQLITE_FUNCTION,",
+  "    sqlite3.SQLITE_PRAGMA,",
+  "})",
   "",
   "def _authorizer(action, p1, p2, dbname, trigger):",
-  "    if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):",
+  "    if action not in ALLOWED_AUTHORIZER_ACTIONS:",
   "        return sqlite3.SQLITE_DENY",
   "    if action == sqlite3.SQLITE_PRAGMA:",
   "        name = (p1 or '').split('(')[0].strip().lower()",
   "        if name not in ALLOWED_PRAGMAS:",
   "            return sqlite3.SQLITE_DENY",
   "    if action == sqlite3.SQLITE_FUNCTION:",
-  "        if (p1 or '').lower() in FORBIDDEN_FUNCS:",
+  "        fname = (p2 or '').lower()",
+  "        if fname in FORBIDDEN_FUNCS:",
   "            return sqlite3.SQLITE_DENY",
   "    return sqlite3.SQLITE_OK",
   "",
@@ -558,7 +589,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "        if state == 'n':",
   "            if ch == '-' and nxt == '-':",
   "                i += 2",
-  "                while i < len(script) and script[i] not in '\\n\\r':",
+  "                while i < len(script) and script[i] != '\\n':",
   "                    i += 1",
   "                continue",
   "            if ch == '/' and nxt == '*':",
@@ -669,7 +700,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "                    surface.append(''.join(word))",
   "                    word = []",
   "                i += 2",
-  "                while i < len(stmt) and stmt[i] not in '\\n\\r':",
+  "                while i < len(stmt) and stmt[i] != '\\n':",
   "                    i += 1",
   "                prev_end = i",
   "                continue",

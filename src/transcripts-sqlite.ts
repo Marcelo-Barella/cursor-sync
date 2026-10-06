@@ -14,6 +14,7 @@ import {
 } from "./subprocess-errors.js";
 import {
   assertSafeSqlScript,
+  assertValidSqlScriptUnicode,
   SQLITE_PYTHON_EXECUTESCRIPT,
 } from "./sqlite-script-safety.js";
 import { getComposerId } from "./composer-merge.js";
@@ -248,9 +249,14 @@ export async function runSqlitePythonExecutescriptUnchecked(
   await execFileWithStdinAsync(py.command, args, script, execOpts);
 }
 
+function sqlScriptPayloadForRunner(script: string): string {
+  assertValidSqlScriptUnicode(script);
+  return Buffer.from(script, "utf8").toString("utf8");
+}
+
 export async function runSqliteScript(dbPath: string, script: string): Promise<void> {
   const scriptWithBusy = `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};\n${script}`;
-  const sanitized = Buffer.from(scriptWithBusy, "utf8").toString("utf8");
+  const sanitized = sqlScriptPayloadForRunner(scriptWithBusy);
   assertSafeSqlScript(sanitized);
   const execOpts = {
     maxBuffer: 64 * 1024 * 1024,
