@@ -382,7 +382,9 @@ async function resolveRemoteFileContent(
     options?.credentials ??
     (await getR2StorageCredentials(context, { silent: options?.silentCredentials }));
   if (credentials) {
-    const remote = await getR2Object(credentials, syncKey);
+    const remote = await getR2Object(credentials, syncKey, {
+      signal: options?.run?.signal,
+    });
     if (remote) {
       const checksum = computeChecksum(remote);
       if (checksum !== manifestEntry.checksum) {
@@ -516,7 +518,9 @@ export async function executePushAppConfigs(
     }
 
     if (readAppConfigRemoteDirty(context) && remoteBaselineFetched && remoteBaseline) {
-      await reconcileRemoteDirtyOnPush(context, credentials, remoteBaseline, localPayload);
+      await reconcileRemoteDirtyOnPush(context, credentials, remoteBaseline, localPayload, {
+        signal: run.signal,
+      });
     }
 
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
@@ -551,7 +555,9 @@ export async function executePushAppConfigs(
       localPayload.files
     );
     await putAppConfigsWithSession(session, payload, { run });
-    await tryClearRemoteDirtyWhenReconciled(context, credentials, payload);
+    await tryClearRemoteDirtyWhenReconciled(context, credentials, payload, {
+      signal: run.signal,
+    });
 
     const fileCount = Object.keys(payload.files).length;
     vscode.window.showInformationMessage(

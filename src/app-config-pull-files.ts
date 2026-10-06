@@ -9,13 +9,20 @@ import { getLogger } from "./diagnostics.js";
 import type { ResolvedSyncRoots } from "./app-config-sync-path-safety.js";
 import {
   assertFinalPathMatchesHandle,
+  assertParentDirHandleUnchanged,
   assertPathInodeSnapshotFresh,
+  assertRealpathContainedInSyncRoot,
   capturePathInodeSnapshot,
   closeDirChain,
+  HeldUnsafeWriteError,
   inodeOfHandle,
+  inodeOfParentDirHandle,
   openFileNoFollow,
   openVerifiedDirChain,
   PathVerificationError,
+  safeUnlinkTemp,
+  unlinkPathIfInodeMatches,
+  type InodeRef,
   type PathInodeSnapshot,
 } from "./app-config-path-fd.js";
 import {
@@ -126,7 +133,7 @@ async function writeUniqueTempInVerifiedParent(
   snapshot: PathInodeSnapshot
 ): Promise<{ tmpPath: string; handle: Awaited<ReturnType<typeof openFileNoFollow>> }> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const name = `.cursor-sync-pull-${randomBytes(6).toString("hex")}.tmp`;
+    const name = `.cursor-sync-pull-${randomBytes(16).toString("hex")}.tmp`;
     const tmpPath = path.join(parentDirPath, name);
     try {
       await assertPathInodeSnapshotFresh(snapshot);
@@ -143,6 +150,22 @@ async function writeUniqueTempInVerifiedParent(
     }
   }
   throw new Error("Could not allocate unique temp file for pull write");
+}
+
+async function cleanupOrphanPullTemp(tmpPath: string | undefined): Promise<void> {
+  if (!tmpPath) {
+    return;
+  }
+  await safeUnlinkTemp(tmpPath);
+}
+
+async function recoverEscapedWrite(
+  finalPath: string,
+  writtenInode: InodeRef,
+  tmpPath: string | undefined
+): Promise<void> {
+  await unlinkPathIfInodeMatches(finalPath, writtenInode);
+  await cleanupOrphanPullTemp(tmpPath);
 }
 
 async function cleanupPullTempsAndEmptyDirs(entry: PullJournalEntry): Promise<void> {
@@ -312,8 +335,10 @@ export async function executeAppConfigPullWrites(
     let index = 0;
     for (const target of targets) {
       throwIfAppConfigsAborted(run);
+      let chain: Awaited<ReturnType<typeof openVerifiedDirChain>> | undefined;
+      let orphanTmp: string | undefined;
       try {
-        const chain = await openVerifiedDirChain(target.absolutePath, target.syncKey, resolved);
+        chain = await openVerifiedDirChain(target.absolutePath, target.syncKey, resolved);
 
         const backupEntry = await backupExistingSafe(
           backupDir,
@@ -340,13 +365,18 @@ export async function executeAppConfigPullWrites(
           createdDirs.push(chain.parentDirPath);
         }
 
+        const parentInode = await inodeOfParentDirHandle(chain);
+
         const { tmpPath, handle: tmpHandle } = await writeUniqueTempInVerifiedParent(
           chain.parentDirPath,
           chain.snapshot
         );
+        orphanTmp = tmpPath;
+        let writtenInode: InodeRef | undefined;
         try {
           await tmpHandle.writeFile(target.content);
           await tmpHandle.sync();
+          writtenInode = await inodeOfHandle(tmpHandle);
         } finally {
           await tmpHandle.close();
         }
@@ -369,27 +399,85 @@ export async function executeAppConfigPullWrites(
         journal.entries.push(pendingEntry);
         await writePullJournal(context, journal);
 
-        await assertPathInodeSnapshotFresh(chain.snapshot);
-        await fs.rename(tmpPath, target.absolutePath);
-        const finalHandle = await openFileNoFollow(target.absolutePath, fsConstants.O_RDONLY);
         try {
-          await assertFinalPathMatchesHandle(finalHandle, target.absolutePath);
-        } finally {
-          await finalHandle.close();
+          await assertPathInodeSnapshotFresh(chain.snapshot);
+          await assertParentDirHandleUnchanged(chain, parentInode);
+          await assertRealpathContainedInSyncRoot(
+            target.absolutePath,
+            target.syncKey,
+            resolved
+          );
+
+          await fs.rename(tmpPath, target.absolutePath);
+
+          await assertParentDirHandleUnchanged(chain, parentInode);
+          await assertRealpathContainedInSyncRoot(
+            target.absolutePath,
+            target.syncKey,
+            resolved
+          );
+
+          const finalHandle = await openFileNoFollow(
+            target.absolutePath,
+            fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW
+          );
+          try {
+            await assertFinalPathMatchesHandle(finalHandle, target.absolutePath);
+            if (writtenInode) {
+              const finalInode = await inodeOfHandle(finalHandle);
+              if (finalInode.dev !== writtenInode.dev || finalInode.ino !== writtenInode.ino) {
+                throw new PathVerificationError(
+                  `Post-rename file inode does not match written temp for ${target.absolutePath}`
+                );
+              }
+            }
+          } finally {
+            await finalHandle.close();
+          }
+          if (priorMode !== undefined) {
+            await fs.chmod(target.absolutePath, priorMode);
+          }
+          pendingEntry.renameCompleted = true;
+          pendingEntry.tmpPath = undefined;
+          orphanTmp = undefined;
+          await writePullJournal(context, journal);
+          updated += 1;
+        } catch (postWriteErr) {
+          if (writtenInode) {
+            await recoverEscapedWrite(target.absolutePath, writtenInode, tmpPath);
+          } else {
+            await cleanupOrphanPullTemp(tmpPath);
+          }
+          orphanTmp = undefined;
+          if (
+            postWriteErr instanceof PathVerificationError ||
+            postWriteErr instanceof HeldUnsafeWriteError
+          ) {
+            throw new HeldUnsafeWriteError(
+              `Held/unsafe write for ${target.syncKey}: ${postWriteErr.message}`
+            );
+          }
+          throw postWriteErr;
         }
-        if (priorMode !== undefined) {
-          await fs.chmod(target.absolutePath, priorMode);
-        }
-        pendingEntry.renameCompleted = true;
-        pendingEntry.tmpPath = undefined;
-        await writePullJournal(context, journal);
-        updated += 1;
-        await closeDirChain(chain);
       } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
+        if (orphanTmp) {
+          await cleanupOrphanPullTemp(orphanTmp);
+        }
+        const reason =
+          err instanceof HeldUnsafeWriteError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
         failed.push(`${target.syncKey}: ${reason}`);
-        if (err instanceof PathVerificationError) {
-          // best-effort cleanup of tmp if we can match inode
+        if (err instanceof HeldUnsafeWriteError) {
+          getLogger().appendLine(
+            `[${new Date().toISOString()}] Pull held/unsafe write: ${target.syncKey}: ${reason}`
+          );
+        }
+      } finally {
+        if (chain) {
+          await closeDirChain(chain);
         }
       }
     }

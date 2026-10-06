@@ -4,6 +4,10 @@ let statusBarItem: vscode.StatusBarItem;
 
 export type SyncState = "ok" | "syncing" | "error" | "unconfigured";
 
+export interface UpdateStatusBarOptions {
+  setupCommand?: string;
+}
+
 export function initializeStatusBar(context: vscode.ExtensionContext): void {
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -16,7 +20,11 @@ export function initializeStatusBar(context: vscode.ExtensionContext): void {
   statusBarItem.show();
 }
 
-export function updateStatusBar(state: SyncState, lastSync?: Date): void {
+export function updateStatusBar(
+  state: SyncState,
+  lastSync?: Date,
+  options?: UpdateStatusBarOptions
+): void {
   if (!statusBarItem) {
     return;
   }
@@ -45,8 +53,7 @@ export function updateStatusBar(state: SyncState, lastSync?: Date): void {
       icon = "$(gear)";
       text = "Sync: Setup";
       tooltip = "Cursor Sync is not configured. Click to set up.";
-      // Change command to configure if unconfigured
-      statusBarItem.command = "cursorSync.configureGithub";
+      statusBarItem.command = options?.setupCommand ?? "cursorSync.loginToApp";
       break;
   }
 

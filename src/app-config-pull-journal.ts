@@ -38,6 +38,7 @@ const DISMISSED_MISSING_BACKUP_KEY = "cursorSync.appConfigs.dismissedMissingBack
 
 const corruptJournalIds = new Set<string>();
 let corruptWarningShown = false;
+let quarantinedJournalWarningShown = false;
 
 export function getCorruptPullJournalIds(): ReadonlySet<string> {
   return corruptJournalIds;
@@ -208,7 +209,19 @@ export async function warnCorruptPullJournals(context: vscode.ExtensionContext):
   }
   corruptWarningShown = true;
   vscodeApi.window.showWarningMessage(
-    "Cursor Sync found a damaged app-config pull journal. Backups were kept; restart may retry restore."
+    "Cursor Sync found a damaged app-config pull journal. Backups were kept; restart may retry restore.",
+    "Dismiss"
+  );
+}
+
+async function warnQuarantinedInvalidPullJournalOnce(): Promise<void> {
+  if (quarantinedJournalWarningShown) {
+    return;
+  }
+  quarantinedJournalWarningShown = true;
+  await vscodeApi.window.showWarningMessage(
+    "Cursor Sync quarantined an app-config pull journal that could not be replayed safely. Backups were kept.",
+    "Dismiss"
   );
 }
 
@@ -268,6 +281,7 @@ export async function replayIncompletePullJournals(
     const validation = await validatePullJournalForReplay(context, journal);
     if (!validation.ok) {
       await quarantinePullJournal(context, journal.id, validation.reason ?? "invalid");
+      await warnQuarantinedInvalidPullJournalOnce();
       continue;
     }
 

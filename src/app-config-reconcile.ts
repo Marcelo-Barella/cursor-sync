@@ -13,7 +13,8 @@ import type { R2StorageCredentials } from "./app-r2-storage.js";
 export async function listManifestObjectMismatches(
   credentials: R2StorageCredentials,
   manifestFiles: Record<string, ManifestFileEntry>,
-  keys: string[]
+  keys: string[],
+  options?: { signal?: AbortSignal }
 ): Promise<string[]> {
   const mismatches: string[] = [];
   for (const syncKey of keys) {
@@ -21,7 +22,7 @@ export async function listManifestObjectMismatches(
     if (!entry) {
       continue;
     }
-    const object = await getR2Object(credentials, syncKey);
+    const object = await getR2Object(credentials, syncKey, { signal: options?.signal });
     if (!object || computeChecksum(object) !== entry.checksum) {
       mismatches.push(syncKey);
     }
@@ -31,18 +32,20 @@ export async function listManifestObjectMismatches(
 
 export async function verifyPayloadObjectsMatchManifest(
   credentials: R2StorageCredentials,
-  payload: AppConfigsPayloadV1
+  payload: AppConfigsPayloadV1,
+  options?: { signal?: AbortSignal }
 ): Promise<string[]> {
   const keys = Object.keys(payload.manifest.files);
-  return listManifestObjectMismatches(credentials, payload.manifest.files, keys);
+  return listManifestObjectMismatches(credentials, payload.manifest.files, keys, options);
 }
 
 export async function tryClearRemoteDirtyWhenReconciled(
   context: vscode.ExtensionContext,
   credentials: R2StorageCredentials,
-  payload: AppConfigsPayloadV1
+  payload: AppConfigsPayloadV1,
+  options?: { signal?: AbortSignal }
 ): Promise<boolean> {
-  const mismatches = await verifyPayloadObjectsMatchManifest(credentials, payload);
+  const mismatches = await verifyPayloadObjectsMatchManifest(credentials, payload, options);
   if (mismatches.length === 0) {
     await clearAppConfigRemoteDirty(context);
     return true;
@@ -55,7 +58,8 @@ export async function reconcileRemoteDirtyOnPush(
   context: vscode.ExtensionContext,
   credentials: R2StorageCredentials,
   remote: AppConfigsPayloadV1,
-  local: AppConfigsPayloadV1
+  local: AppConfigsPayloadV1,
+  options?: { signal?: AbortSignal }
 ): Promise<number> {
   const dirty = readAppConfigRemoteDirty(context);
   if (!dirty) {
@@ -65,7 +69,8 @@ export async function reconcileRemoteDirtyOnPush(
   const mismatches = await listManifestObjectMismatches(
     credentials,
     remote.manifest.files,
-    keys
+    keys,
+    options
   );
   let repaired = 0;
   for (const syncKey of mismatches) {
@@ -86,7 +91,7 @@ export async function reconcileRemoteDirtyOnPush(
     repaired += 1;
   }
   if (repaired > 0) {
-    const after = await verifyPayloadObjectsMatchManifest(credentials, remote);
+    const after = await verifyPayloadObjectsMatchManifest(credentials, remote, options);
     if (after.length === 0) {
       await clearAppConfigRemoteDirty(context);
     }

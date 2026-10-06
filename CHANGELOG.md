@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.12-logout
+
+### Fixed
+- Narrow pull write TOCTOU window (parent dev/ino, O_EXCL|O_NOFOLLOW temps, post-rename containment, escaped-file cleanup).
+- Pass logout `AbortSignal` through pull R2 GETs and dirty reconciliation GETs.
+- Quarantine invalid (non-corrupt) pull journals with a deduped warning toast on replay.
+- Status bar **Sync: Setup** opens app login (`cursorSync.loginToApp`) when GitHub PAT is absent.
+
 ## v0.8.4-staging.11-logout
 
 ### Fixed

@@ -1,11 +1,26 @@
 /**
  * Sync-root path operations with dev/ino verification.
  *
- * Residual TOCTOU window: between the final pre-rename lstat chain check and the
- * rename() syscall, a privileged attacker could still swap the destination name
- * in the verified parent directory. Node has no openat/renameat; this module
- * minimizes exposure by holding O_DIRECTORY handles and matching inodes before
- * and after rename.
+ * Residual TOCTOU window (Node fs/promises only):
+ *
+ * 1. Between the last pre-rename checks (parent dev/ino, path snapshot, realpath
+ *    containment) and `rename(tmp, final)`, a privileged attacker could replace
+ *    the destination name or repoint a directory entry in the verified parent.
+ *    We do not hold the destination open across rename because the final path may
+ *    not exist yet; there is no `renameat` bound to our parent fd.
+ *
+ * 2. After `rename`, a race could leave bytes at a path that no longer matches the
+ *    inode we wrote on the temp fd; post-rename `O_NOFOLLOW` open + dev/ino match
+ *    and a second realpath containment check detect this; escaped files are unlinked
+ *    only when `lstat` matches the written file's dev/ino.
+ *
+ * 3. `rename` itself is atomic on the same volume, but cannot be issued relative to
+ *    an open parent directory fd in Node's API, so the parent inode can change identity
+ *    if the directory is unlinked/replaced between our fstat and rename (detected by
+ *    re-fstat on the held O_DIRECTORY handle).
+ *
+ * Temp files use `O_CREAT|O_EXCL|O_WRONLY|O_NOFOLLOW` with unpredictable names inside
+ * the verified parent; final verification uses `O_RDONLY|O_NOFOLLOW` after rename.
  */
 import * as fs from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
@@ -14,6 +29,7 @@ import * as path from "node:path";
 import type { ResolvedSyncRoots } from "./app-config-sync-path-safety.js";
 import {
   assertContainedSyncPath,
+  isRealpathInsideRoot,
   syncRootRealForKey,
 } from "./app-config-sync-path-safety.js";
 
@@ -154,5 +170,77 @@ export async function assertFinalPathMatchesHandle(
   const fromPath = await lstatInode(finalPath);
   if (!inodesMatch(fromHandle, fromPath)) {
     throw new PathVerificationError(`Post-rename inode mismatch for ${finalPath}`);
+  }
+}
+
+export function assertInodesMatch(expected: InodeRef, actual: InodeRef, label: string): void {
+  if (!inodesMatch(expected, actual)) {
+    throw new PathVerificationError(`${label} inode changed (dev/ino mismatch)`);
+  }
+}
+
+export async function inodeOfParentDirHandle(chain: OpenDirChain): Promise<InodeRef> {
+  const parentHandle = chain.dirHandles[chain.dirHandles.length - 1];
+  if (!parentHandle) {
+    throw new PathVerificationError("Missing parent directory handle");
+  }
+  return inodeOfHandle(parentHandle);
+}
+
+export async function assertParentDirHandleUnchanged(
+  chain: OpenDirChain,
+  parentInode: InodeRef
+): Promise<void> {
+  const current = await inodeOfParentDirHandle(chain);
+  assertInodesMatch(parentInode, current, "Parent directory");
+}
+
+export async function assertRealpathContainedInSyncRoot(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<void> {
+  await assertContainedSyncPath(absolutePath, syncKey, resolved);
+  const rootInfo = syncRootRealForKey(syncKey, resolved);
+  if (!rootInfo) {
+    throw new PathVerificationError(`Unsupported sync key: ${syncKey}`);
+  }
+  const targetReal = await fs.realpath(absolutePath).catch(() => path.resolve(absolutePath));
+  if (!isRealpathInsideRoot(targetReal, rootInfo.rootReal)) {
+    throw new PathVerificationError(`Path escaped sync root after verification: ${absolutePath}`);
+  }
+}
+
+export class HeldUnsafeWriteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HeldUnsafeWriteError";
+  }
+}
+
+export async function unlinkPathIfInodeMatches(
+  absolutePath: string,
+  expectedInode: InodeRef
+): Promise<boolean> {
+  try {
+    const st = await fs.lstat(absolutePath);
+    const current = { dev: st.dev, ino: st.ino };
+    if (!inodesMatch(current, expectedInode)) {
+      return false;
+    }
+    await fs.unlink(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function safeUnlinkTemp(tmpPath: string): Promise<void> {
+  try {
+    await fs.unlink(tmpPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      // ignore other cleanup failures
+    }
   }
 }

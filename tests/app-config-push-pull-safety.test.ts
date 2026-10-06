@@ -169,6 +169,47 @@ describe("pull journal replay", () => {
     await replayIncompletePullJournals(ctx);
     expect(await fs.readFile(target, "utf-8")).toBe("old-content");
   });
+
+  it("shows a dismissible warning when quarantining an invalid journal on replay", async () => {
+    const vscode = await import("vscode");
+    const showWarning = vi.mocked(vscode.window.showWarningMessage);
+    showWarning.mockClear();
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-journal-invalid-"));
+    const cursorUser = path.join(dir, "cursor-user");
+    await fs.mkdir(cursorUser, { recursive: true });
+    mockRoots.cursorUser = cursorUser;
+    mockRoots.dotCursor = path.join(dir, "dot-cursor");
+    const storage = path.join(dir, "storage");
+    const journalId = "invalid123456789a";
+    const ctx = {
+      globalStorageUri: { fsPath: storage },
+      globalState: { get: () => undefined, update: async () => {} },
+    } as never;
+
+    const { writePullJournal, replayIncompletePullJournals } = await import(
+      "../src/app-config-pull-journal.js"
+    );
+    await writePullJournal(ctx, {
+      id: journalId,
+      startedAt: new Date().toISOString(),
+      backupDir: path.join(storage, "backups", `app-config-pull-${journalId}`),
+      phase: "writing",
+      resolvedRoots: {
+        cursorUser: "/wrong/root",
+        dotCursor: "/wrong/dot",
+        cursorUserReal: "/wrong/root",
+        dotCursorReal: "/wrong/dot",
+      },
+      entries: [],
+    });
+
+    await replayIncompletePullJournals(ctx);
+    expect(showWarning).toHaveBeenCalledWith(
+      expect.stringMatching(/quarantined an app-config pull journal/i),
+      "Dismiss"
+    );
+  });
 });
 
 describe("executeAppConfigPullWrites safety", () => {

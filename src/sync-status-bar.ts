@@ -20,7 +20,7 @@ export async function refreshSyncStatusBar(
 
   const token = await getToken(context);
   if (!token) {
-    updateStatusBar("unconfigured");
+    updateStatusBar("unconfigured", undefined, { setupCommand: "cursorSync.loginToApp" });
     return;
   }
 
