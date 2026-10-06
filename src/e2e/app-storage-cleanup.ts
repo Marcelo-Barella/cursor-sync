@@ -31,10 +31,6 @@ async function saveStrayCheckState(
   await context.globalState.update(STRAY_CHECK_STATE_KEY, state);
 }
 
-/**
- * Legacy plaintext cleanup for app-config / R2 storage sync paths (push & pull today).
- * When migration is complete and the server listing is empty, throttles stray re-checks.
- */
 export async function runAppStorageLegacyCleanup(
   context: vscode.ExtensionContext,
   options?: {

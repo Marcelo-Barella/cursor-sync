@@ -14,7 +14,6 @@ function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
   );
 }
 
-/** True when GET /configs still carries a legacy plaintext payload (not null, {}, or empty files). */
 export function hasLegacyConfigsPayload(payload: unknown): boolean {
   if (payload === null || payload === undefined) {
     return false;

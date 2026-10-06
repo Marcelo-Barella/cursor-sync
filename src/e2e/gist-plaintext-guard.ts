@@ -35,15 +35,6 @@ export async function probeSyncGistEncryption(
   return encrypted ? { state: "encrypted" } : { state: "plain" };
 }
 
-/** @deprecated Use probeSyncGistEncryption */
-export async function remoteSyncGistIsEncrypted(
-  client: GistClient,
-  gistId?: string
-): Promise<boolean> {
-  const probe = await probeSyncGistEncryption(client, gistId);
-  return probe.state === "encrypted";
-}
-
 export async function assertPlaintextGistWriteAllowed(
   client: GistClient,
   gistId?: string

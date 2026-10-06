@@ -67,7 +67,6 @@ export interface KeysGateCache {
 
 let inMemoryKeysCache: KeysGateCache = { presence: "unknown", verification: "unknown" };
 
-/** Re-fetch GET /v1/keys when persisted verification is stale or not verified. */
 export const KEYS_CACHE_STALE_MS = 5 * 60 * 1000;
 
 export function keysCacheNeedsRefresh(cache: KeysGateCache): boolean {
