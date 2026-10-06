@@ -195,6 +195,29 @@ export async function putR2Object(
   return response.status;
 }
 
+export async function deleteR2Object(
+  credentials: R2StorageCredentials,
+  syncKey: string
+): Promise<number> {
+  const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
+  const url = r2ObjectUrl(credentials, objectKey);
+  const client = createAwsClient(credentials);
+
+  const response = await client.fetch(url, { method: "DELETE" });
+
+  if (response.status === 404) {
+    return response.status;
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to delete ${syncKey} from storage (${response.status})${text ? `: ${text}` : ""}`
+    );
+  }
+  return response.status;
+}
+
 export async function getR2Object(
   credentials: R2StorageCredentials,
   syncKey: string

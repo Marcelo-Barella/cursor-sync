@@ -357,8 +357,9 @@ async function exportChatSelectionToBundleFile(
         const { jsonForFile, warnings, primaryTitle, bundles, defaultSaveBasename } =
           await buildChatExportPayload(context, selection, progress);
 
+        const { resolveUserHomeDir } = await import("./sync-roots.js");
         const defaultUri = vscode.Uri.file(
-          path.join(os.homedir(), "Downloads", defaultSaveBasename)
+          path.join(resolveUserHomeDir(), "Downloads", defaultSaveBasename)
         );
         const saveUri = await vscode.window.showSaveDialog({
           defaultUri,

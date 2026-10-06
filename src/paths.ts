@@ -81,6 +81,30 @@ function resolveDotCursorDir(platform: NodeJS.Platform, fallback: string): strin
   return fallback;
 }
 
+export function globalStateVscdbPathsFromRoots(roots: SyncRoots): string[] {
+  const primary = path.join(roots.cursorUser, "globalStorage", "state.vscdb");
+  const nightlyUser = roots.cursorUser.replace(
+    /([/\\])Cursor([/\\])User$/,
+    "$1Cursor Nightly$2User"
+  );
+  if (nightlyUser === roots.cursorUser) {
+    return [primary];
+  }
+  return [primary, path.join(nightlyUser, "globalStorage", "state.vscdb")];
+}
+
+export function workspaceStorageRootsFromCursorUser(cursorUser: string): string[] {
+  const primary = path.join(cursorUser, "workspaceStorage");
+  const nightlyUser = cursorUser.replace(
+    /([/\\])Cursor([/\\])User$/,
+    "$1Cursor Nightly$2User"
+  );
+  if (nightlyUser === cursorUser) {
+    return [primary];
+  }
+  return [primary, path.join(nightlyUser, "workspaceStorage")];
+}
+
 export function resolveSyncRoots(
   platform: NodeJS.Platform = process.platform,
   context?: vscode.ExtensionContext
@@ -89,15 +113,12 @@ export function resolveSyncRoots(
 
   if (context?.globalStorageUri !== undefined) {
     const fromContext = deriveCursorUserDirFromGlobalStorage(context.globalStorageUri);
-    if (!fromContext) {
-      throw new Error(
-        "Could not derive Cursor User directory from extension globalStorageUri."
-      );
+    if (fromContext) {
+      return {
+        cursorUser: fromContext,
+        dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
+      };
     }
-    return {
-      cursorUser: fromContext,
-      dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
-    };
   }
 
   return {

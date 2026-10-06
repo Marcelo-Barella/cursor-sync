@@ -99,6 +99,7 @@ vi.mock("../src/diagnostics.js", () => ({
 vi.mock("../src/paths.js", () => ({
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/mock-cursor-user",
+    dotCursor: path.join(process.env.HOME ?? "/tmp", ".cursor"),
   }),
 }));
 

@@ -35,9 +35,14 @@ export async function refreshSyncStatusBar(
   }
 
   if (appSessionActive) {
-    const history = await loadSyncHistory(context);
+    let history: Awaited<ReturnType<typeof loadSyncHistory>> = [];
+    try {
+      history = await loadSyncHistory(context);
+    } catch {
+      history = [];
+    }
     const latest = latestStorageHistoryEntry(history);
-    if (options?.failed) {
+    if (options?.failed || (latest && !latest.success)) {
       updateStatusBar("error", {
         destination: "cursor-sync-storage",
         detail: latest ? storageStatusDetail(latest) : "Sync failed",

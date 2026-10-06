@@ -6,13 +6,11 @@ const FORBIDDEN_PATTERNS = [
   /\.config\/Cursor\/User/,
   /Application Support\/Cursor\/User/,
   /AppData\/Roaming\/Cursor\/User/,
+  /os\.homedir\s*\(\s*\)/,
+  /path\.join\s*\(\s*os\.homedir\s*\(\s*\)\s*,\s*["']\.cursor["']/,
 ];
 
-const ALLOWLIST = new Set([
-  path.join("src", "paths.ts"),
-  path.join("src", "transcripts-sqlite.ts"),
-  path.join("src", "transcripts-cursor-paths.ts"),
-]);
+const ALLOWLIST = new Set([path.join("src", "paths.ts")]);
 
 describe("sync path hardcoding guard", () => {
   it("does not hardcode Cursor User or ~/.cursor outside allowlisted modules", () => {

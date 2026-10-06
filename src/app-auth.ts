@@ -41,7 +41,6 @@ async function withSecretStorageTimeout<T>(
 function logAppSessionLoginSucceeded(): void {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] App session login succeeded`);
-  logger.show();
 }
 
 function retainInMemoryAppSession(token: string, detail: string): void {
@@ -302,6 +301,8 @@ export async function buildAuthRedirectUri(
   return formatOAuthRedirectUri(externalUri, context.extension.id);
 }
 
+export { decodeJwtPayload } from "./app-session-identity.js";
+
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string,
@@ -497,14 +498,23 @@ export async function executeLoginToCursorSync(
     );
     const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
     if (!opened) {
-      vscode.window.showErrorMessage("Could not open the system browser for login.");
-      return;
+      await vscode.env.clipboard.writeText(loginUrl);
+      const copyAction = "Copy URL";
+      void vscode.window.showWarningMessage(
+        "Could not open the system browser for login. The login URL was copied to your clipboard. Paste the one-time code below.",
+        copyAction
+      ).then((choice) => {
+        if (choice === copyAction) {
+          void vscode.env.clipboard.writeText(loginUrl);
+        }
+      });
+    } else {
+      logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
+      void vscode.window.showInformationMessage(
+        "Browser opened for Cursor Sync login. Paste the one-time code if Cursor does not receive the callback automatically."
+      );
     }
-    logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
-    void vscode.window.showInformationMessage(
-      "Browser opened for Cursor Sync login. Paste the one-time code if Cursor does not receive the callback automatically."
-    );
-    void executeEnterAppAuthCode(context);
+    await executeEnterAppAuthCode(context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(`[${new Date().toISOString()}] App login start failed: ${message}`);
@@ -515,7 +525,6 @@ export async function executeLoginToCursorSync(
 export async function executeEnterAppAuthCode(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  await releaseSyncLatchForAuthRetry(context);
   const code = await vscode.window.showInputBox({
     prompt: "Paste the one-time login code from the browser",
     ignoreFocusOut: true,
@@ -529,6 +538,8 @@ export async function executeEnterAppAuthCode(
   if (!code) {
     return;
   }
+  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
+  await releaseSyncLatchForAuthRetry(context);
   const redirectUri = await resolveAuthRedirectUriForCodeExchange(context);
   await completeLoginWithCode(context, code.trim(), redirectUri);
 }

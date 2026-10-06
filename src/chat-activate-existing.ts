@@ -290,8 +290,7 @@ export async function activateExistingChat(
 ): Promise<{ ok: boolean; composerId?: string; stagedOnly: boolean }> {
   const wsCtx = await requireWorkspaceContext({ workspaceFolder: workspaceFolder.fsPath });
   const storeDbPath = path.join(
-    os.homedir(),
-    ".cursor",
+    resolveExtensionSyncRoots().dotCursor,
     "chats",
     wsCtx.chatsWorkspaceKey,
     conversationId,

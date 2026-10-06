@@ -389,6 +389,10 @@ export async function executeSyncNow(
           !(await executePull(context, {
             ...lockedSyncOptions,
             keys: "keys" in result ? (result.keys as string[]) : undefined,
+            remoteDeletions:
+              "remoteDeletions" in result
+                ? (result.remoteDeletions as string[])
+                : undefined,
           }))
         ) {
           syncFailed = true;

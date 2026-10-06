@@ -240,6 +240,10 @@ export async function scheduledTick(
         await executePull(context, {
           trigger: "scheduled",
           keys: "keys" in result ? (result.keys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
         });
         break;
       }

@@ -658,7 +658,7 @@ export async function loadChat(
 }
 
 export function resolveProjectsRoot(): string {
-  return path.join(os.homedir(), ".cursor", "projects");
+  return path.join(resolveExtensionSyncRoots().dotCursor, "projects");
 }
 
 export function safeJsonParse(value: string): unknown {

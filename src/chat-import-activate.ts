@@ -29,7 +29,20 @@ export const FOCUS_COMPOSER_COMMAND_ID = "composer.focusComposer";
 export const COMPOSER_URI_SCHEME = "cursor.composer";
 export const MANIFEST_VERSION = 1;
 
-export const ACTIVATION_DIR = path.join(os.homedir(), ".cursor", "import-activation");
+export function resolveActivationDir(context?: vscode.ExtensionContext): string {
+  return path.join(resolveExtensionSyncRoots(context).dotCursor, "import-activation");
+}
+
+export function activationPaths(context?: vscode.ExtensionContext): ActivationPaths {
+  const activationDir = resolveActivationDir(context);
+  return {
+    activationDir,
+    pendingPath: path.join(activationDir, "pending.json"),
+    resultPath: path.join(activationDir, "result.json"),
+  };
+}
+
+export const ACTIVATION_DIR = resolveActivationDir();
 export const ACTIVATION_PENDING_PATH = path.join(ACTIVATION_DIR, "pending.json");
 export const ACTIVATION_RESULT_PATH = path.join(ACTIVATION_DIR, "result.json");
 
@@ -108,13 +121,12 @@ export interface ActivationManifest {
   stagedAt: string;
 }
 
-export function defaultActivationPaths(): ActivationPaths {
-  const activationDir = path.join(os.homedir(), ".cursor", "import-activation");
-  return {
-    activationDir,
-    pendingPath: path.join(activationDir, "pending.json"),
-    resultPath: path.join(activationDir, "result.json"),
-  };
+export function defaultActivationPaths(context?: vscode.ExtensionContext): ActivationPaths {
+  return activationPaths(context);
+}
+
+function resolveUserHomeFromSyncRoots(context?: vscode.ExtensionContext): string {
+  return path.dirname(resolveExtensionSyncRoots(context).dotCursor);
 }
 
 export function utcNowIso(): string {
@@ -162,10 +174,11 @@ export function normalizeActivationManifest(
     throw new Error("manifest.workspaceFolder (absolute path) is required");
   }
   let folder = workspaceFolderRaw.trim();
+  const userHome = resolveUserHomeFromSyncRoots();
   if (folder === "~") {
-    folder = os.homedir();
+    folder = userHome;
   } else if (folder.startsWith("~/")) {
-    folder = path.join(os.homedir(), folder.slice(2));
+    folder = path.join(userHome, folder.slice(2));
   }
   const workspaceFolder = path.resolve(folder);
 

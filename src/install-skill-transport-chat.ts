@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,7 +22,11 @@ export async function executeInstallSkillTransportChat(
     "resources",
     "transport-chat"
   ).fsPath;
-  const target = path.join(os.homedir(), ".cursor", "skills", "transport-chat");
+  const target = path.join(
+    resolveExtensionSyncRoots(context).dotCursor,
+    "skills",
+    "transport-chat"
+  );
 
   try {
     let bundledVersion: string;

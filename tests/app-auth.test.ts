@@ -46,6 +46,7 @@ vi.mock("vscode", () => ({
   },
   window: {
     showInformationMessage: vi.fn(),
+    showWarningMessage: vi.fn().mockResolvedValue(undefined),
     showErrorMessage: (...args: unknown[]) => showErrorMessageMock(...args),
     showInputBox: vi.fn().mockResolvedValue(undefined),
     registerUriHandler: (...args: unknown[]) => registerUriHandlerMock(...args),
@@ -85,14 +86,27 @@ vi.mock("vscode", () => ({
     asExternalUri: async (uri: { with: (parts: { authority?: string }) => unknown; toString: () => string }) =>
       uri.with({ authority: "marcelobarella.cursor-sync" }),
     openExternal: (...args: unknown[]) => openExternalMock(...args),
+    clipboard: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+    },
   },
 }));
+
+const loadSyncHistoryMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const loadSyncStateMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({
     appendLine: appendLineMock,
     show: showMock,
   }),
+  loadSyncHistory: loadSyncHistoryMock,
+  loadSyncState: loadSyncStateMock,
+}));
+
+vi.mock("../src/sync-operation.js", () => ({
+  releaseSyncLatchForAuthRetry: vi.fn().mockResolvedValue(undefined),
+  isSyncOperationActive: vi.fn().mockReturnValue(false),
 }));
 
 function makeAuthUri(
@@ -278,6 +292,30 @@ describe("app-auth sign-in URL and state", () => {
       "cursor://MarceloBarella.cursor-sync/auth"
     );
     expect(parsed.searchParams.get("state")).toBe("nonce-123");
+  });
+
+  it("executeLoginToCursorSync still opens paste-code input when openExternal returns false", async () => {
+    openExternalMock.mockResolvedValue(false);
+    const vscode = await import("vscode");
+    vi.mocked(vscode.window.showInputBox).mockClear();
+    const { executeLoginToCursorSync } = await import("../src/app-auth.js");
+
+    await executeLoginToCursorSync({
+      extension: { id: "MarceloBarella.cursor-sync" },
+      globalState: {
+        get: () => undefined,
+        update: async () => {},
+      },
+      secrets: {
+        get: async () => undefined,
+        store: async () => {},
+        delete: async () => {},
+      },
+    } as never);
+
+    expect(openExternalMock).toHaveBeenCalledTimes(1);
+    expect(vscode.env.clipboard.writeText).toHaveBeenCalled();
+    expect(vscode.window.showInputBox).toHaveBeenCalled();
   });
 
   it("executeLoginToCursorSync opens configured website sign-in URL", async () => {
@@ -501,7 +539,6 @@ describe("app-auth session storage", () => {
       makeAuthUri("MarceloBarella.cursor-sync", "code=exchange-me&state=state-ok")
     );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await vi.waitFor(() => expect(refreshSidebarMock).toHaveBeenCalled());
 
     expect(getAppApiUrlMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(

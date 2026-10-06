@@ -31,6 +31,17 @@ export function formatPullSuccessToast(
   return `Pulled ${fileCount} ${noun} from GitHub Gist`;
 }
 
+export function formatPushRemovalToast(
+  fileCount: number,
+  destination: SyncDestinationId
+): string {
+  const noun = fileCount === 1 ? "file" : "files";
+  if (destination === "cursor-sync-storage") {
+    return `Removed ${fileCount} ${noun} from Cursor Sync storage`;
+  }
+  return `Removed ${fileCount} ${noun} from GitHub Gist`;
+}
+
 export function formatPullEmptyToast(destination: SyncDestinationId): string {
   if (destination === "cursor-sync-storage") {
     return "Pulled from Cursor Sync storage: nothing to update";

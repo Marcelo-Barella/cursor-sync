@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import { GistClient } from "./gist.js";
 import { getLogger } from "./diagnostics.js";
 import { getToken } from "./auth.js";
@@ -487,7 +486,7 @@ async function promptForTargetWorkspace(
 }
 
 function resolveProjectsRoot(): string {
-  return path.join(os.homedir(), ".cursor", "projects");
+  return path.join(resolveExtensionSyncRoots().dotCursor, "projects");
 }
 
 async function promptForProjectMapping(

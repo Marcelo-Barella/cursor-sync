@@ -4,6 +4,12 @@ import * as os from "node:os";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { getComposerId } from "./composer-merge.js";
+import {
+  globalStateVscdbPathsFromRoots,
+  workspaceStorageRootsFromCursorUser,
+} from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
+import type * as vscode from "vscode";
 
 const execFile = promisify(execFileCallback);
 
@@ -320,41 +326,13 @@ export function filterComposerHeadersByIds(
   };
 }
 
-export async function listGlobalStateVscdbPaths(): Promise<string[]> {
-  const home = os.homedir();
-  const platformGlobal =
-    process.platform === "darwin"
-      ? [
-          path.join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
-          path.join(
-            home,
-            "Library",
-            "Application Support",
-            "Cursor Nightly",
-            "User",
-            "globalStorage",
-            "state.vscdb"
-          ),
-        ]
-      : process.platform === "win32"
-        ? [
-            path.join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb"),
-            path.join(
-              home,
-              "AppData",
-              "Roaming",
-              "Cursor Nightly",
-              "User",
-              "globalStorage",
-              "state.vscdb"
-            ),
-          ]
-        : [
-            path.join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
-            path.join(home, ".config", "Cursor Nightly", "User", "globalStorage", "state.vscdb"),
-          ];
+export async function listGlobalStateVscdbPaths(
+  context?: vscode.ExtensionContext
+): Promise<string[]> {
+  const syncRoots = resolveExtensionSyncRoots(context);
+  const candidates = globalStateVscdbPathsFromRoots(syncRoots);
   const out: string[] = [];
-  for (const candidate of platformGlobal) {
+  for (const candidate of candidates) {
     try {
       await fs.access(candidate);
       out.push(candidate);
@@ -363,25 +341,13 @@ export async function listGlobalStateVscdbPaths(): Promise<string[]> {
   return out;
 }
 
-async function listWorkspaceStateVscdbPaths(): Promise<string[]> {
-  const home = os.homedir();
-  const roots =
-    process.platform === "darwin"
-      ? [
-          path.join(home, "Library", "Application Support", "Cursor", "User", "workspaceStorage"),
-          path.join(home, "Library", "Application Support", "Cursor Nightly", "User", "workspaceStorage"),
-        ]
-      : process.platform === "win32"
-        ? [
-            path.join(home, "AppData", "Roaming", "Cursor", "User", "workspaceStorage"),
-            path.join(home, "AppData", "Roaming", "Cursor Nightly", "User", "workspaceStorage"),
-          ]
-        : [
-            path.join(home, ".config", "Cursor", "User", "workspaceStorage"),
-            path.join(home, ".config", "Cursor Nightly", "User", "workspaceStorage"),
-          ];
+async function listWorkspaceStateVscdbPaths(
+  context?: vscode.ExtensionContext
+): Promise<string[]> {
+  const syncRoots = resolveExtensionSyncRoots(context);
+  const storageRoots = workspaceStorageRootsFromCursorUser(syncRoots.cursorUser);
   const out: string[] = [];
-  for (const root of roots) {
+  for (const root of storageRoots) {
     let entries: import("node:fs").Dirent[];
     try {
       entries = await fs.readdir(root, { withFileTypes: true });
@@ -400,15 +366,19 @@ async function listWorkspaceStateVscdbPaths(): Promise<string[]> {
   return out.sort((a, b) => a.localeCompare(b));
 }
 
-export async function resolveStateDbCandidates(): Promise<string[]> {
-  const workspaceDbs = await listWorkspaceStateVscdbPaths();
-  const globalDbs = await listGlobalStateVscdbPaths();
+export async function resolveStateDbCandidates(
+  context?: vscode.ExtensionContext
+): Promise<string[]> {
+  const workspaceDbs = await listWorkspaceStateVscdbPaths(context);
+  const globalDbs = await listGlobalStateVscdbPaths(context);
   return [...new Set([...workspaceDbs, ...globalDbs])];
 }
 
-export async function resolveImportMergeStateDbCandidates(): Promise<string[]> {
-  const workspaceDbs = await listWorkspaceStateVscdbPaths();
-  const globalDbs = await listGlobalStateVscdbPaths();
+export async function resolveImportMergeStateDbCandidates(
+  context?: vscode.ExtensionContext
+): Promise<string[]> {
+  const workspaceDbs = await listWorkspaceStateVscdbPaths(context);
+  const globalDbs = await listGlobalStateVscdbPaths(context);
   return [...new Set([...globalDbs, ...workspaceDbs])];
 }
 

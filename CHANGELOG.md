@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.10
+
+### Fixed
+- App storage baseline is keyed by server `userId` and API base URL (multi-account store in `globalStorage/app-storage-baseline.json`); legacy single-file baselines migrate on load.
+- Remote-only sync no longer false-conflicts on generated `extensions.json`; remote file deletes apply locally on pull (safe-mode confirm); delete-only push updates manifest/R2 and shows a removal toast.
+- Push cancel on safe-mode delete picker shows an info toast; storage 401 on push records a single push failure; status bar shows error after a failed storage sync.
+- Login: if the browser cannot open, copy the sign-in URL to the clipboard, warn with **Copy URL**, and still open the paste-code input; successful login no longer auto-opens the Output panel.
+- Chat/transcript/activation paths use `resolveExtensionSyncRoots` / `CURSOR_DOT_DIR` consistently; hardcoded home-path guard tightened.
+
+### Changed
+- Paste-code prompt runs before sync-latch release so login is not blocked by status-bar refresh.
+
 ## v0.8.4-staging.9
 
 ### Fixed

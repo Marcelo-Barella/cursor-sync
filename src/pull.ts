@@ -38,6 +38,7 @@ export type PullOptions = {
   trigger?: PullTrigger | import("./app-configs.js").AppConfigsSyncTrigger;
   skipOperationLock?: boolean;
   keys?: string[];
+  remoteDeletions?: string[];
 };
 
 export async function executePull(
@@ -68,6 +69,7 @@ export async function executePull(
       const success = await executePullAppConfigs(context, {
         trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
         keys: options?.keys,
+        remoteDeletions: options?.remoteDeletions,
       });
       failed = !success;
       return success;

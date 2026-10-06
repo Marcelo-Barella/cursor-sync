@@ -1,9 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { resolveExtensionSyncRoots } from "./sync-roots.js";
+import { resolveExtensionSyncRoots, resolveUserHomeDir } from "./sync-roots.js";
 
 export function stateDbPathForWorkspaceStorageId(workspaceStorageId: string): string {
   const { cursorUser } = resolveExtensionSyncRoots();
@@ -55,11 +54,12 @@ export function folderPathFromWorkspaceUri(uri: string): string {
 }
 
 function expandUserFolder(folder: string): string {
+  const userHome = resolveUserHomeDir();
   if (folder === "~") {
-    return os.homedir();
+    return userHome;
   }
   if (folder.startsWith("~/")) {
-    return path.join(os.homedir(), folder.slice(2));
+    return path.join(userHome, folder.slice(2));
   }
   return folder;
 }

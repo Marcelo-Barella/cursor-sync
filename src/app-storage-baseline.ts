@@ -1,10 +1,16 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type * as vscode from "vscode";
 import type { SyncDestinationId } from "./sync-destination.js";
+import {
+  accountKeyFromAppSession,
+  appStorageAccountKey,
+} from "./app-session-identity.js";
+
+export { accountKeyFromAppSession, appStorageAccountKey } from "./app-session-identity.js";
 
 export const APP_STORAGE_BASELINE_SCHEMA_VERSION = 1 as const;
+export const APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION = 2 as const;
 
 export interface AppStorageBaseline {
   schemaVersion: typeof APP_STORAGE_BASELINE_SCHEMA_VERSION;
@@ -15,13 +21,19 @@ export interface AppStorageBaseline {
   remoteChecksums: Record<string, string>;
 }
 
+interface AppStorageBaselineStoreV2 {
+  schemaVersion: typeof APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION;
+  accounts: Record<string, AppStorageBaseline>;
+}
+
 export type AppStorageKeyClassification =
   | "unchanged"
   | "push"
   | "pull"
   | "conflict"
   | "delete"
-  | "baseline_refresh";
+  | "baseline_refresh"
+  | "remote_delete";
 
 export interface ClassifiedAppStorageKeys {
   byKey: Record<string, AppStorageKeyClassification>;
@@ -29,6 +41,7 @@ export interface ClassifiedAppStorageKeys {
   pullKeys: string[];
   conflictKeys: string[];
   deleteKeys: string[];
+  remoteDeleteKeys: string[];
   baselineRefreshKeys: string[];
   unchangedKeys: string[];
   hasBaseline: boolean;
@@ -42,10 +55,6 @@ export function shouldPullAppConfigFile(
     return true;
   }
   return localChecksum !== remoteChecksum;
-}
-
-export function accountKeyFromAppSession(session: string): string {
-  return crypto.createHash("sha256").update(session).digest("hex").slice(0, 16);
 }
 
 function baselinePath(context: vscode.ExtensionContext): string {
@@ -62,35 +71,77 @@ export function baselineHasEntries(baseline: AppStorageBaseline | undefined): bo
   );
 }
 
+async function readBaselineStore(
+  context: vscode.ExtensionContext,
+  migrateToAccountKey: string
+): Promise<AppStorageBaselineStoreV2> {
+  const filePath = baselinePath(context);
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as AppStorageBaselineStoreV2).schemaVersion ===
+        APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION &&
+      typeof (parsed as AppStorageBaselineStoreV2).accounts === "object"
+    ) {
+      return parsed as AppStorageBaselineStoreV2;
+    }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as AppStorageBaseline).schemaVersion === APP_STORAGE_BASELINE_SCHEMA_VERSION &&
+      typeof (parsed as AppStorageBaseline).accountKey === "string"
+    ) {
+      const legacy = parsed as AppStorageBaseline;
+      const migrated: AppStorageBaseline = {
+        ...legacy,
+        accountKey: migrateToAccountKey,
+      };
+      return {
+        schemaVersion: APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION,
+        accounts: { [migrateToAccountKey]: migrated },
+      };
+    }
+  } catch {
+    // missing or corrupt file
+  }
+  return {
+    schemaVersion: APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION,
+    accounts: {},
+  };
+}
+
+async function writeBaselineStore(
+  context: vscode.ExtensionContext,
+  store: AppStorageBaselineStoreV2
+): Promise<void> {
+  const filePath = baselinePath(context);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(store, null, 2), "utf-8");
+}
+
 export async function loadAppStorageBaseline(
   context: vscode.ExtensionContext,
   accountKey: string,
   destination: SyncDestinationId = "cursor-sync-storage"
 ): Promise<AppStorageBaseline | undefined> {
-  const filePath = baselinePath(context);
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as AppStorageBaseline;
-    if (
-      parsed.schemaVersion !== APP_STORAGE_BASELINE_SCHEMA_VERSION ||
-      parsed.accountKey !== accountKey ||
-      parsed.destination !== destination
-    ) {
-      return undefined;
-    }
-    return parsed;
-  } catch {
+  const store = await readBaselineStore(context, accountKey);
+  const baseline = store.accounts[accountKey];
+  if (!baseline || baseline.destination !== destination) {
     return undefined;
   }
+  return baseline;
 }
 
 export async function saveAppStorageBaseline(
   context: vscode.ExtensionContext,
   baseline: AppStorageBaseline
 ): Promise<void> {
-  const filePath = baselinePath(context);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(baseline, null, 2), "utf-8");
+  const store = await readBaselineStore(context, baseline.accountKey);
+  store.accounts[baseline.accountKey] = baseline;
+  await writeBaselineStore(context, store);
 }
 
 export function classifyAppStorageKeys(
@@ -103,6 +154,7 @@ export function classifyAppStorageKeys(
   const pullKeys: string[] = [];
   const conflictKeys: string[] = [];
   const deleteKeys: string[] = [];
+  const remoteDeleteKeys: string[] = [];
   const baselineRefreshKeys: string[] = [];
   const unchangedKeys: string[] = [];
 
@@ -131,6 +183,17 @@ export function classifyAppStorageKeys(
       }
       byKey[key] = "delete";
       deleteKeys.push(key);
+      continue;
+    }
+
+    if (
+      hasBaseline &&
+      wasRemote !== undefined &&
+      curRemote === undefined &&
+      curLocal === wasLocal
+    ) {
+      byKey[key] = "remote_delete";
+      remoteDeleteKeys.push(key);
       continue;
     }
 
@@ -184,6 +247,12 @@ export function classifyAppStorageKeys(
       continue;
     }
 
+    if (curRemote === undefined) {
+      byKey[key] = "remote_delete";
+      remoteDeleteKeys.push(key);
+      continue;
+    }
+
     byKey[key] = "pull";
     pullKeys.push(key);
   }
@@ -194,6 +263,7 @@ export function classifyAppStorageKeys(
     pullKeys,
     conflictKeys,
     deleteKeys,
+    remoteDeleteKeys,
     baselineRefreshKeys,
     unchangedKeys,
     hasBaseline,
@@ -202,7 +272,7 @@ export function classifyAppStorageKeys(
 
 export type DerivedAppStorageSyncAction =
   | { action: "none" }
-  | { action: "pull"; keys: string[] }
+  | { action: "pull"; keys: string[]; remoteDeletions: string[] }
   | { action: "push"; keys: string[]; deletions: string[] }
   | { action: "conflict"; keys: string[] }
   | { action: "baseline_refresh"; keys: string[] };
@@ -212,35 +282,52 @@ export function appStorageSyncActionFromClassification(
   remoteChecksums: Record<string, string>
 ): DerivedAppStorageSyncAction {
   const remoteNonempty = Object.keys(remoteChecksums).length > 0;
+  const pullKeys = [...classified.pullKeys, ...classified.remoteDeleteKeys];
 
   if (classified.conflictKeys.length > 0) {
     return { action: "conflict", keys: classified.conflictKeys };
   }
 
   if (!classified.hasBaseline && remoteNonempty) {
-    if (classified.pullKeys.length > 0 && classified.pushKeys.length === 0) {
-      return { action: "pull", keys: classified.pullKeys };
+    if (pullKeys.length > 0 && classified.pushKeys.length === 0) {
+      return {
+        action: "pull",
+        keys: classified.pullKeys,
+        remoteDeletions: classified.remoteDeleteKeys,
+      };
     }
-    if (classified.pushKeys.length > 0 && classified.pullKeys.length === 0) {
-      return { action: "push", keys: classified.pushKeys, deletions: classified.deleteKeys };
+    if (classified.pushKeys.length > 0 && pullKeys.length === 0) {
+      return {
+        action: "push",
+        keys: classified.pushKeys,
+        deletions: classified.deleteKeys,
+      };
     }
-    if (classified.pullKeys.length > 0 || classified.pushKeys.length > 0) {
-      return { action: "pull", keys: classified.pullKeys };
+    if (pullKeys.length > 0 || classified.pushKeys.length > 0) {
+      return {
+        action: "pull",
+        keys: classified.pullKeys,
+        remoteDeletions: classified.remoteDeleteKeys,
+      };
     }
   }
 
   const hasPush =
     classified.pushKeys.length > 0 || classified.deleteKeys.length > 0;
-  const hasPull = classified.pullKeys.length > 0;
+  const hasPull = pullKeys.length > 0;
 
   if (hasPull && hasPush) {
     return {
       action: "conflict",
-      keys: [...classified.pushKeys, ...classified.pullKeys],
+      keys: [...classified.pushKeys, ...pullKeys],
     };
   }
   if (hasPull) {
-    return { action: "pull", keys: classified.pullKeys };
+    return {
+      action: "pull",
+      keys: classified.pullKeys,
+      remoteDeletions: classified.remoteDeleteKeys,
+    };
   }
   if (hasPush) {
     return {

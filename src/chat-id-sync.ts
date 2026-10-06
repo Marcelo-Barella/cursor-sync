@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { SyncManifestChatHistoryEntry } from "./sync-manifest.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 
 function chatsRootPath(): string {
-  return path.join(os.homedir(), ".cursor", "chats");
+  return path.join(resolveExtensionSyncRoots().dotCursor, "chats");
 }
 
 /**

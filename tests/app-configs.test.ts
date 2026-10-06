@@ -103,6 +103,7 @@ const getAppSessionMock = vi.hoisted(() => vi.fn());
 const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
 const putR2ObjectMock = vi.hoisted(() => vi.fn());
 const getR2ObjectMock = vi.hoisted(() => vi.fn());
+const deleteR2ObjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
@@ -116,6 +117,7 @@ vi.mock("../src/app-r2-storage.js", () => ({
   getR2StorageCredentials: getR2StorageCredentialsMock,
   putR2Object: putR2ObjectMock,
   getR2Object: getR2ObjectMock,
+  deleteR2Object: deleteR2ObjectMock,
 }));
 
 function makeContext(): vscode.ExtensionContext {
@@ -291,6 +293,8 @@ describe("app-configs R2 sync", () => {
     getR2StorageCredentialsMock.mockReset();
     putR2ObjectMock.mockReset();
     getR2ObjectMock.mockReset();
+    deleteR2ObjectMock.mockReset();
+    deleteR2ObjectMock.mockResolvedValue(204);
     getR2StorageCredentialsMock.mockResolvedValue({
       endpoint: "https://example.r2.cloudflarestorage.com",
       bucket: "sync-bucket",
@@ -301,7 +305,7 @@ describe("app-configs R2 sync", () => {
       sessionToken: "session-token",
       expiresAt: new Date(Date.now() + 3600_000).toISOString(),
     });
-    putR2ObjectMock.mockResolvedValue(undefined);
+    putR2ObjectMock.mockResolvedValue(200);
     getR2ObjectMock.mockResolvedValue(undefined);
   });
 
