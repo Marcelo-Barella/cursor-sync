@@ -3,12 +3,7 @@ import * as path from "node:path";
 import type * as vscode from "vscode";
 import type { SyncDestinationId } from "./sync-destination.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";
-import {
-  accountKeyFromAppSession,
-  appStorageAccountKey,
-} from "./app-session-identity.js";
-
-export { accountKeyFromAppSession, appStorageAccountKey } from "./app-session-identity.js";
+import { accountKeyFromAppSession } from "./app-session-identity.js";
 
 export const APP_STORAGE_BASELINE_SCHEMA_VERSION = 1 as const;
 export const APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION = 2 as const;
@@ -117,7 +112,6 @@ async function readBaselineStore(
       };
     }
   } catch {
-    // missing or corrupt file
   }
   return {
     schemaVersion: APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION,

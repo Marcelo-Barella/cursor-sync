@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
+import { appStorageAccountKey } from "./app-session-identity.js";
 import { getAppApiUrl } from "./config/urls.js";
 import {
   deleteR2Object,
@@ -26,7 +27,6 @@ import {
   GENERATED_EXTENSIONS_SYNC_KEY,
 } from "./app-config-extensions-align.js";
 import {
-  appStorageAccountKey,
   appStorageSyncActionFromClassification,
   baselineHasEntries,
   classifyAppStorageKeys,
