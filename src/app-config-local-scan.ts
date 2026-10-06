@@ -25,6 +25,12 @@ export interface LocalConfigFileScan {
   checksums: Record<string, string>;
   /** @deprecated use skippedUnknownKeys */
   unreadableKeys: Set<string>;
+  /** Tracked keys excluded by sync profile globs */
+  excludedKeys?: Set<string>;
+  /** Tracked keys over max file size */
+  oversizeKeys?: Set<string>;
+  /** Local path is a symlink (or non-file) */
+  symlinkKeys?: Set<string>;
   enoentKeys: Set<string>;
   provablyAbsentKeys: Set<string>;
   skippedUnknownKeys: Set<string>;
@@ -117,6 +123,9 @@ export async function scanLocalAppConfigFiles(
 
   const checksums: Record<string, string> = {};
   const unreadableKeys = new Set<string>();
+  const excludedKeys = new Set<string>();
+  const oversizeKeys = new Set<string>();
+  const symlinkKeys = new Set<string>();
   const enoentKeys = new Set<string>();
   const provablyAbsentKeys = new Set<string>();
   const skippedUnknownKeys = new Set<string>();
@@ -130,6 +139,9 @@ export async function scanLocalAppConfigFiles(
       if (!stat.isFile()) {
         skippedUnknownKeys.add(key);
         unreadableKeys.add(key);
+        if (stat.isSymbolicLink()) {
+          symlinkKeys.add(key);
+        }
         continue;
       }
       const buf = await fs.readFile(file.absolutePath);
@@ -153,6 +165,7 @@ export async function scanLocalAppConfigFiles(
     }
     if (isSyncKeyExcludedByConfig(key, enumConfig)) {
       untrackedKeys.add(key);
+      excludedKeys.add(key);
       const absExcluded = syncKeyToAbsolutePath(key, roots);
       if (absExcluded) {
         try {
@@ -171,6 +184,9 @@ export async function scanLocalAppConfigFiles(
         if (st.isSymbolicLink() || !st.isFile()) {
           skippedUnknownKeys.add(key);
           unreadableKeys.add(key);
+          if (st.isSymbolicLink()) {
+            symlinkKeys.add(key);
+          }
           continue;
         }
         const rel = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
@@ -179,6 +195,7 @@ export async function scanLocalAppConfigFiles(
           : enumConfig.maxBytes;
         if (st.size > sizeLimit) {
           untrackedKeys.add(key);
+          oversizeKeys.add(key);
           skippedUnknownKeys.add(key);
           unreadableKeys.add(key);
           continue;
@@ -308,6 +325,9 @@ export async function scanLocalAppConfigFiles(
   return {
     checksums,
     unreadableKeys,
+    excludedKeys,
+    oversizeKeys,
+    symlinkKeys,
     enoentKeys,
     provablyAbsentKeys,
     skippedUnknownKeys,

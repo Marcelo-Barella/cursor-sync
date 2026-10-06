@@ -125,6 +125,9 @@ export async function scanWithDiskProbes(
   const next: LocalConfigFileScan = {
     ...scan,
     unreadableKeys: new Set(scan.unreadableKeys),
+    excludedKeys: new Set(scan.excludedKeys),
+    oversizeKeys: new Set(scan.oversizeKeys),
+    symlinkKeys: new Set(scan.symlinkKeys),
     enoentKeys: new Set(scan.enoentKeys),
     provablyAbsentKeys: new Set(scan.provablyAbsentKeys),
     skippedUnknownKeys: new Set(scan.skippedUnknownKeys),
@@ -143,6 +146,21 @@ export async function scanWithDiskProbes(
       baselineLocalKeys,
     });
     applyLocalPathClassificationToScan(next, key, classification);
+    const absolutePath = syncKeyToAbsolutePath(key, roots);
+    if (absolutePath) {
+      try {
+        const fsMod = await import("node:fs/promises");
+        const st = await fsMod.lstat(absolutePath);
+        if (st.isSymbolicLink()) {
+          if (!next.symlinkKeys) {
+            next.symlinkKeys = new Set();
+          }
+          next.symlinkKeys.add(key);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
   }
   return next;
 }

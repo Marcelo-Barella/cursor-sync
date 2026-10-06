@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.25
+
+### Fixed
+- App storage UX: per-reason held labels (unreadable, excluded, oversize, symlink); manual pull warns on held remote updates; push skip labels use baseline/remote tracking; warning toasts when skips are not only never-synced symlinks; scheduled pull stays silent on root-held with deduped held history; Sync Now recreation after delete confirm is informational, not a failed push.
+
 ## v0.8.4-staging.24
 
 ### Fixed

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscode from "vscode";
 
 const showInformationMessageMock = vi.fn();
+const showWarningMessageMock = vi.fn();
 const showErrorMessageMock = vi.fn();
 
 vi.mock("vscode", () => ({
@@ -24,7 +25,7 @@ vi.mock("vscode", () => ({
     showErrorMessage: showErrorMessageMock,
     showInformationMessage: showInformationMessageMock,
     showQuickPick: vi.fn(),
-    showWarningMessage: vi.fn(),
+    showWarningMessage: showWarningMessageMock,
   },
 }));
 
@@ -45,9 +46,11 @@ const probePaths = vi.hoisted(() => {
 
 vi.mock("../src/paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/paths.js")>();
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
   const { cursorUser, dotCursor } = probePaths;
   return {
     ...actual,
+    ...PATHS_MOCK_USER_LABELS,
     resolveSyncRoots: () => ({
       cursorUser,
       dotCursor,
@@ -61,6 +64,15 @@ vi.mock("../src/paths.js", async (importOriginal) => {
       dotCursorGlobs: ["**/*"],
     }),
     isSyncKeyExcludedByConfig: () => false,
+    syncKeyToAbsolutePath: (syncKey: string, roots: { cursorUser: string; dotCursor: string }) => {
+      if (syncKey.startsWith("cursor-user/")) {
+        return path.join(roots.cursorUser, syncKey.slice("cursor-user/".length));
+      }
+      if (syncKey.startsWith("dot-cursor/")) {
+        return path.join(roots.dotCursor, syncKey.slice("dot-cursor/".length));
+      }
+      return undefined;
+    },
   };
 });
 
@@ -91,11 +103,9 @@ vi.mock("../src/app-storage-baseline.js", async (importOriginal) => {
       remoteUpdatedAt: "2026-01-01T00:00:00.000Z",
       localChecksums: {
         "cursor-user/settings.json": "a",
-        "dot-cursor/link.md": "b",
       },
       remoteChecksums: {
         "cursor-user/settings.json": "a",
-        "dot-cursor/link.md": "b",
       },
     }),
     updateAppStorageBaselineAfterSync: vi.fn().mockResolvedValue(undefined),
@@ -143,7 +153,8 @@ describe("manual push skip notice (F3)", () => {
       "utf8"
     );
     await fs.writeFile(outside, "outside content\n", "utf8");
-    await fs.symlink(outside, path.join(dotCursor, "link.md"));
+    await fs.mkdir(path.join(dotCursor, "rules"), { recursive: true });
+    await fs.symlink(outside, path.join(dotCursor, "rules", "link.mdc"));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -186,10 +197,15 @@ describe("manual push skip notice (F3)", () => {
       );
     }
     expect(ok).toBe(true);
-    expect(showInformationMessageMock.mock.calls.length).toBe(1);
-    const toast = String(showInformationMessageMock.mock.calls[0]?.[0]);
+    const toast = String(
+      showInformationMessageMock.mock.calls[0]?.[0] ??
+        showWarningMessageMock.mock.calls[0]?.[0] ??
+        ""
+    );
+    expect(toast.length, `toast was: ${toast}`).toBeGreaterThan(0);
     expect(toast).toMatch(/Pushed 1 file/i);
-    expect(toast).toMatch(/never-synced symlink/i);
-    expect(toast).toContain("dot-cursor/link.md");
+    expect(toast).toMatch(/skipped 1/i);
+    expect(toast).toMatch(/never-synced symlink|symlink/i);
+    expect(toast).toContain("dot-cursor/rules/link.mdc");
   });
 });

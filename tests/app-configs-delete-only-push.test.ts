@@ -34,10 +34,13 @@ vi.mock("../src/extensions.js", () => ({
   generateExtensionsJson: () => "[]",
 }));
 
-vi.mock("../src/paths.js", async () => {
+vi.mock("../src/paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/paths.js")>();
   const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
   return {
+  ...actual,
   ...PATHS_MOCK_USER_LABELS,
+  listSymlinkSyncKeysUnderRoots: async () => [],
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/cursor-user",
     dotCursor: "/tmp/dot-cursor",
@@ -97,6 +100,9 @@ vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
     scanLocalAppConfigFiles: vi.fn().mockResolvedValue({
       checksums: {},
       unreadableKeys: new Set(),
+      excludedKeys: new Set(),
+      oversizeKeys: new Set(),
+      symlinkKeys: new Set(),
       enoentKeys: new Set(),
       provablyAbsentKeys: new Set(["dot-cursor/removed.md"]),
       skippedUnknownKeys: new Set(),
@@ -196,6 +202,9 @@ describe("delete-only push", () => {
     vi.mocked(scanLocalAppConfigFiles).mockResolvedValueOnce({
       checksums: {},
       unreadableKeys: new Set(),
+      excludedKeys: new Set(),
+      oversizeKeys: new Set(),
+      symlinkKeys: new Set(),
       enoentKeys: new Set(),
       provablyAbsentKeys: new Set(),
       skippedUnknownKeys: new Set(),
@@ -215,6 +224,43 @@ describe("delete-only push", () => {
     });
     expect(deleteR2ObjectMock).not.toHaveBeenCalled();
     expect(ok).toBeDefined();
+  });
+
+  it("XDEL: recreated file after confirm ends with info, not failed push", async () => {
+    const { scanLocalAppConfigFiles } = await import("../src/app-config-local-scan.js");
+    vi.mocked(scanLocalAppConfigFiles).mockResolvedValueOnce({
+      checksums: { "dot-cursor/removed.md": "newlocal" },
+      unreadableKeys: new Set(),
+      excludedKeys: new Set(),
+      oversizeKeys: new Set(),
+      symlinkKeys: new Set(),
+      enoentKeys: new Set(),
+      provablyAbsentKeys: new Set(),
+      skippedUnknownKeys: new Set(),
+      untrackedKeys: new Set(),
+      absentEligibleKeys: new Set(),
+      deletesAllowed: true,
+      enumeratedCount: 0,
+      rootsHealthy: true,
+      trackingScopeMismatch: false,
+      deleteBlockedRootPrefixes: new Set(),
+    });
+    const { executePushAppConfigs } = await import("../src/app-configs.js");
+    const ok = await executePushAppConfigs(makeContext(), {
+      keys: [],
+      deletions: ["dot-cursor/removed.md"],
+      trigger: "syncNow",
+    });
+    expect(ok).toBe(true);
+    expect(deleteR2ObjectMock).not.toHaveBeenCalled();
+    expect(showErrorMessageMock).not.toHaveBeenCalled();
+    expect(showInformationMessageMock).toHaveBeenCalledWith(
+      expect.stringMatching(/recreated locally/i)
+    );
+    const failedHistory = addSyncHistoryEntryMock.mock.calls.find(
+      (c) => c[1]?.success === false
+    );
+    expect(failedHistory).toBeUndefined();
   });
 
   it("deletes remote object and updates manifest without uploads", async () => {

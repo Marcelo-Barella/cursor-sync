@@ -190,6 +190,9 @@ export function classifyAppStorageKeys(
     localScan ?? {
       checksums: localChecksums,
       unreadableKeys: new Set(),
+      excludedKeys: new Set(),
+      oversizeKeys: new Set(),
+      symlinkKeys: new Set(),
       enoentKeys: new Set(),
       provablyAbsentKeys: new Set(),
       skippedUnknownKeys: new Set(),

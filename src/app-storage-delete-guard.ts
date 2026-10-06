@@ -146,35 +146,90 @@ export function listPerFileHeldSyncKeys(
   return held.sort();
 }
 
+export type PerFileHeldReason =
+  | "unreadable"
+  | "excluded"
+  | "oversize"
+  | "symlink"
+  | "unsafe_path";
+
+function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set<string> {
+  const value = scan[key];
+  return value instanceof Set ? value : new Set();
+}
+
+export function perFileHeldReasonForKey(
+  syncKey: string,
+  scan: LocalConfigFileScan
+): PerFileHeldReason {
+  if (scanSet(scan, "excludedKeys").has(syncKey)) {
+    return "excluded";
+  }
+  if (scanSet(scan, "oversizeKeys").has(syncKey)) {
+    return "oversize";
+  }
+  if (scanSet(scan, "symlinkKeys").has(syncKey)) {
+    return "symlink";
+  }
+  const prefix = syncKeyRootPrefix(syncKey);
+  if (prefix && scan.deleteBlockedRootPrefixes.has(prefix)) {
+    return "unsafe_path";
+  }
+  if (
+    scan.skippedUnknownKeys.has(syncKey) &&
+    !scanSet(scan, "excludedKeys").has(syncKey) &&
+    !scanSet(scan, "oversizeKeys").has(syncKey) &&
+    !scanSet(scan, "symlinkKeys").has(syncKey)
+  ) {
+    return "unreadable";
+  }
+  return "unsafe_path";
+}
+
+function formatHeldGroup(label: string, keys: string[]): string {
+  const preview = keys.slice(0, 2).join(", ");
+  const suffix = keys.length > 2 ? ` (+${keys.length - 2} more)` : "";
+  return `${keys.length} ${label} (${preview}${suffix})`;
+}
+
 export function formatPerFileSyncHeldNotice(
   scan: LocalConfigFileScan,
   heldKeys: string[]
 ): string {
-  const unreadable = heldKeys.filter(
-    (k) => scan.unreadableKeys.has(k) && !scan.untrackedKeys.has(k)
-  );
-  const excluded = heldKeys.filter((k) => scan.untrackedKeys.has(k));
-  const unsafe = heldKeys.filter(
-    (k) =>
-      scan.skippedUnknownKeys.has(k) &&
-      !scan.untrackedKeys.has(k) &&
-      !unreadable.includes(k)
-  );
+  const unreadable: string[] = [];
+  const excluded: string[] = [];
+  const oversize: string[] = [];
+  const symlink: string[] = [];
+  const unsafe: string[] = [];
+  for (const key of heldKeys) {
+    const reason = perFileHeldReasonForKey(key, scan);
+    if (reason === "excluded") {
+      excluded.push(key);
+    } else if (reason === "oversize") {
+      oversize.push(key);
+    } else if (reason === "symlink") {
+      symlink.push(key);
+    } else if (reason === "unreadable") {
+      unreadable.push(key);
+    } else {
+      unsafe.push(key);
+    }
+  }
   const parts: string[] = [];
   if (unreadable.length > 0) {
-    const preview = unreadable.slice(0, 2).join(", ");
-    const suffix = unreadable.length > 2 ? ` (+${unreadable.length - 2} more)` : "";
-    parts.push(`${unreadable.length} unreadable (${preview}${suffix})`);
+    parts.push(formatHeldGroup("unreadable", unreadable));
   }
   if (excluded.length > 0) {
-    const preview = excluded.slice(0, 2).join(", ");
-    const suffix = excluded.length > 2 ? ` (+${excluded.length - 2} more)` : "";
-    parts.push(`${excluded.length} excluded or oversize (${preview}${suffix})`);
+    parts.push(formatHeldGroup("excluded", excluded));
+  }
+  if (oversize.length > 0) {
+    parts.push(formatHeldGroup("oversize", oversize));
+  }
+  if (symlink.length > 0) {
+    parts.push(formatHeldGroup("symlink", symlink));
   }
   if (unsafe.length > 0) {
-    const preview = unsafe.slice(0, 2).join(", ");
-    const suffix = unsafe.length > 2 ? ` (+${unsafe.length - 2} more)` : "";
-    parts.push(`${unsafe.length} unsafe path (${preview}${suffix})`);
+    parts.push(formatHeldGroup("unsafe path", unsafe));
   }
   if (parts.length === 0) {
     const preview = heldKeys.slice(0, 3).join(", ");
@@ -182,6 +237,28 @@ export function formatPerFileSyncHeldNotice(
     return `Sync held: ${heldKeys.length} file(s): ${preview}${suffix}`;
   }
   return `Sync held: ${parts.join("; ")}`;
+}
+
+export function formatPullHeldRemoteUpdateNotice(
+  scan: LocalConfigFileScan,
+  heldKeys: string[]
+): string {
+  if (heldKeys.length === 1) {
+    const key = heldKeys[0]!;
+    const reason = perFileHeldReasonForKey(key, scan);
+    const label =
+      reason === "symlink"
+        ? "is a symlink"
+        : reason === "unreadable"
+          ? "is unreadable"
+          : reason === "excluded"
+            ? "is excluded"
+            : reason === "oversize"
+              ? "is oversize"
+              : "cannot be overwritten safely";
+    return `1 remote update not applied: ${key} ${label}.`;
+  }
+  return `${heldKeys.length} remote updates not applied (${formatPerFileSyncHeldNotice(scan, heldKeys).replace(/^Sync held: /, "")}).`;
 }
 
 export function formatSyncRootDeleteHeldNotice(scan: LocalConfigFileScan): string {

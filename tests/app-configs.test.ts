@@ -26,6 +26,7 @@ vi.mock("vscode", () => ({
   window: {
     showErrorMessage: showErrorMessageMock,
     showInformationMessage: showInformationMessageMock,
+    showWarningMessage: vi.fn(),
     showQuickPick: showQuickPickMock,
   },
 }));
@@ -45,9 +46,12 @@ vi.mock("../src/extensions.js", () => ({
 }));
 
 vi.mock("../src/paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/paths.js")>();
   const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
   return {
+  ...actual,
   ...PATHS_MOCK_USER_LABELS,
+  listSymlinkSyncKeysUnderRoots: async () => [],
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/cursor-user",
     dotCursor: "/tmp/dot-cursor",

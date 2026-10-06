@@ -37,8 +37,10 @@ import {
   resolveMassDeleteBatch,
   syncEvaluatedMassDeleteBlockState,
   formatPerFileSyncHeldNotice,
+  formatPullHeldRemoteUpdateNotice,
   formatSyncRootDeleteHeldNotice,
   listPerFileHeldSyncKeys,
+  perFileHeldReasonForKey,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
@@ -78,7 +80,12 @@ import {
   shouldPullAppConfigFile,
   updateAppStorageBaselineAfterSync,
 } from "./app-storage-baseline.js";
-import { enumerateSyncFiles, resolveSyncRoots, syncKeyToAbsolutePath } from "./paths.js";
+import {
+  enumerateSyncFiles,
+  listSymlinkSyncKeysUnderRoots,
+  resolveSyncRoots,
+  syncKeyToAbsolutePath,
+} from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
 import { computeChecksum } from "./packaging.js";
@@ -508,6 +515,10 @@ function collectPushDiskProbeKeys(input: {
 
 const ROOT_ENSURE_WARN_STATE_KEY = "cursorSync.appStorage.rootEnsureFailuresWarned";
 
+type RootEnsureWarnEntry = { rootPath: string; fingerprint: string };
+
+const SCHEDULED_ROOT_HELD_HISTORY_KEY = "cursorSync.appStorage.scheduledRootHeldHistory";
+
 async function warnRootEnsureFailuresOnce(
   context: vscode.ExtensionContext,
   failures: Array<{ rootPath: string; message: string }>,
@@ -515,19 +526,28 @@ async function warnRootEnsureFailuresOnce(
   logger: ReturnType<typeof getLogger>
 ): Promise<void> {
   if (failures.length === 0) {
+    const prior =
+      context.globalState.get<RootEnsureWarnEntry[]>(ROOT_ENSURE_WARN_STATE_KEY) ?? [];
+    if (prior.length > 0) {
+      await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, []);
+      await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, undefined);
+    }
     return;
   }
-  const warned =
-    context.globalState.get<string[]>(ROOT_ENSURE_WARN_STATE_KEY) ?? [];
-  const warnedSet = new Set(warned);
-  const fresh = failures.filter((f) => !warnedSet.has(f.rootPath));
-  if (fresh.length > 0) {
-    await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, [
-      ...warnedSet,
-      ...fresh.map((f) => f.rootPath),
-    ]);
-    const roots = fresh.map((f) => f.rootPath).join(", ");
-    const detail = fresh[0]?.message ?? "";
+  const prior =
+    context.globalState.get<RootEnsureWarnEntry[]>(ROOT_ENSURE_WARN_STATE_KEY) ?? [];
+  const next: RootEnsureWarnEntry[] = failures.map((f) => ({
+    rootPath: f.rootPath,
+    fingerprint: f.message,
+  }));
+  const changed = failures.filter((f) => {
+    const prev = prior.find((p) => p.rootPath === f.rootPath);
+    return !prev || prev.fingerprint !== f.message;
+  });
+  await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, next);
+  if (trigger !== "scheduled" && changed.length > 0) {
+    const roots = changed.map((f) => f.rootPath).join(", ");
+    const detail = changed[0]?.message ?? "";
     vscode.window.showWarningMessage(
       `Pull skipped sync root(s): ${roots}. ${detail}`
     );
@@ -539,6 +559,55 @@ async function warnRootEnsureFailuresOnce(
   }
 }
 
+async function recordScheduledRootHeldPullOnce(
+  context: vscode.ExtensionContext,
+  trigger: AppConfigsSyncTrigger,
+  fingerprint: string,
+  message: string
+): Promise<void> {
+  if (trigger !== "scheduled") {
+    return;
+  }
+  const prev = context.globalState.get<string>(SCHEDULED_ROOT_HELD_HISTORY_KEY);
+  if (prev === fingerprint) {
+    return;
+  }
+  await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, fingerprint);
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "pull",
+    trigger,
+    fileCount: 0,
+    success: true,
+    destination: "cursor-sync-storage",
+    error: `held: ${message}`,
+  });
+}
+
+function describePushSkipLabel(
+  syncKey: string,
+  scan: LocalConfigFileScan,
+  trackedManifestKeys: Set<string>
+): string {
+  const reason = perFileHeldReasonForKey(syncKey, scan);
+  if (reason === "symlink" && !trackedManifestKeys.has(syncKey)) {
+    return `${syncKey} (never-synced symlink)`;
+  }
+  if (reason === "symlink") {
+    return `${syncKey} (symlink)`;
+  }
+  if (reason === "unreadable") {
+    return `${syncKey} (unreadable)`;
+  }
+  if (reason === "excluded") {
+    return `${syncKey} (excluded)`;
+  }
+  if (reason === "oversize") {
+    return `${syncKey} (oversize)`;
+  }
+  return `${syncKey} (${reason.replace("_", " ")})`;
+}
+
 function formatManualPushResultToast(
   uploadedCount: number,
   deletedCount: number,
@@ -546,7 +615,7 @@ function formatManualPushResultToast(
   skipLabels: string[],
   probedScan: LocalConfigFileScan,
   destinationLabel: string,
-  localManifestKeys: Set<string>
+  trackedManifestKeys: Set<string>
 ): string | undefined {
   const parts: string[] = [];
   if (uploadedCount > 0) {
@@ -555,15 +624,15 @@ function formatManualPushResultToast(
     parts.push(`Removed ${deletedCount} file(s) from ${destinationLabel}`);
   }
   if (skipLabels.length > 0) {
-    const neverSyncedSymlinks = skipLabels.filter(
-      (k) =>
-        !localManifestKeys.has(k) &&
-        probedScan.skippedUnknownKeys.has(k) &&
-        !probedScan.untrackedKeys.has(k)
+    const described = skipLabels.map((k) =>
+      describePushSkipLabel(k, probedScan, trackedManifestKeys)
     );
-    const preview = skipLabels.slice(0, 3).join(", ");
+    const preview = described.slice(0, 3).join(", ");
     const suffix = skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
-    if (neverSyncedSymlinks.length === skipLabels.length) {
+    const onlyNeverSyncedSymlinks = skipLabels.every(
+      (k) => (probedScan.symlinkKeys?.has(k) ?? false) && !trackedManifestKeys.has(k)
+    );
+    if (onlyNeverSyncedSymlinks) {
       parts.push(
         `skipped ${skipLabels.length} never-synced symlink(s): ${preview}${suffix}`
       );
@@ -575,6 +644,19 @@ function formatManualPushResultToast(
     return undefined;
   }
   return parts.join(", ");
+}
+
+function pushSkipToastIsInformational(
+  skipLabels: string[],
+  scan: LocalConfigFileScan,
+  trackedManifestKeys: Set<string>
+): boolean {
+  return (
+    skipLabels.length > 0 &&
+    skipLabels.every(
+      (k) => (scan.symlinkKeys?.has(k) ?? false) && !trackedManifestKeys.has(k)
+    )
+  );
 }
 
 export type AppStorageSyncAction =
@@ -1154,6 +1236,7 @@ export async function executePushAppConfigs(
       ? Object.keys(baselineEarly.localChecksums)
       : [];
     const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
+    const symlinkProbeKeys = await listSymlinkSyncKeysUnderRoots(context, roots);
     const pushDiskProbeKeys = collectPushDiskProbeKeys({
       localManifestKeys: Object.keys(localPayload.manifest.files),
       baselineLocalKeys: baselineLocalKeysEarly,
@@ -1165,6 +1248,10 @@ export async function executePushAppConfigs(
       localDiskKeys: [
         ...pushScan.skippedUnknownKeys,
         ...pushScan.unreadableKeys,
+        ...(pushScan.symlinkKeys ?? []),
+        ...(pushScan.excludedKeys ?? []),
+        ...(pushScan.oversizeKeys ?? []),
+        ...symlinkProbeKeys,
         ...Object.keys(pushScan.checksums),
       ],
     });
@@ -1176,6 +1263,7 @@ export async function executePushAppConfigs(
         !probedPushScan.skippedUnknownKeys.has(k) &&
         !probedPushScan.untrackedKeys.has(k)
     );
+    const deletionsDroppedRecreated: string[] = [];
     for (let i = deletions.length - 1; i >= 0; i--) {
       const deletionKey = deletions[i]!;
       if (
@@ -1186,6 +1274,7 @@ export async function executePushAppConfigs(
         continue;
       }
       if (!probedPushScan.provablyAbsentKeys.has(deletionKey)) {
+        deletionsDroppedRecreated.push(deletionKey);
         deletions.splice(i, 1);
       }
     }
@@ -1235,6 +1324,26 @@ export async function executePushAppConfigs(
         `Push to ${destinationLabel} cancelled. Nothing was changed.`
       );
       return false;
+    }
+
+    if (
+      keysToUpload.length === 0 &&
+      deletions.length === 0 &&
+      deletionsDroppedRecreated.length > 0 &&
+      !pushCancelledByUser
+    ) {
+      const preview = deletionsDroppedRecreated.slice(0, 2).join(", ");
+      const suffix =
+        deletionsDroppedRecreated.length > 2
+          ? ` (+${deletionsDroppedRecreated.length - 2} more)`
+          : "";
+      const message =
+        deletionsDroppedRecreated.length === 1
+          ? `${preview} was recreated locally, so it was not deleted remotely.`
+          : `${deletionsDroppedRecreated.length} file(s) were recreated locally (${preview}${suffix}), so they were not deleted remotely.`;
+      vscode.window.showInformationMessage(message);
+      logger.appendLine(`[${new Date().toISOString()}] Push: ${message}`);
+      return true;
     }
 
     const credentials = await getR2StorageCredentials(context);
@@ -1455,14 +1564,22 @@ export async function executePushAppConfigs(
           probedPushScan.untrackedKeys.has(k) ||
           probedPushScan.unreadableKeys.has(k))
     );
+    const symlinkSkips = [...(probedPushScan.symlinkKeys ?? [])].filter(
+      (k) => !uploadedKeySet.has(k)
+    );
     const skipLabels = [
       ...new Set([
         ...skippedReads
           .map((s) => s.relativeSyncKey)
           .filter((k) => !uploadedKeySet.has(k)),
         ...classificationSkipped,
+        ...symlinkSkips,
       ]),
     ];
+    const trackedManifestKeys = new Set([
+      ...Object.keys(remoteManifestFiles),
+      ...Object.keys(baselineEarly?.localChecksums ?? {}),
+    ]);
     if (trigger === "manual") {
       const manualToast = formatManualPushResultToast(
         uploadedCount,
@@ -1471,10 +1588,17 @@ export async function executePushAppConfigs(
         skipLabels,
         probedPushScan,
         destinationLabel,
-        new Set(Object.keys(localPayload.manifest.files))
+        trackedManifestKeys
       );
       if (manualToast) {
-        vscode.window.showInformationMessage(manualToast);
+        const onlyNeverSyncedSkips =
+          skipLabels.length > 0 &&
+          pushSkipToastIsInformational(skipLabels, probedPushScan, trackedManifestKeys);
+        if (onlyNeverSyncedSkips || (!pushPartial && skipLabels.length === 0)) {
+          vscode.window.showInformationMessage(manualToast);
+        } else {
+          vscode.window.showWarningMessage(manualToast);
+        }
       }
     } else if (pushPartial) {
       vscode.window.showWarningMessage(
@@ -1584,6 +1708,22 @@ export async function executePullAppConfigs(
         : [],
     });
 
+    if (trigger === "scheduled" && pullLocalScan.deleteBlockedRootPrefixes.size > 0) {
+      const fp = [...pullLocalScan.deleteBlockedRootPrefixes].sort().join(",");
+      await recordScheduledRootHeldPullOnce(
+        context,
+        trigger,
+        `root-held:${fp}`,
+        formatSyncRootDeleteHeldNotice(pullLocalScan)
+      );
+      logger.appendLine(
+        `[${new Date().toISOString()}] Scheduled pull held: sync root blocked (${fp})`
+      );
+      return true;
+    }
+
+    const heldRemoteUpdateKeys: string[] = [];
+
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
         continue;
@@ -1616,6 +1756,7 @@ export async function executePullAppConfigs(
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
         if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
           pullRefusedKeys.push(syncKey);
+          heldRemoteUpdateKeys.push(syncKey);
         }
         continue;
       }
@@ -1625,6 +1766,7 @@ export async function executePullAppConfigs(
       ) {
         if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
           pullRefusedKeys.push(syncKey);
+          heldRemoteUpdateKeys.push(syncKey);
         }
         continue;
       }
@@ -1837,15 +1979,17 @@ export async function executePullAppConfigs(
     if (filesToWrite.length === 0 && filesToDelete.length === 0) {
       if (
         pullLocalScan.deleteBlockedRootPrefixes.size > 0 ||
-        (pullRefusedKeys.length > 0 && pullCandidates > 0)
+        heldRemoteUpdateKeys.length > 0
       ) {
         const held =
           pullLocalScan.deleteBlockedRootPrefixes.size > 0
             ? formatSyncRootDeleteHeldNotice(pullLocalScan)
-            : trigger === "manual" && pullRefusedKeys.length > 0
-              ? formatPerFileSyncHeldNotice(pullLocalScan, pullRefusedKeys)
-              : `Pull skipped ${pullRefusedKeys.length} file(s); local paths are not safe to overwrite.`;
-        vscode.window.showWarningMessage(held);
+            : trigger === "manual"
+              ? formatPullHeldRemoteUpdateNotice(pullLocalScan, heldRemoteUpdateKeys)
+              : formatPerFileSyncHeldNotice(pullLocalScan, heldRemoteUpdateKeys);
+        if (trigger !== "scheduled") {
+          vscode.window.showWarningMessage(held);
+        }
         logger.appendLine(`[${new Date().toISOString()}] Pull held: ${held}`);
         return true;
       }
@@ -2038,6 +2182,23 @@ export async function executePullAppConfigs(
     ];
     await warnRootEnsureFailuresOnce(context, rootEnsureFailures, trigger, logger);
     const totalPulled = wroteCount + deletedLocally.length;
+    const scheduledRootHeld =
+      trigger === "scheduled" &&
+      totalPulled === 0 &&
+      (pullLocalScan.deleteBlockedRootPrefixes.size > 0 || rootEnsureFailures.length > 0);
+    if (scheduledRootHeld) {
+      const fp = `ensure:${rootEnsureFailures.map((f) => `${f.rootPath}:${f.message}`).sort().join("|")}`;
+      await recordScheduledRootHeldPullOnce(
+        context,
+        trigger,
+        fp,
+        rootEnsureFailures[0]?.message ?? "sync root unavailable"
+      );
+      logger.appendLine(
+        `[${new Date().toISOString()}] Scheduled pull held (root ensure failure); no UI toast`
+      );
+      return true;
+    }
     const pullPartial =
       missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;
     const pullTotalExpected = pullCandidates + deletedLocally.length;
@@ -2085,7 +2246,7 @@ export async function executePullAppConfigs(
           }
         : {}),
     });
-    if (pullPartial) {
+    if (pullPartial && trigger !== "scheduled") {
       vscode.window.showWarningMessage(
         formatPullPartialToast(
           totalPulled,
@@ -2102,7 +2263,7 @@ export async function executePullAppConfigs(
         })
       );
     }
-    if (pullSkippedKeys.length > 0) {
+    if (pullSkippedKeys.length > 0 && trigger !== "scheduled") {
       const preview = pullSkippedKeys.slice(0, 3).join(", ");
       const suffix =
         pullSkippedKeys.length > 3 ? ` (+${pullSkippedKeys.length - 3} more)` : "";

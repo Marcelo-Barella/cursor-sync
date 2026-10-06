@@ -219,6 +219,74 @@ export function isSyncKeyExcludedByConfig(
   return enumConfig.excludeGlobs.some((g) => minimatch(rel, g));
 }
 
+/** Symlink paths under sync roots (not returned by enumerateSyncFiles). */
+export async function listSymlinkSyncKeysUnderRoots(
+  context: vscode.ExtensionContext,
+  roots?: SyncRoots
+): Promise<string[]> {
+  const resolved = roots ?? resolveSyncRoots(process.platform, context);
+  const enumConfig = getSyncEnumerationConfig(context);
+  const keys: string[] = [];
+
+  const scanRoot = async (
+    rootDir: string,
+    prefix: string,
+    includeGlobs: string[],
+    excludeGlobs: string[]
+  ): Promise<void> => {
+    const queue: string[] = [rootDir];
+    while (queue.length > 0) {
+      const dir = queue.pop()!;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        try {
+          const st = await fs.lstat(fullPath);
+          if (st.isSymbolicLink()) {
+            const rel = path.relative(rootDir, fullPath).split(path.sep).join("/");
+            if (isDenylisted(rel)) {
+              continue;
+            }
+            if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
+              continue;
+            }
+            const matchesInclude = includeGlobs.some((g) => minimatch(rel, g));
+            const matchesExclude = excludeGlobs.some((g) => minimatch(rel, g));
+            if (matchesInclude && !matchesExclude) {
+              keys.push(`${prefix}/${rel}`);
+            }
+            continue;
+          }
+          if (st.isDirectory()) {
+            queue.push(fullPath);
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  };
+
+  await scanRoot(
+    resolved.cursorUser,
+    "cursor-user",
+    enumConfig.cursorUserGlobs,
+    enumConfig.excludeGlobs
+  );
+  await scanRoot(
+    resolved.dotCursor,
+    "dot-cursor",
+    enumConfig.dotCursorGlobs,
+    enumConfig.excludeGlobs
+  );
+  return keys.sort();
+}
+
 export async function enumerateSyncFiles(
   context: vscode.ExtensionContext,
   roots?: SyncRoots
