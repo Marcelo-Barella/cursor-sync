@@ -299,7 +299,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  updateConfiguredContext(context);
+  void refreshSyncCommandContextsAndStatusBar(context);
   getOrCreateClientId(context);
   startScheduler(context);
 
@@ -464,10 +464,4 @@ export async function executeSyncNow(
     await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);
     refreshSidebar();
   }
-}
-
-async function updateConfiguredContext(
-  context: vscode.ExtensionContext
-): Promise<void> {
-  await refreshSyncCommandContextsAndStatusBar(context);
 }
