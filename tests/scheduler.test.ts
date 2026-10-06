@@ -8,8 +8,7 @@ const showSyncFailureWithDebugMock = vi.hoisted(() =>
 
 const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-const isPushLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
-const isPullLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
+const isSyncOperationActiveMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const requireE2eUnlockedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
@@ -41,13 +40,19 @@ vi.mock("../src/sync-debug.js", async (importOriginal) => {
 
 vi.mock("../src/push.js", () => ({
   executePush: executePushMock,
-  isPushLocked: isPushLockedMock,
 }));
 
 vi.mock("../src/pull.js", () => ({
   executePull: executePullMock,
-  isPullLocked: isPullLockedMock,
 }));
+
+vi.mock("../src/sync-operation.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/sync-operation.js")>();
+  return {
+    ...actual,
+    isSyncOperationActive: isSyncOperationActiveMock,
+  };
+});
 
 vi.mock("../src/e2e/gate.js", () => ({
   requireE2eUnlocked: requireE2eUnlockedMock,
@@ -591,8 +596,7 @@ describe("scheduled sync debug wiring", () => {
     showSyncFailureWithDebugMock.mockClear();
     executePushMock.mockReset().mockResolvedValue(true);
     executePullMock.mockReset().mockResolvedValue(true);
-    isPushLockedMock.mockReset().mockReturnValue(false);
-    isPullLockedMock.mockReset().mockReturnValue(false);
+    isSyncOperationActiveMock.mockReset().mockReturnValue(false);
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
       kind: "dek",
       ok: true,
@@ -790,7 +794,7 @@ describe("scheduled sync debug wiring", () => {
   });
 
   it("does not call showSyncFailureWithDebug when sync is in progress", async () => {
-    isPushLockedMock.mockReturnValue(true);
+    isSyncOperationActiveMock.mockReturnValue(true);
 
     const scheduler = await import("../src/scheduler.js");
     const determineSpy = vi.spyOn(

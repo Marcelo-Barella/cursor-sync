@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { getAppApiUrl } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
+import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
 import type { AppConfigsPayloadV1 } from "../app-configs.js";
 import { MANIFEST_SYNC_KEY } from "./constants.js";
 import { envelopeFromBase64Wire, envelopeToBase64Wire, isValidCse1EnvelopeBytes } from "./envelope.js";
@@ -19,21 +20,6 @@ export interface ConfigsPutBody {
   manifestCiphertext: string;
   expectedManifestVersion: number;
   clearLegacyPayload?: boolean;
-}
-
-function authHeaders(session: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${session}`,
-    Accept: "application/json",
-  };
-}
-
-async function readApiError(response: Response): Promise<{ error?: string }> {
-  try {
-    return (await response.json()) as { error?: string };
-  } catch {
-    return {};
-  }
 }
 
 function parseConfigsResponse(data: Record<string, unknown>): ConfigsApiResponse {
@@ -60,13 +46,13 @@ export async function fetchConfigsApi(
   const base = getAppApiUrl().replace(/\/$/, "");
   const response = await fetch(`${base}/configs`, {
     method: "GET",
-    headers: authHeaders(session),
+    headers: appApiAuthHeaders(session),
   });
   if (response.status === 401) {
     return undefined;
   }
   if (!response.ok) {
-    const body = await readApiError(response);
+    const body = await readAppApiErrorJson(response);
     throw new Error(body.error ?? `Failed to fetch configs (${response.status})`);
   }
   const data = (await response.json()) as Record<string, unknown>;
@@ -129,19 +115,19 @@ export async function putConfigsManifest(
   const response = await fetch(`${base}/configs`, {
     method: "PUT",
     headers: {
-      ...authHeaders(session),
+      ...appApiAuthHeaders(session),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
   });
   if (response.status === 409) {
-    const err = await readApiError(response);
+    const err = await readAppApiErrorJson(response);
     if (err.error === "MANIFEST_VERSION_MISMATCH") {
       throw new ConfigsManifestConflictError();
     }
   }
   if (!response.ok) {
-    const err = await readApiError(response);
+    const err = await readAppApiErrorJson(response);
     throw new Error(err.error ?? `Failed to push configs (${response.status})`);
   }
   const data = (await response.json()) as Record<string, unknown>;

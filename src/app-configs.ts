@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { appApiAuthHeaders } from "./app-api-http.js";
 import {
   getR2Object,
   getR2StorageCredentials,
@@ -71,13 +72,6 @@ function appConfigsBaseUrl(): string {
   return getAppApiUrl();
 }
 
-function authHeaders(session: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${session}`,
-    Accept: "application/json",
-  };
-}
-
 export async function fetchAppConfigs(
   context: vscode.ExtensionContext
 ): Promise<AppConfigsResponse | undefined> {
@@ -88,7 +82,7 @@ export async function fetchAppConfigs(
 
   const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
     method: "GET",
-    headers: authHeaders(session),
+    headers: appApiAuthHeaders(session),
   });
 
   if (response.status === 401) {
@@ -118,7 +112,7 @@ export async function putAppConfigs(
   const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
     method: "PUT",
     headers: {
-      ...authHeaders(session),
+      ...appApiAuthHeaders(session),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ payload }),

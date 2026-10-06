@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
-import { executePush, isPushLocked } from "./push.js";
-import { executePull, isPullLocked } from "./pull.js";
+import { executePush } from "./push.js";
+import { executePull } from "./pull.js";
+import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
@@ -16,10 +17,8 @@ import {
 } from "./sync-debug.js";
 import type { Manifest } from "./types.js";
 import { requireE2eUnlocked } from "./e2e/gate.js";
-import {
-  readLogicalFileFromGistMap,
-  remoteGistHasE2eMarker,
-} from "./e2e/gist-read.js";
+import { readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_JITTER_MS = 60_000;
@@ -100,7 +99,7 @@ export async function determineSyncAction(
 
   const gistFiles = gistResult.data.files;
   let manifestJson: string | undefined;
-  if (remoteGistHasE2eMarker(gistFiles)) {
+  if (tryReadGistE2eMarker(gistFiles)) {
     const e2e = await requireE2eUnlocked(context, { gistSync: true });
     if (!e2e.ok) {
       return { action: "error", reason: "e2e_locked" };
@@ -206,7 +205,7 @@ export async function scheduledTick(
 ): Promise<void> {
   const logger = getLogger();
 
-  if (isPushLocked() || isPullLocked()) {
+  if (isSyncOperationActive()) {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync skipped: operation in progress`
     );
@@ -214,7 +213,6 @@ export async function scheduledTick(
     return;
   }
 
-  const { requireE2eUnlocked } = await import("./e2e/gate.js");
   const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
     logger.appendLine(

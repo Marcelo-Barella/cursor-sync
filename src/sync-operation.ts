@@ -5,15 +5,16 @@ const STALE_SYNC_OPERATION_MS = 10 * 60 * 1000;
 let syncOperationActive = false;
 let syncOperationStartedAt: number | undefined;
 
+async function refreshSyncUiAfterLatchChange(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  await refreshSyncStatusBar(context);
+  refreshSidebar();
+}
+
 export function isSyncOperationActive(): boolean {
-  return syncOperationActive;
-}
-
-export function isPushLocked(): boolean {
-  return syncOperationActive;
-}
-
-export function isPullLocked(): boolean {
   return syncOperationActive;
 }
 
@@ -28,10 +29,6 @@ export function isSyncOperationStale(nowMs = Date.now()): boolean {
 export function resetSyncOperation(): void {
   syncOperationActive = false;
   syncOperationStartedAt = undefined;
-}
-
-export function endSyncOperation(): void {
-  resetSyncOperation();
 }
 
 export function tryBeginSyncOperation(options?: { recoverStale?: boolean }): boolean {
@@ -56,10 +53,7 @@ export async function recoverSyncOperationLatch(
   }
   if (options?.force || isSyncOperationStale()) {
     resetSyncOperation();
-    const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
-    const { refreshSidebar } = await import("./sidebar/index.js");
-    await refreshSyncStatusBar(context);
-    refreshSidebar();
+    await refreshSyncUiAfterLatchChange(context);
     return true;
   }
   return false;
@@ -69,8 +63,5 @@ export async function releaseSyncLatchForAuthRetry(
   context: vscode.ExtensionContext
 ): Promise<void> {
   resetSyncOperation();
-  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
-  const { refreshSidebar } = await import("./sidebar/index.js");
-  await refreshSyncStatusBar(context);
-  refreshSidebar();
+  await refreshSyncUiAfterLatchChange(context);
 }

@@ -18,12 +18,6 @@ export function isBase64Cse1Envelope(raw: string): boolean {
   }
 }
 
-export function remoteGistHasE2eMarker(
-  files: Record<string, { content?: string } | undefined>
-): boolean {
-  return tryReadGistE2eMarker(files as Record<string, { content?: string }>) !== undefined;
-}
-
 export async function assertCanReadE2eGist(
   context: vscode.ExtensionContext,
   files: Record<string, { content?: string } | undefined>
@@ -31,7 +25,7 @@ export async function assertCanReadE2eGist(
   | { ok: true; dek: Buffer; userId: string; keyVersion: number }
   | { ok: false; message: string }
 > {
-  if (!remoteGistHasE2eMarker(files)) {
+  if (!tryReadGistE2eMarker(files as Record<string, { content?: string }>)) {
     return {
       ok: false,
       message: "Internal error: assertCanReadE2eGist called without marker.",

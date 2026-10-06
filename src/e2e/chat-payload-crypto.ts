@@ -13,8 +13,7 @@ import { decryptGistFileContent } from "./gist-e2e.js";
 export async function encryptChatPayloadForGist(
   context: vscode.ExtensionContext,
   plaintext: string,
-  logicalFileName: string,
-  legacyKind: PlaintextKind
+  logicalFileName: string
 ): Promise<Record<string, { content: string }>> {
   const unlocked = await requireE2eUnlocked(context);
   if (!isE2eDekUnlocked(unlocked)) {
@@ -93,10 +92,9 @@ export async function reexportLegacyChatUnderDek(
   context: vscode.ExtensionContext,
   gistId: string,
   plaintext: string,
-  logicalFileName: string,
-  legacyKind: PlaintextKind
+  logicalFileName: string
 ): Promise<void> {
-  const files = await encryptChatPayloadForGist(context, plaintext, logicalFileName, legacyKind);
+  const files = await encryptChatPayloadForGist(context, plaintext, logicalFileName);
   const { getToken } = await import("../auth.js");
   const { GistClient } = await import("../gist.js");
   const token = await getToken(context);

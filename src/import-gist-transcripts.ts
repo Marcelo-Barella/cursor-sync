@@ -32,8 +32,8 @@ import {
   assertCanReadE2eGist,
   GIST_LOCKED_MESSAGE,
   readLogicalFileFromGistMap,
-  remoteGistHasE2eMarker,
 } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 const {
   runSqliteScript,
@@ -160,7 +160,7 @@ async function importTranscriptsFromGist(
   const gistFiles = gist.files ?? {};
   let readGistFile: (logicalFileName: string) => string | undefined;
 
-  if (remoteGistHasE2eMarker(gistFiles)) {
+  if (tryReadGistE2eMarker(gistFiles)) {
     const access = await assertCanReadE2eGist(context, gistFiles);
     if (!access.ok) {
       throw new Error(

@@ -45,7 +45,6 @@ import { initializeSidebar, refreshSidebar } from "./sidebar/index.js";
 import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
 import {
-  endSyncOperation,
   recoverSyncOperationLatch,
   resetSyncOperation,
   tryBeginSyncOperation,
@@ -479,7 +478,7 @@ export async function executeSyncNow(
       { title: errorMessage }
     );
   } finally {
-    endSyncOperation();
+    resetSyncOperation();
     await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);
     refreshSidebar();
   }

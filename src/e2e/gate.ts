@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getAppSession } from "../app-auth.js";
 import { parseAppSessionClaims } from "./session-user.js";
-import { loadStoredDek } from "./dek-storage.js";
+import { clearStoredDekForUser, loadStoredDek } from "./dek-storage.js";
 import {
   fetchServerKeyMaterial,
   getCachedKeysGate,

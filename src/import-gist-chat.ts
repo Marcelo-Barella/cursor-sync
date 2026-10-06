@@ -17,17 +17,18 @@ import {
   resolveBundlesFromParsedExport,
 } from "./chat-bundle-format.js";
 import { isEncryptedChatGistPayload } from "./chat-gist-crypto.js";
-import { decryptChatPayloadFromGist, reexportLegacyChatUnderDek } from "./e2e/chat-payload-crypto.js";
 import {
-  remoteGistHasE2eMarker,
+  decryptChatPayloadFromGist,
+  reexportLegacyChatUnderDek,
+} from "./e2e/chat-payload-crypto.js";
+import {
   assertCanReadE2eGist,
   GIST_LOCKED_MESSAGE,
   readLogicalFileFromGistMap,
 } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
 import { requireChatEncryptionPassword } from "./chat-encryption-auth.js";
-import type { PlaintextKind } from "./chat-gist-crypto.js";
-
 export { CHAT_BUNDLE_GIST_FILE_NAME, CHAT_BUNDLES_GIST_FILE_NAME } from "./chat-bundle-format.js";
 
 export async function executeImportChatFromGist(
@@ -113,9 +114,6 @@ async function resolveGistChatFileContent(
   logicalFileName: string,
   gistFiles?: Record<string, { content?: string }>
 ): Promise<string> {
-  const plaintextKind: PlaintextKind = logicalFileName.includes("bundles")
-    ? "chat-bundles-collection"
-    : "chat-bundle";
   const decrypted = await decryptChatPayloadFromGist(context, raw, logicalFileName, {
     gistFiles,
     promptLegacyPassword: async () => {
@@ -127,15 +125,8 @@ async function resolveGistChatFileContent(
   });
   if (isEncryptedChatGistPayload(raw)) {
     try {
-      await reexportLegacyChatUnderDek(
-        context,
-        gistId,
-        decrypted,
-        logicalFileName,
-        plaintextKind
-      );
+      await reexportLegacyChatUnderDek(context, gistId, decrypted, logicalFileName);
     } catch {
-      // Re-export under DEK is best-effort after legacy import.
     }
   }
   return decrypted;
@@ -193,7 +184,7 @@ async function fetchAndResolveGistBundles(
     throw new Error(`Could not fetch Gist "${gistId}". Check the ID and your GitHub token.`);
   }
 
-  if (gist.files && remoteGistHasE2eMarker(gist.files)) {
+  if (gist.files && tryReadGistE2eMarker(gist.files)) {
     const access = await assertCanReadE2eGist(context, gist.files);
     if (!access.ok) {
       throw new Error(access.message === GIST_LOCKED_MESSAGE ? GIST_LOCKED_MESSAGE : access.message);
@@ -320,7 +311,7 @@ async function readEncryptedOrPlainGistFile(
   logicalName: string,
   plainFile?: GistFile
 ): Promise<string | undefined> {
-  if (remoteGistHasE2eMarker(gistFiles)) {
+  if (tryReadGistE2eMarker(gistFiles)) {
     const unlocked = await requireE2eUnlocked(context);
     if (!isE2eDekUnlocked(unlocked)) {
       throw new Error(unlocked.ok ? GIST_LOCKED_MESSAGE : unlocked.message);

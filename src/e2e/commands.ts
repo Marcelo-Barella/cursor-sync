@@ -8,7 +8,7 @@ import {
   wrapDekForPassphrase,
   wrapDekForRecovery,
 } from "./key-material.js";
-import { DEFAULT_ARGON2_PARAMS } from "./constants.js";
+import { DEFAULT_ARGON2_PARAMS, MIN_PASSPHRASE_LENGTH } from "./constants.js";
 import {
   buildPutKeysBody,
   fetchServerKeyMaterial,
@@ -24,7 +24,6 @@ import {
   lastRecoveryKeyGroup,
   parseRecoveryKeyInput,
 } from "./recovery-key.js";
-import { MIN_PASSPHRASE_LENGTH } from "./constants.js";
 import {
   refreshE2eGateAfterCryptoChange,
   refreshE2eGateContext,
@@ -32,8 +31,13 @@ import {
   resolveE2eGateSnapshot,
   invalidateE2eGateSnapshot,
   isE2eDekUnlocked,
+  requireE2eUnlocked,
 } from "./gate.js";
-import { getCachedKeysGate, hydrateKeysCacheFromDisk, invalidateKeysGateCache } from "./keys-client.js";
+import {
+  getCachedKeysGate,
+  hydrateKeysCacheFromDisk,
+  invalidateKeysGateCache,
+} from "./keys-client.js";
 import { parseAppSessionClaims } from "./session-user.js";
 import { getAppSession } from "../app-auth.js";
 import { markMigrationPending } from "./migration.js";
@@ -367,8 +371,7 @@ export async function executeE2eUnlock(context: vscode.ExtensionContext): Promis
 }
 
 export async function executeE2eChangePassphrase(context: vscode.ExtensionContext): Promise<void> {
-  const gate = await import("./gate.js");
-  const unlocked = await gate.requireE2eUnlocked(context);
+  const unlocked = await requireE2eUnlocked(context);
   if (!isE2eDekUnlocked(unlocked)) {
     vscode.window.showErrorMessage(unlocked.ok ? "Unlock sync first." : unlocked.message);
     return;
@@ -423,8 +426,7 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
 }
 
 export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionContext): Promise<void> {
-  const gate = await import("./gate.js");
-  const unlocked = await gate.requireE2eUnlocked(context);
+  const unlocked = await requireE2eUnlocked(context);
   if (!isE2eDekUnlocked(unlocked)) {
     vscode.window.showErrorMessage(unlocked.ok ? "Unlock sync first." : unlocked.message);
     return;
