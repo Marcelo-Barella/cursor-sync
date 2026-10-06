@@ -59,24 +59,52 @@ async function readApiError(response: Response): Promise<{ error?: string; messa
 
 export type KeysPresence = "unknown" | "not_set" | "set";
 
+export type KeysVerificationState = "unknown" | "verified" | "email_not_verified";
+
 export interface KeysGateCache {
   presence: KeysPresence;
+  verification: KeysVerificationState;
   keyMaterial?: ServerKeyMaterialResponse;
   fetchedAtMs?: number;
 }
 
-let inMemoryKeysCache: KeysGateCache = { presence: "unknown" };
+let inMemoryKeysCache: KeysGateCache = { presence: "unknown", verification: "unknown" };
 
 export function getCachedKeysGate(): KeysGateCache {
   return inMemoryKeysCache;
 }
 
-export function setCachedKeysGate(cache: KeysGateCache): void {
-  inMemoryKeysCache = cache;
+export async function hydrateKeysCacheFromDisk(
+  context: vscode.ExtensionContext
+): Promise<KeysGateCache> {
+  if (inMemoryKeysCache.presence !== "unknown") {
+    return inMemoryKeysCache;
+  }
+  const { loadPersistedKeysCache } = await import("./keys-cache-store.js");
+  const persisted = await loadPersistedKeysCache(context);
+  if (persisted) {
+    inMemoryKeysCache = persisted;
+  }
+  return inMemoryKeysCache;
 }
 
-export function invalidateKeysGateCache(): void {
-  inMemoryKeysCache = { presence: "unknown" };
+export async function setCachedKeysGate(
+  context: vscode.ExtensionContext,
+  cache: KeysGateCache
+): Promise<void> {
+  inMemoryKeysCache = cache;
+  const { persistKeysCache } = await import("./keys-cache-store.js");
+  await persistKeysCache(context, cache);
+}
+
+export async function invalidateKeysGateCache(
+  context?: vscode.ExtensionContext
+): Promise<void> {
+  inMemoryKeysCache = { presence: "unknown", verification: "unknown" };
+  if (context) {
+    const { clearPersistedKeysCache } = await import("./keys-cache-store.js");
+    await clearPersistedKeysCache(context);
+  }
 }
 
 async function authFetch(
@@ -103,25 +131,34 @@ export async function fetchServerKeyMaterial(
   context: vscode.ExtensionContext,
   options?: { force?: boolean }
 ): Promise<KeysGateCache> {
+  await hydrateKeysCacheFromDisk(context);
   if (!options?.force && inMemoryKeysCache.presence !== "unknown") {
     return inMemoryKeysCache;
   }
 
   const response = await authFetch(context, "/v1/keys", { method: "GET" });
+  const cache = await keysGetResponseToCache(response);
+  await setCachedKeysGate(context, cache);
+  return cache;
+}
+
+export async function keysGetResponseToCache(response: Response): Promise<KeysGateCache> {
   if (response.status === 404) {
     const body = await readApiError(response);
     if (body.error && body.error !== "KEYS_NOT_SET") {
       throw new KeysApiError(body.error, 404, body.error);
     }
-    const cache: KeysGateCache = { presence: "not_set", fetchedAtMs: Date.now() };
-    inMemoryKeysCache = cache;
-    return cache;
+    return {
+      presence: "not_set",
+      verification: "verified",
+      fetchedAtMs: Date.now(),
+    };
   }
   if (response.status === 429) {
+    const { rateLimitMessageFromResponse } = await import("./rate-limit.js");
     const body = await readApiError(response);
-    const retryAfter = response.headers.get("Retry-After") ?? "900";
     throw new KeysApiError(
-      `Rate limited (${body.error ?? "RATE_LIMITED"}). Retry after ${retryAfter}s.`,
+      rateLimitMessageFromResponse(response, body.error ?? "RATE_LIMITED"),
       429,
       body.error ?? "RATE_LIMITED"
     );
@@ -129,12 +166,16 @@ export async function fetchServerKeyMaterial(
   if (response.status === 403) {
     const body = await readApiError(response);
     if (body.error === "EMAIL_NOT_VERIFIED") {
-      throw new KeysApiError("Verify your email before setting up sync encryption.", 403, "EMAIL_NOT_VERIFIED");
+      return {
+        presence: "not_set",
+        verification: "email_not_verified",
+        fetchedAtMs: Date.now(),
+      };
     }
     throw new KeysApiError(body.error ?? "Forbidden", 403, body.error);
   }
   if (response.status === 401) {
-    throw new KeysApiError("Unauthorized", 401);
+    throw new KeysApiError("Log in to Cursor Sync again to continue.", 401, "UNAUTHORIZED");
   }
   if (!response.ok) {
     const body = await readApiError(response);
@@ -146,13 +187,12 @@ export async function fetchServerKeyMaterial(
   }
   const data = (await response.json()) as Record<string, unknown>;
   const keyMaterial = parseKeyMaterialResponse(data);
-  const cache: KeysGateCache = {
+  return {
     presence: "set",
+    verification: "verified",
     keyMaterial,
     fetchedAtMs: Date.now(),
   };
-  inMemoryKeysCache = cache;
-  return cache;
 }
 
 export async function putServerKeyMaterial(
@@ -183,7 +223,12 @@ export async function putServerKeyMaterial(
     );
   }
   const material = parseKeyMaterialResponse(data);
-  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  await setCachedKeysGate(context, {
+    presence: "set",
+    verification: "verified",
+    keyMaterial: material,
+    fetchedAtMs: Date.now(),
+  });
   return material;
 }
 
@@ -214,7 +259,12 @@ export async function rewrapPassphraseOnServer(
     );
   }
   const material = parseKeyMaterialResponse(data);
-  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  await setCachedKeysGate(context, {
+    presence: "set",
+    verification: "verified",
+    keyMaterial: material,
+    fetchedAtMs: Date.now(),
+  });
   return material;
 }
 
@@ -245,7 +295,12 @@ export async function rotateRecoveryOnServer(
     );
   }
   const material = parseKeyMaterialResponse(data);
-  inMemoryKeysCache = { presence: "set", keyMaterial: material, fetchedAtMs: Date.now() };
+  await setCachedKeysGate(context, {
+    presence: "set",
+    verification: "verified",
+    keyMaterial: material,
+    fetchedAtMs: Date.now(),
+  });
   return material;
 }
 

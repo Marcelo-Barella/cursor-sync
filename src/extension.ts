@@ -71,6 +71,7 @@ import {
   executeE2eLock,
   executeE2eRotateRecoveryKey,
   executeE2eUnlock,
+  runRecheckEmailVerification,
 } from "./e2e/commands.js";
 let configListener: vscode.Disposable | undefined;
 
@@ -184,6 +185,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.e2e.rotateRecoveryKey", () =>
       executeE2eRotateRecoveryKey(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.recheckEmail", () =>
+      runRecheckEmailVerification(context)
     )
   );
 
@@ -367,7 +373,7 @@ export async function executeSyncNow(
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
   const { requireE2eUnlocked } = await import("./e2e/gate.js");
-  const e2e = await requireE2eUnlocked(context);
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
     vscode.window.showWarningMessage(e2e.message);
     return;

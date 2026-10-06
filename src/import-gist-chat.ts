@@ -24,7 +24,7 @@ import {
   GIST_LOCKED_MESSAGE,
   readLogicalFileFromGistMap,
 } from "./e2e/gist-read.js";
-import { requireE2eUnlocked } from "./e2e/gate.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
 import { requireChatEncryptionPassword } from "./chat-encryption-auth.js";
 import type { PlaintextKind } from "./chat-gist-crypto.js";
 
@@ -107,6 +107,7 @@ export async function executeImportChatFromGist(
 
 async function resolveGistChatFileContent(
   context: vscode.ExtensionContext,
+  gistId: string,
   raw: string,
   label: string,
   logicalFileName: string,
@@ -126,7 +127,13 @@ async function resolveGistChatFileContent(
   });
   if (isEncryptedChatGistPayload(raw)) {
     try {
-      await reexportLegacyChatUnderDek(context, decrypted, logicalFileName, plaintextKind);
+      await reexportLegacyChatUnderDek(
+        context,
+        gistId,
+        decrypted,
+        logicalFileName,
+        plaintextKind
+      );
     } catch {
       // Re-export under DEK is best-effort after legacy import.
     }
@@ -136,6 +143,7 @@ async function resolveGistChatFileContent(
 
 async function resolveChatBundlesFromGistContent(
   context: vscode.ExtensionContext,
+  gistId: string,
   raw: string,
   fileLabel: string,
   requireCollection: boolean,
@@ -145,6 +153,7 @@ async function resolveChatBundlesFromGistContent(
 ): Promise<{ bundles: ChatBundle[]; pickerShown: boolean }> {
   const plaintext = await resolveGistChatFileContent(
     context,
+    gistId,
     raw,
     fileLabel,
     logicalFileName ?? fileLabel,
@@ -221,6 +230,7 @@ async function fetchAndResolveGistBundles(
   if (bundleRaw) {
     resolved = await resolveChatBundlesFromGistContent(
       context,
+      gistId,
       bundleRaw,
       "chat-bundle.json",
       false,
@@ -231,6 +241,7 @@ async function fetchAndResolveGistBundles(
   } else if (collectionRaw) {
     resolved = await resolveChatBundlesFromGistContent(
       context,
+      gistId,
       collectionRaw,
       "chat-bundles.json",
       true,
@@ -311,8 +322,8 @@ async function readEncryptedOrPlainGistFile(
 ): Promise<string | undefined> {
   if (remoteGistHasE2eMarker(gistFiles)) {
     const unlocked = await requireE2eUnlocked(context);
-    if (!unlocked.ok) {
-      throw new Error(GIST_LOCKED_MESSAGE);
+    if (!isE2eDekUnlocked(unlocked)) {
+      throw new Error(unlocked.ok ? GIST_LOCKED_MESSAGE : unlocked.message);
     }
     return readLogicalFileFromGistMap(
       unlocked.dek,

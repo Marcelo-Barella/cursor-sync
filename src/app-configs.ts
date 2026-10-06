@@ -7,16 +7,17 @@ import {
   getR2Object,
   getR2StorageCredentials,
 } from "./app-r2-storage.js";
-import { requireE2eUnlocked } from "./e2e/gate.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
 import {
   decryptManifestPayload,
   encryptManifestPayload,
   fetchConfigsApi,
   putConfigsManifestWithRetry,
 } from "./e2e/configs-sync.js";
-import { deletePlaintextR2Objects } from "./e2e/storage-plaintext.js";
 import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
+import { listRemoteLegacyPlaintextKeys, runLegacyPlaintextCleanup } from "./e2e/legacy-cleanup.js";
+import { KeysApiError } from "./e2e/keys-client.js";
 import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { getLogger } from "./diagnostics.js";
@@ -267,13 +268,16 @@ export async function executePushAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
-  const e2e = await requireE2eUnlocked(context);
-  if (!e2e.ok) {
-    vscode.window.showErrorMessage(e2e.message);
-    return false;
-  }
-
   try {
+    const e2e = await requireE2eUnlocked(context);
+    if (!e2e.ok) {
+      vscode.window.showErrorMessage(e2e.message);
+      return false;
+    }
+    if (!isE2eDekUnlocked(e2e)) {
+      vscode.window.showErrorMessage("Encrypted app sync requires an unlocked sync passphrase.");
+      return false;
+    }
     const localPayload = await buildLocalAppConfigsPayload();
     const credentials = await getR2StorageCredentials(context);
     if (!credentials) {
@@ -282,7 +286,6 @@ export async function executePushAppConfigs(
 
     const migration = await loadMigrationState(context);
     const metadataFiles: Record<string, AppConfigsPayloadFile> = {};
-    const plaintextKeysToDelete: string[] = [];
 
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
       const manifestEntry = localPayload.manifest.files[syncKey];
@@ -306,7 +309,6 @@ export async function executePushAppConfigs(
         syncKey,
         body
       );
-      plaintextKeysToDelete.push(syncKey);
       metadataFiles[syncKey] = {
         checksum: file.checksum ?? manifestEntry.checksum,
         sizeBytes: file.sizeBytes ?? manifestEntry.sizeBytes,
@@ -320,8 +322,11 @@ export async function executePushAppConfigs(
       files: metadataFiles,
     };
 
-    const hadLegacyPayload = Boolean((await fetchConfigsApi(context))?.payload);
-    const clearLegacyPayload = hadLegacyPayload || (migration && migration.phase !== "completed");
+    const remoteBefore = await fetchConfigsApi(context);
+    const hadLegacyPayload = Boolean(remoteBefore?.payload);
+    const legacyKeys = await listRemoteLegacyPlaintextKeys(context);
+    const clearLegacyPayload =
+      hadLegacyPayload || legacyKeys.length > 0 || (migration && migration.phase !== "completed");
 
     await putConfigsManifestWithRetry(context, (expectedManifestVersion) => ({
       manifestCiphertext: encryptManifestPayload(
@@ -334,26 +339,16 @@ export async function executePushAppConfigs(
       ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
     }));
 
-    if (migration && migration.phase !== "completed") {
-      const completed = new Set(migration.completedPlaintextR2Keys);
-      const pending = plaintextKeysToDelete.filter((k) => !completed.has(k));
-      if (pending.length > 0) {
-        try {
-          const deleted = await deletePlaintextR2Objects(context, pending);
-          for (const key of deleted) {
-            completed.add(key);
-          }
-        } catch (err) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Migration: plaintext R2 delete API failed: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
+    const cleanup = await runLegacyPlaintextCleanup(context);
+    if (cleanup.legacyPayloadPresent || cleanup.deleted.length > 0) {
+      const existing = await loadMigrationState(context);
+      if (existing && existing.phase !== "completed") {
+        await saveMigrationState(context, {
+          ...existing,
+          phase: "in_progress",
+          legacyPayloadCleared: !cleanup.legacyPayloadPresent,
+        });
       }
-      await saveMigrationState(context, {
-        phase: "in_progress",
-        completedPlaintextR2Keys: [...completed],
-        completedPlaintextGistFiles: migration.completedPlaintextGistFiles,
-      });
     }
 
     const fileCount = Object.keys(metadataFiles).length;
@@ -366,7 +361,12 @@ export async function executePushAppConfigs(
     await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof KeysApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
     );
@@ -382,8 +382,8 @@ export async function executePullAppConfigs(
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
   const e2e = await requireE2eUnlocked(context);
-  if (!e2e.ok) {
-    vscode.window.showErrorMessage(e2e.message);
+  if (!isE2eDekUnlocked(e2e)) {
+    vscode.window.showErrorMessage(e2e.ok ? "Unlock sync encryption first." : e2e.message);
     return false;
   }
 
@@ -510,9 +510,15 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
     );
+    await runLegacyPlaintextCleanup(context);
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof KeysApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs failed: ${message}`
     );

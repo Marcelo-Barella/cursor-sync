@@ -36,6 +36,7 @@ vi.mock("../src/e2e/migration.js", () => ({
 vi.mock("../src/e2e/gate.js", () => ({
   onAppSessionCleared: vi.fn(),
   refreshE2eGateContext: vi.fn(async () => ({ phase: "no_app_session" })),
+  refreshE2eGateAfterCryptoChange: vi.fn(async () => ({ phase: "no_app_session" })),
 }));
 
 vi.mock("vscode", () => ({

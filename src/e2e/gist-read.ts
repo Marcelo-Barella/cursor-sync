@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { GIST_E2E_MARKER_FILE } from "./constants.js";
 import { envelopeFromBase64Wire, isValidCse1EnvelopeBytes } from "./envelope.js";
 import { deriveGistFileNameHex } from "./key-material.js";
-import { requireE2eUnlocked } from "./gate.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./gate.js";
 import { tryReadGistE2eMarker } from "./gist-bundle.js";
 import { decryptGistFileContent } from "./gist-e2e.js";
 
@@ -38,8 +38,11 @@ export async function assertCanReadE2eGist(
     };
   }
   const unlocked = await requireE2eUnlocked(context);
-  if (!unlocked.ok) {
-    return { ok: false, message: GIST_LOCKED_MESSAGE };
+  if (!isE2eDekUnlocked(unlocked)) {
+    return {
+      ok: false,
+      message: unlocked.ok ? GIST_LOCKED_MESSAGE : unlocked.message,
+    };
   }
   const marker = tryReadGistE2eMarker(files as Record<string, { content?: string }>);
   if (marker && marker.keyVersion !== unlocked.keyVersion) {

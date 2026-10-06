@@ -115,6 +115,7 @@ export function renderE2eLockBanner(state: SyncTabState): string {
     return `<div class="section e2e-lock-banner">
     <div class="section-header">Encrypted sync</div>
     <p class="e2e-lock-copy">Verify your email on the Cursor Sync website before setting up encryption.</p>
+    <button class="configure-btn" data-command="e2eRecheckEmail"><span class="codicon codicon-refresh"></span> I verified, re-check</button>
   </div>`;
   }
   if (state.e2ePhase === "needs_setup") {
@@ -166,8 +167,21 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
-  const syncDisabled = state.e2ePhase !== "unlocked";
-  const syncDisabledAttr = syncDisabled ? ' disabled aria-disabled="true"' : "";
+  const syncDisabled =
+    state.e2ePhase !== "unlocked" && state.e2ePhase !== "no_app_session";
+  const syncDisabledTitle =
+    state.e2ePhase === "locked" || state.e2ePhase === "needs_setup"
+      ? "Unlock encrypted sync to use Push, Pull, and Sync Now."
+      : state.e2ePhase === "email_not_verified"
+        ? "Verify your email before encrypted sync is available."
+        : "";
+  const syncDisabledAttr = syncDisabled
+    ? ` disabled aria-disabled="true" title="${escapeHtml(syncDisabledTitle)}"`
+    : "";
+  const syncHint =
+    state.e2ePhase === "no_app_session"
+      ? `<p class="e2e-lock-copy" style="margin-top:8px">GitHub Gist sync works without app login. Log in to Cursor Sync for encrypted cloud sync.</p>`
+      : "";
 
   return `<div id="sync-pane" class="tab-pane">
   ${renderE2eLockBanner(state)}
@@ -185,6 +199,7 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
+  ${syncHint}
   <button class="sync-now-btn" data-command="syncNow"${syncDisabledAttr}>
     <span class="codicon codicon-sync"></span>
     Sync Now

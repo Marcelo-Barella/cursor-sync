@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.2
+
+### Fixed
+- Email verification gate uses `GET /v1/keys` (200 / 404 `KEYS_NOT_SET` / 403 `EMAIL_NOT_VERIFIED` / 401) instead of JWT `email_verified`; Gist-only sync works without an app session.
+- Unlock, lock, passphrase change, recovery, and reset refresh the E2E gate cache and UI; lock always clears stored DEKs.
+- `GET /v1/keys` rate limits (429) show Retry-After messaging; wrapped key material is cached on disk to cut API calls.
+- Legacy plaintext migration deletes remote manifest keys, retries failures, and re-runs cleanup on sync when stray plaintext remains.
+
+### Changed
+- Recovery-key unlock requires a new passphrase rewrap; setup checks verification before passphrase; recovery key input normalizes I/L/O; rotate recovery supports Save to file.
+
+### Known
+- Ciphertext padding (spec) is not implemented in this release.
+
 ## v0.9.0-staging.1
 
 ### Added

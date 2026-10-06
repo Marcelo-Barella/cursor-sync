@@ -12,7 +12,8 @@ export type SidebarMessage =
         | "configure"
         | "loginToApp"
         | "enterAppAuthCode"
-        | "e2eUnlock";
+        | "e2eUnlock"
+        | "e2eRecheckEmail";
     }
   | { command: "chats:listLocal" }
   | { command: "chats:listImports" }
@@ -58,6 +59,9 @@ export async function dispatchSidebarMessage(
       break;
     case "e2eUnlock":
       await vscode.commands.executeCommand("cursorSync.e2e.unlock");
+      break;
+    case "e2eRecheckEmail":
+      await vscode.commands.executeCommand("cursorSync.e2e.recheckEmail");
       break;
     case "chats:listLocal": {
       const { listLocalConversations } = await import("./chats-tab.js");

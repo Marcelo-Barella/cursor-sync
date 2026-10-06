@@ -28,7 +28,7 @@ import type {
   ExportConversationState,
   ExportProjectAccumulator,
 } from "./transcripts-internal-types.js";
-import { requireE2eUnlocked } from "./e2e/gate.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
 import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 
 export async function executeExportTranscripts(
@@ -53,8 +53,8 @@ export async function executeExportTranscripts(
   if (!token) return;
 
   const e2e = await requireE2eUnlocked(context);
-  if (!e2e.ok) {
-    vscode.window.showWarningMessage(e2e.message);
+  if (!isE2eDekUnlocked(e2e)) {
+    vscode.window.showWarningMessage(e2e.ok ? "Unlock sync encryption first." : e2e.message);
     return;
   }
 

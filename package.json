@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.9.0-staging.1",
+  "version": "0.9.0-staging.2",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -151,6 +151,10 @@
       {
         "command": "cursorSync.e2e.rotateRecoveryKey",
         "title": "Cursor Sync: Rotate Recovery Key"
+      },
+      {
+        "command": "cursorSync.e2e.recheckEmail",
+        "title": "Cursor Sync: Re-check Email Verification"
       },
       {
         "command": "cursorSync.export",

@@ -5,6 +5,7 @@ export interface E2eMigrationState {
   phase: "pending" | "in_progress" | "completed";
   completedPlaintextR2Keys: string[];
   completedPlaintextGistFiles: string[];
+  legacyPayloadCleared?: boolean;
 }
 
 export async function loadMigrationState(
@@ -29,6 +30,7 @@ export async function markMigrationPending(context: vscode.ExtensionContext): Pr
     phase: "pending",
     completedPlaintextR2Keys: existing?.completedPlaintextR2Keys ?? [],
     completedPlaintextGistFiles: existing?.completedPlaintextGistFiles ?? [],
+    legacyPayloadCleared: existing?.legacyPayloadCleared,
   });
 }
 
@@ -44,6 +46,7 @@ export async function markMigrationCompleted(
     phase: "completed",
     completedPlaintextR2Keys: existing?.completedPlaintextR2Keys ?? [],
     completedPlaintextGistFiles: existing?.completedPlaintextGistFiles ?? [],
+    legacyPayloadCleared: true,
   });
 }
 
@@ -58,21 +61,33 @@ export async function tryCompleteMigration(
 
   const { getAppSession } = await import("../app-auth.js");
   const { loadSyncState } = await import("../diagnostics.js");
+  const { listRemoteLegacyPlaintextKeys } = await import("./legacy-cleanup.js");
+
   const hasApp = !!(await getAppSession(context));
   const syncState = await loadSyncState(context);
   const hasGist = Boolean(syncState?.gistId);
 
-  if (source === "gist") {
-    if (!hasApp) {
-      await markMigrationCompleted(context);
+  if (hasApp) {
+    const legacyKeys = await listRemoteLegacyPlaintextKeys(context);
+    const pendingLegacy = legacyKeys.filter(
+      (k) => !state.completedPlaintextR2Keys.includes(k)
+    );
+    if (legacyKeys.length > 0 && pendingLegacy.length > 0) {
       return;
     }
-    if (
-      state.completedPlaintextGistFiles.length > 0 &&
-      state.completedPlaintextR2Keys.length > 0
-    ) {
-      await markMigrationCompleted(context);
+    if (!state.legacyPayloadCleared && legacyKeys.length > 0) {
+      return;
     }
+  }
+
+  if (source === "gist") {
+    if (!hasApp) {
+      return;
+    }
+    if (hasGist && state.completedPlaintextGistFiles.length === 0) {
+      return;
+    }
+    await markMigrationCompleted(context);
     return;
   }
 
@@ -80,10 +95,7 @@ export async function tryCompleteMigration(
     await markMigrationCompleted(context);
     return;
   }
-  if (
-    state.completedPlaintextR2Keys.length > 0 &&
-    state.completedPlaintextGistFiles.length > 0
-  ) {
+  if (state.completedPlaintextGistFiles.length > 0) {
     await markMigrationCompleted(context);
   }
 }

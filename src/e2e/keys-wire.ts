@@ -81,3 +81,22 @@ export function parseKeyMaterialResponse(data: Record<string, unknown>): ServerK
 export function assertPutKeysBodyDekVerifier(dekVerifier: string): void {
   assertDekVerifierHex(dekVerifier);
 }
+
+export function serializeKeyMaterialToWire(
+  material: ServerKeyMaterialResponse
+): Record<string, unknown> {
+  return {
+    keyVersion: material.keyVersion,
+    kdf: material.kdf,
+    kdfParams: material.kdfParams,
+    salt: material.salt.toString("base64"),
+    passWrap: {
+      nonce: material.passWrap.nonce.toString("base64"),
+      ct: material.passWrap.ct.toString("base64"),
+    },
+    recoveryWrap: {
+      nonce: material.recoveryWrap.nonce.toString("base64"),
+      ct: material.recoveryWrap.ct.toString("base64"),
+    },
+  };
+}

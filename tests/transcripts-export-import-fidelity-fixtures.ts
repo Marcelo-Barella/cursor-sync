@@ -86,14 +86,19 @@ vi.mock("../src/retry.js", () => ({
   withRetry: withRetryMock,
 }));
 
-vi.mock("../src/e2e/gate.js", () => ({
-  requireE2eUnlocked: vi.fn(async () => ({
-    ok: true as const,
-    dek: Buffer.alloc(32, 4),
-    userId: "transcript-test-user",
-    keyVersion: 1,
-  })),
-}));
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn(async () => ({
+      ok: true as const,
+      kind: "dek" as const,
+      dek: Buffer.alloc(32, 4),
+      userId: "transcript-test-user",
+      keyVersion: 1,
+    })),
+  };
+});
 
 vi.mock("../src/e2e/gist-bundle.js", () => ({
   wrapGistFilesForUpload: vi.fn(

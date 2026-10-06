@@ -25,7 +25,7 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
   await clearToken(context);
   await clearAllStoredDeks(context);
   await clearMigrationState(context);
-  onAppSessionCleared();
+  onAppSessionCleared(context);
   await clearAppSession(context);
   await clearPersistedAuthHandoff(context);
 
@@ -49,7 +49,8 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   // Update UI Context
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-  await refreshE2eGateContext(context);
+  const { refreshE2eGateAfterCryptoChange } = await import("./e2e/gate.js");
+  await refreshE2eGateAfterCryptoChange(context);
   await refreshSyncStatusBar(context);
   refreshSidebar();
 

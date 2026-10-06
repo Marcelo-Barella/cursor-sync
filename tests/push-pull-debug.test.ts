@@ -11,6 +11,7 @@ const determineSyncActionMock = vi.hoisted(() => vi.fn());
 const requireE2eUnlockedMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     ok: true,
+    kind: "dek",
     userId: "test-user",
     keyVersion: 1,
     dek: Buffer.alloc(32, 7),
@@ -88,6 +89,7 @@ describe("push/pull debug wiring", () => {
     showSyncFailureWithDebugMock.mockClear();
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
       ok: true,
+      kind: "dek",
       userId: "test-user",
       keyVersion: 1,
       dek: Buffer.alloc(32, 7),
@@ -370,6 +372,7 @@ describe("sync now debug wiring", () => {
     determineSyncActionMock.mockReset();
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
       ok: true,
+      kind: "dek",
       userId: "test-user",
       keyVersion: 1,
       dek: Buffer.alloc(32, 7),

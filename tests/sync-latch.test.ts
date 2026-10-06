@@ -36,6 +36,7 @@ vi.mock("../src/sidebar/index.js", () => ({
 vi.mock("../src/e2e/gate.js", () => ({
   requireE2eUnlocked: vi.fn().mockResolvedValue({
     ok: true,
+    kind: "dek",
     userId: "user-1",
     keyVersion: 1,
     dek: Buffer.alloc(32, 1),

@@ -401,7 +401,7 @@ export async function clearAppSession(
   }
   inMemoryAppSession = undefined;
   const { onAppSessionCleared } = await import("./e2e/gate.js");
-  onAppSessionCleared();
+  onAppSessionCleared(context);
 }
 
 async function completeLoginWithCode(

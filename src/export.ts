@@ -34,7 +34,7 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
     return;
   }
 
-  const e2e = await requireE2eUnlocked(context);
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
     vscode.window.showWarningMessage(e2e.message);
     return;
@@ -81,12 +81,12 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
     logicalGistFiles[gistFileName] = { content: value.content };
   }
 
-  const gistFiles = wrapGistFilesForUpload(
-    e2e.dek,
-    e2e.userId,
-    e2e.keyVersion,
-    logicalGistFiles
-  );
+  const gistFiles =
+    e2e.ok && e2e.kind === "gist_plaintext"
+      ? logicalGistFiles
+      : e2e.ok && e2e.kind === "dek"
+        ? wrapGistFilesForUpload(e2e.dek, e2e.userId, e2e.keyVersion, logicalGistFiles)
+        : logicalGistFiles;
 
   const client = new GistClient(token);
   

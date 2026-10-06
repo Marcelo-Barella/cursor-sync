@@ -101,8 +101,11 @@ export async function determineSyncAction(
   const gistFiles = gistResult.data.files;
   let manifestJson: string | undefined;
   if (remoteGistHasE2eMarker(gistFiles)) {
-    const e2e = await requireE2eUnlocked(context);
+    const e2e = await requireE2eUnlocked(context, { gistSync: true });
     if (!e2e.ok) {
+      return { action: "error", reason: "e2e_locked" };
+    }
+    if (!e2e.ok || e2e.kind !== "dek") {
       return { action: "error", reason: "e2e_locked" };
     }
     manifestJson = readLogicalFileFromGistMap(
@@ -212,7 +215,7 @@ export async function scheduledTick(
   }
 
   const { requireE2eUnlocked } = await import("./e2e/gate.js");
-  const e2e = await requireE2eUnlocked(context);
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync skipped: ${e2e.message}`

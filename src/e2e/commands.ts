@@ -25,12 +25,110 @@ import {
   parseRecoveryKeyInput,
 } from "./recovery-key.js";
 import { MIN_PASSPHRASE_LENGTH } from "./constants.js";
-import { refreshE2eGateContext, lockLocalDek, resolveE2eGateSnapshot } from "./gate.js";
-import { invalidateKeysGateCache } from "./keys-client.js";
+import {
+  refreshE2eGateAfterCryptoChange,
+  refreshE2eGateContext,
+  lockLocalDek,
+  resolveE2eGateSnapshot,
+  invalidateE2eGateSnapshot,
+  isE2eDekUnlocked,
+} from "./gate.js";
+import { getCachedKeysGate, hydrateKeysCacheFromDisk, invalidateKeysGateCache } from "./keys-client.js";
 import { parseAppSessionClaims } from "./session-user.js";
 import { getAppSession } from "../app-auth.js";
 import { markMigrationPending } from "./migration.js";
 import { refreshSidebar } from "../sidebar/index.js";
+
+function keysApiUserMessage(err: unknown): string {
+  if (err instanceof KeysApiError) {
+    return err.message;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function ensureEmailVerifiedForSetup(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  try {
+    const cache = await fetchServerKeyMaterial(context, { force: true });
+    if (cache.verification === "email_not_verified") {
+      vscode.window.showErrorMessage(
+        "Verify your email on the Cursor Sync website, then use “I verified, re-check” in the sidebar."
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    vscode.window.showErrorMessage(keysApiUserMessage(err));
+    return false;
+  }
+}
+
+export async function runRecheckEmailVerification(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  invalidateE2eGateSnapshot();
+  await invalidateKeysGateCache(context);
+  try {
+    const cache = await fetchServerKeyMaterial(context, { force: true });
+    if (cache.verification === "email_not_verified") {
+      vscode.window.showWarningMessage(
+        "Email is still not verified. Complete verification on the Cursor Sync website and try again."
+      );
+      await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+      refreshSidebar();
+      return;
+    }
+    await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+    refreshSidebar();
+    vscode.window.showInformationMessage("Email verification confirmed.");
+  } catch (err) {
+    vscode.window.showErrorMessage(keysApiUserMessage(err));
+  }
+}
+
+async function rewrapDekWithNewPassphrase(
+  context: vscode.ExtensionContext,
+  dek: Buffer,
+  userId: string,
+  keyVersion: number
+): Promise<boolean> {
+  const newPass = await promptPassphrase("Set a new sync passphrase (required after recovery unlock)");
+  if (!newPass) {
+    return false;
+  }
+  const confirm = await promptPassphrase("Confirm new sync passphrase");
+  if (!confirm || confirm !== newPass) {
+    vscode.window.showErrorMessage("Passphrases do not match.");
+    return false;
+  }
+  const salt = generateSalt();
+  const kdfParams = { ...DEFAULT_ARGON2_PARAMS };
+  const passWrapResult = await wrapDekForPassphrase(
+    dek,
+    newPass,
+    userId,
+    keyVersion,
+    salt,
+    kdfParams
+  );
+  try {
+    await rewrapPassphraseOnServer(context, {
+      keyVersion,
+      dekVerifier: computeDekVerifierHex(dek),
+      kdfParams: passWrapResult.kdfParams,
+      salt: passWrapResult.salt.toString("base64"),
+      passWrap: {
+        nonce: passWrapResult.wrap.nonce.toString("base64"),
+        ct: passWrapResult.wrap.ct.toString("base64"),
+      },
+    });
+  } catch (err) {
+    vscode.window.showErrorMessage(keysApiUserMessage(err));
+    return false;
+  }
+  return true;
+}
 
 async function promptPassphrase(label: string): Promise<string | undefined> {
   return vscode.window.showInputBox({
@@ -68,8 +166,11 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
 
   const session = await getAppSession(context);
   const claims = session ? parseAppSessionClaims(session) : undefined;
-  if (!claims?.emailVerified) {
-    vscode.window.showErrorMessage("Verify your email before creating a sync passphrase.");
+  if (!claims?.userId) {
+    vscode.window.showErrorMessage("Log in to Cursor Sync before creating a sync passphrase.");
+    return false;
+  }
+  if (!(await ensureEmailVerifiedForSetup(context))) {
     return false;
   }
 
@@ -129,8 +230,8 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
     );
   } catch (err) {
     if (err instanceof KeysApiError && err.code === "KEYS_ALREADY_SET") {
-      invalidateKeysGateCache();
-      await refreshE2eGateContext(context, { refreshKeys: true });
+      await invalidateKeysGateCache(context);
+      await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
       return runUnlockFlow(context);
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -141,14 +242,20 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
   await storeDek(context, claims.userId, keyVersion, dek);
   await rememberDekVersion(context, claims.userId, keyVersion);
   await markMigrationPending(context);
-  await refreshE2eGateContext(context, { refreshKeys: true });
+  await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
   refreshSidebar();
   vscode.window.showInformationMessage("Sync encryption is ready. Your next push will encrypt existing data.");
   return true;
 }
 
 export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<boolean> {
-  const snapshot = await resolveE2eGateSnapshot(context, { refreshKeys: true });
+  let snapshot: Awaited<ReturnType<typeof resolveE2eGateSnapshot>>;
+  try {
+    snapshot = await resolveE2eGateSnapshot(context, { refreshKeys: true, bypassCache: true });
+  } catch (err) {
+    vscode.window.showErrorMessage(keysApiUserMessage(err));
+    return false;
+  }
   if (snapshot.phase === "keys_not_set") {
     return runCreatePassphraseFlow(context);
   }
@@ -168,7 +275,16 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     return false;
   }
 
-  const keysCache = await fetchServerKeyMaterial(context);
+  await hydrateKeysCacheFromDisk(context);
+  let keysCache = getCachedKeysGate();
+  if (!keysCache.keyMaterial) {
+    try {
+      keysCache = await fetchServerKeyMaterial(context);
+    } catch (err) {
+      vscode.window.showErrorMessage(keysApiUserMessage(err));
+      return false;
+    }
+  }
   const material = keysCache.keyMaterial;
   if (!material) {
     vscode.window.showErrorMessage("Could not load encryption keys from the server.");
@@ -176,6 +292,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
   }
 
   let dek: Buffer | undefined;
+  let usedRecovery = false;
   if (useRecovery.id === "recovery") {
     const input = await vscode.window.showInputBox({
       prompt: "Enter recovery key",
@@ -193,6 +310,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
         snapshot.userId,
         material.keyVersion
       );
+      usedRecovery = true;
     } catch (err) {
       vscode.window.showErrorMessage(err instanceof Error ? err.message : String(err));
       return false;
@@ -217,10 +335,22 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     }
   }
 
+  if (usedRecovery) {
+    const rewrapped = await rewrapDekWithNewPassphrase(
+      context,
+      dek,
+      snapshot.userId,
+      material.keyVersion
+    );
+    if (!rewrapped) {
+      return false;
+    }
+  }
+
   await storeDek(context, snapshot.userId, material.keyVersion, dek);
   await rememberDekVersion(context, snapshot.userId, material.keyVersion);
   await markMigrationPending(context);
-  await refreshE2eGateContext(context);
+  await refreshE2eGateAfterCryptoChange(context);
   refreshSidebar();
   vscode.window.showInformationMessage("Sync unlocked.");
   return true;
@@ -239,8 +369,8 @@ export async function executeE2eUnlock(context: vscode.ExtensionContext): Promis
 export async function executeE2eChangePassphrase(context: vscode.ExtensionContext): Promise<void> {
   const gate = await import("./gate.js");
   const unlocked = await gate.requireE2eUnlocked(context);
-  if (!unlocked.ok) {
-    vscode.window.showErrorMessage(unlocked.message);
+  if (!isE2eDekUnlocked(unlocked)) {
+    vscode.window.showErrorMessage(unlocked.ok ? "Unlock sync first." : unlocked.message);
     return;
   }
 
@@ -287,14 +417,16 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
     return;
   }
 
+  await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+  refreshSidebar();
   vscode.window.showInformationMessage("Sync passphrase changed.");
 }
 
 export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionContext): Promise<void> {
   const gate = await import("./gate.js");
   const unlocked = await gate.requireE2eUnlocked(context);
-  if (!unlocked.ok) {
-    vscode.window.showErrorMessage(unlocked.message);
+  if (!isE2eDekUnlocked(unlocked)) {
+    vscode.window.showErrorMessage(unlocked.ok ? "Unlock sync first." : unlocked.message);
     return;
   }
 
@@ -314,12 +446,23 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
   const formattedRecovery = formatRecoveryKeyForDisplay(recoveryBytes);
   const lastGroup = lastRecoveryKeyGroup(formattedRecovery);
 
-  await vscode.window.showInformationMessage(
+  const panel = await vscode.window.showInformationMessage(
     `New recovery key (shown once):\n\n${formattedRecovery}`,
     { modal: true },
-    "Copy"
+    "Copy",
+    "Save to file"
   );
-  await vscode.env.clipboard.writeText(formattedRecovery);
+  if (panel === "Copy") {
+    await vscode.env.clipboard.writeText(formattedRecovery);
+  } else if (panel === "Save to file") {
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file("cursor-sync-recovery-key.txt"),
+      filters: { Text: ["txt"] },
+    });
+    if (uri) {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(formattedRecovery, "utf8"));
+    }
+  }
 
   const typed = await vscode.window.showInputBox({
     prompt: `Type the last group to confirm (${lastGroup})`,
@@ -347,11 +490,13 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
     return;
   }
 
+  await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+  refreshSidebar();
   vscode.window.showInformationMessage("Recovery key rotated.");
 }
 
 export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext): Promise<void> {
-  const snapshot = await refreshE2eGateContext(context, { refreshKeys: true });
+  const snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
   if (snapshot.phase === "keys_not_set") {
     void runCreatePassphraseFlow(context);
   } else if (snapshot.phase === "locked") {

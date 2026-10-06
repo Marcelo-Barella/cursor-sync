@@ -26,8 +26,17 @@ function encodeCrockfordBase32(bytes: Buffer): string {
   return output;
 }
 
+function normalizeRecoveryKeyInput(input: string): string {
+  return input
+    .replace(/[-\s]/g, "")
+    .toUpperCase()
+    .replace(/I/g, "1")
+    .replace(/L/g, "1")
+    .replace(/O/g, "0");
+}
+
 function decodeCrockfordBase32(input: string): Buffer {
-  const normalized = input.replace(/[-\s]/g, "").toUpperCase();
+  const normalized = normalizeRecoveryKeyInput(input);
   let bits = 0;
   let value = 0;
   const out: number[] = [];

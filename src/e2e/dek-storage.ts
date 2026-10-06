@@ -48,6 +48,7 @@ export async function clearAllStoredDeks(context: vscode.ExtensionContext): Prom
     }
   }
   await context.globalState.update("cursorSync.e2e.dekVersions", undefined);
+  await context.globalState.update("cursorSync.e2e.lastUserId", undefined);
 }
 
 export async function rememberDekVersion(

@@ -594,6 +594,7 @@ describe("scheduled sync debug wiring", () => {
     isPushLockedMock.mockReset().mockReturnValue(false);
     isPullLockedMock.mockReset().mockReturnValue(false);
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
+      kind: "dek",
       ok: true,
       userId: "user-1",
       keyVersion: 1,

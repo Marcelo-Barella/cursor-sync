@@ -112,14 +112,19 @@ vi.mock("../src/app-r2-storage.js", () => ({
   getR2Object: getR2ObjectMock,
 }));
 
-vi.mock("../src/e2e/gate.js", () => ({
-  requireE2eUnlocked: vi.fn().mockResolvedValue({
-    ok: true,
-    userId: "user-1",
-    keyVersion: 1,
-    dek: Buffer.alloc(32, 2),
-  }),
-}));
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 2),
+    }),
+  };
+});
 
 vi.mock("../src/e2e/r2-storage.js", () => ({
   putEncryptedR2Object: putEncryptedR2ObjectMock,
