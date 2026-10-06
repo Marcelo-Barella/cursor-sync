@@ -46,23 +46,6 @@ export async function refreshE2eGateAfterCryptoChange(
   return snapshot;
 }
 
-async function loadKeysForGate(
-  context: vscode.ExtensionContext,
-  options?: { refreshKeys?: boolean }
-): Promise<KeysGateCache> {
-  try {
-    return await fetchServerKeyMaterial(context, { force: options?.refreshKeys });
-  } catch (err) {
-    if (err instanceof KeysApiError && err.status === 429) {
-      throw err;
-    }
-    if (err instanceof KeysApiError && err.status === 401) {
-      throw err;
-    }
-    throw err;
-  }
-}
-
 export async function resolveE2eGateSnapshot(
   context: vscode.ExtensionContext,
   options?: { refreshKeys?: boolean; bypassCache?: boolean }
@@ -88,7 +71,7 @@ export async function resolveE2eGateSnapshot(
   const diskCache = getCachedKeysGate();
   let keysCache: KeysGateCache = diskCache;
   try {
-    keysCache = await loadKeysForGate(context, options);
+    keysCache = await fetchServerKeyMaterial(context, { force: options?.refreshKeys });
   } catch (err) {
     if (err instanceof KeysApiError && err.status === 401) {
       cachedSnapshot = { phase: "no_app_session" };
@@ -254,7 +237,6 @@ export function onAppSessionCleared(context?: vscode.ExtensionContext): void {
 }
 
 export async function lockLocalDek(context: vscode.ExtensionContext): Promise<void> {
-  const { clearStoredDekForUser } = await import("./dek-storage.js");
   const userId = context.globalState.get<string>("cursorSync.e2e.lastUserId");
   const versions = context.globalState.get<number[]>("cursorSync.e2e.dekVersions") ?? [];
   if (userId) {

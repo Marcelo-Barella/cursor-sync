@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import type { KeysGateCache, KeysVerificationState } from "./keys-client.js";
-import type { ServerKeyMaterialResponse } from "./keys-wire.js";
+import {
+  parseKeyMaterialResponse,
+  serializeKeyMaterialToWire,
+  type ServerKeyMaterialResponse,
+} from "./keys-wire.js";
 
 const PERSISTED_KEYS_CACHE_KEY = "cursorSync.e2e.keysCache.v1";
 
@@ -20,7 +24,6 @@ export async function loadPersistedKeysCache(
   }
   let keyMaterial: ServerKeyMaterialResponse | undefined;
   if (raw.keyMaterialWire) {
-    const { parseKeyMaterialResponse } = await import("./keys-wire.js");
     try {
       keyMaterial = parseKeyMaterialResponse(raw.keyMaterialWire);
     } catch {
@@ -49,7 +52,6 @@ export async function persistKeysCache(
     fetchedAtMs: cache.fetchedAtMs,
   };
   if (cache.keyMaterial) {
-    const { serializeKeyMaterialToWire } = await import("./keys-wire.js");
     wire.keyMaterialWire = serializeKeyMaterialToWire(cache.keyMaterial);
   }
   await context.globalState.update(PERSISTED_KEYS_CACHE_KEY, wire);
