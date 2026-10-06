@@ -107,7 +107,10 @@ async function rewrapDekWithNewPassphrase(
     return false;
   }
   const confirm = await promptPassphrase("Confirm new sync passphrase");
-  if (!confirm || confirm !== newPass) {
+  if (!confirm) {
+    return false;
+  }
+  if (confirm !== newPass) {
     vscode.window.showErrorMessage("Passphrases do not match.");
     return false;
   }
@@ -258,52 +261,28 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
 }
 
 async function tryPassphraseUnlock(
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
-  passphrase: string,
-  options?: { offlineUnlock?: boolean }
+  passphrase: string
 ): Promise<Buffer | undefined> {
   try {
     return await unwrapDekWithPassphraseMaterial(material, passphrase, userId);
   } catch {
-    if (options?.offlineUnlock) {
-      return undefined;
-    }
-    const fresh = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
-    if (!fresh.ok) {
-      return undefined;
-    }
-    try {
-      return await unwrapDekWithPassphraseMaterial(fresh.material, passphrase, userId);
-    } catch {
-      return undefined;
-    }
+    return undefined;
   }
 }
 
 async function tryRecoveryUnlock(
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
-  recoveryInput: string,
-  options?: { offlineUnlock?: boolean }
+  recoveryInput: string
 ): Promise<Buffer | undefined> {
   try {
     return unwrapDekWithRecoveryMaterial(material, recoveryInput, userId);
   } catch {
-    if (options?.offlineUnlock) {
-      return undefined;
-    }
-    const fresh = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
-    if (!fresh.ok) {
-      return undefined;
-    }
-    try {
-      return unwrapDekWithRecoveryMaterial(fresh.material, recoveryInput, userId);
-    } catch {
-      return undefined;
-    }
+    return undefined;
   }
 }
 
@@ -359,11 +338,12 @@ async function verifyCurrentUnlockCredential(
 }
 
 export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<boolean> {
-  let snapshot: Awaited<ReturnType<typeof resolveE2eGateSnapshot>>;
-  try {
-    snapshot = await resolveE2eGateSnapshot(context, { refreshKeys: true, bypassCache: true });
-  } catch (err) {
-    vscode.window.showErrorMessage(keysApiUserMessage(err));
+  const snapshot = await resolveE2eGateSnapshot(context, {
+    refreshKeys: true,
+    bypassCache: true,
+  });
+  if (snapshot.phase === "no_app_session") {
+    vscode.window.showErrorMessage("Log in to Cursor Sync to unlock encrypted sync.");
     return false;
   }
   if (snapshot.phase === "keys_not_set") {
@@ -383,7 +363,9 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     return false;
   }
   if (snapshot.phase !== "locked" || !snapshot.userId || !snapshot.keyVersion) {
-    vscode.window.showInformationMessage("Sync is not locked.");
+    if (snapshot.phase === "unlocked") {
+      vscode.window.showInformationMessage("Sync is not locked.");
+    }
     return snapshot.phase === "unlocked";
   }
 
@@ -398,7 +380,15 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     return false;
   }
 
-  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: true });
+  const keyLoad = snapshot.keysGateForCrypto
+    ? await loadKeyMaterialForCryptoOps(context, {
+        allowOfflineFallback: true,
+        prefetched: {
+          material: snapshot.keysGateForCrypto.material,
+          usedCacheFallback: snapshot.keysGateForCrypto.usedOfflineKeysCache,
+        },
+      })
+    : await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: true });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return false;
@@ -417,9 +407,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!input) {
       return false;
     }
-    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input, {
-      offlineUnlock,
-    });
+    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input);
     if (!dek) {
       vscode.window.showErrorMessage(
         offlineUnlock
@@ -434,9 +422,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!passphrase) {
       return false;
     }
-    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase, {
-      offlineUnlock,
-    });
+    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase);
     if (!dek) {
       vscode.window.showErrorMessage(
         offlineUnlock
@@ -533,7 +519,7 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
 
   await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
   refreshSidebar();
-  vscode.window.showInformationMessage("Sync passphrase changed.");
+  vscode.window.showInformationMessage("Passphrase changed.");
 }
 
 export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionContext): Promise<void> {

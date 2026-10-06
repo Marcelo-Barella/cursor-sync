@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.7
+
+### Fixed
+- Unlock gate falls through to offline key cache on classified network errors (verified cache); friendly connectivity copy in gate banner and `requireE2eUnlocked`.
+- Narrow offline detection to nested errno / abort timeout only; TLS and bare `TypeError` fail closed; `GET /v1/keys` uses a 15s timeout.
+- Every gate check refreshes when keys cache is `unverified_offline`; unlock reuses one gate `GET` for key material.
+- Lock skips immediate keys refetch; unlock shows sign-in message on 401; recovery rewrap confirm Escape cancels silently; “Passphrase changed” toast.
+- Push reloads gist id after plaintext guard; encrypted gist 404 creates a new gist instead of looping.
+- GitHub token prompt Cancel dismisses cleanly; sidebar dispatch surfaces errors.
+
 ## v0.9.0-staging.6
 
 ### Fixed

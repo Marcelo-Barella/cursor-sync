@@ -65,7 +65,11 @@ describe("loadKeyMaterialForCryptoOps offline and rate limits", () => {
 
   it("uses cached keys on network error for unlock and marks unverified offline", async () => {
     const { loadKeyMaterialForCryptoOps } = await import("../src/e2e/key-material-load.js");
-    fetchServerKeyMaterialMock.mockRejectedValue(new TypeError("fetch failed"));
+    fetchServerKeyMaterialMock.mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+      })
+    );
     getCachedMock.mockReturnValue({
       presence: "set",
       verification: "verified",
@@ -86,7 +90,11 @@ describe("loadKeyMaterialForCryptoOps offline and rate limits", () => {
     const { loadKeyMaterialForCryptoOps, OFFLINE_KEY_MATERIAL_MESSAGE } = await import(
       "../src/e2e/key-material-load.js"
     );
-    fetchServerKeyMaterialMock.mockRejectedValue(new TypeError("fetch failed"));
+    fetchServerKeyMaterialMock.mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
+      })
+    );
     getCachedMock.mockReturnValue({
       presence: "set",
       verification: "verified",

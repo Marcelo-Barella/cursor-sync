@@ -23,6 +23,11 @@ export const OFFLINE_UNLOCK_SUCCESS_LABEL = "Unlocked offline using cached keys"
 
 export type KeyMaterialLoadOptions = {
   allowOfflineFallback?: boolean;
+  /** Reuse key material already loaded by the gate (avoids duplicate GET /v1/keys). */
+  prefetched?: {
+    material: ServerKeyMaterialResponse;
+    usedCacheFallback: boolean;
+  };
 };
 
 export type KeyMaterialLoadResult =
@@ -38,6 +43,16 @@ export async function loadKeyMaterialForCryptoOps(
   options?: KeyMaterialLoadOptions
 ): Promise<KeyMaterialLoadResult> {
   const allowOfflineFallback = options?.allowOfflineFallback === true;
+  if (options?.prefetched) {
+    if (options.prefetched.usedCacheFallback) {
+      await markKeysCacheUnverifiedOffline(context);
+    }
+    return {
+      ok: true,
+      material: options.prefetched.material,
+      usedCacheFallback: options.prefetched.usedCacheFallback,
+    };
+  }
   try {
     const cache = await fetchServerKeyMaterial(context, { force: true });
     if (!cache.keyMaterial) {

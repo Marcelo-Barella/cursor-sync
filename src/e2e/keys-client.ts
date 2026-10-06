@@ -3,6 +3,7 @@ import { getAppApiUrl } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
 import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
 import { rateLimitMessageFromResponse } from "./rate-limit.js";
+import { KEYS_GET_TIMEOUT_MS } from "./network-errors.js";
 import { assertDekVerifierHex, type KdfParamsWire, type KeyWrapBytes } from "./key-material.js";
 import {
   parseKeyMaterialResponse,
@@ -90,6 +91,15 @@ export function getCachedKeysGate(): KeysGateCache {
   return inMemoryKeysCache;
 }
 
+/** Disk cache usable for offline unlock when the API is unreachable. */
+export function hasVerifiedKeysCacheForOfflineUnlock(cache: KeysGateCache): boolean {
+  return (
+    cache.presence === "set" &&
+    (cache.verification === "verified" || cache.verification === "unverified_offline") &&
+    cache.keyMaterial !== undefined
+  );
+}
+
 export async function hydrateKeysCacheFromDisk(
   context: vscode.ExtensionContext
 ): Promise<KeysGateCache> {
@@ -155,14 +165,25 @@ async function authFetch(
 
 export async function fetchServerKeyMaterial(
   context: vscode.ExtensionContext,
-  options?: { force?: boolean }
+  options?: { force?: boolean; skipNetwork?: boolean }
 ): Promise<KeysGateCache> {
   await hydrateKeysCacheFromDisk(context);
-  if (!options?.force && inMemoryKeysCache.presence !== "unknown") {
+  const stale = keysCacheNeedsRefresh(inMemoryKeysCache);
+  if (
+    !options?.force &&
+    !stale &&
+    inMemoryKeysCache.presence !== "unknown"
+  ) {
+    return inMemoryKeysCache;
+  }
+  if (options?.skipNetwork) {
     return inMemoryKeysCache;
   }
 
-  const response = await authFetch(context, "/v1/keys", { method: "GET" });
+  const response = await authFetch(context, "/v1/keys", {
+    method: "GET",
+    signal: AbortSignal.timeout(KEYS_GET_TIMEOUT_MS),
+  });
   const cache = await keysGetResponseToCache(response);
   await setCachedKeysGate(context, cache);
   return cache;

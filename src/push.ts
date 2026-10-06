@@ -138,7 +138,7 @@ async function doPush(
   }
 
   const client = new GistClient(token);
-  const syncState = await loadSyncState(context);
+  let syncState = await loadSyncState(context);
 
   if (syncState) {
     const remoteChecksums = syncState.remoteChecksums;
@@ -197,6 +197,7 @@ async function doPush(
       );
       return false;
     }
+    syncState = await loadSyncState(context);
   }
   let gistFiles: Record<string, { content: string }>;
   if (usePlaintextGist) {
@@ -215,14 +216,16 @@ async function doPush(
   let gistId = syncState?.gistId;
   let isNewGist = false;
 
-  if (!gistId) {
-    const existingResult = await withRetry(() => client.findExistingGist());
-    if (existingResult.ok && existingResult.data) {
-      gistId = existingResult.data.id;
+  const clearStoredGistId = async (): Promise<void> => {
+    const latest = await loadSyncState(context);
+    if (!latest?.gistId) {
+      return;
     }
-  }
+    await saveSyncState(context, { ...latest, gistId: "" });
+    syncState = await loadSyncState(context);
+  };
 
-  if (!gistId) {
+  const createGistOnPush = async (): Promise<string | undefined> => {
     const result = await withRetry(() =>
       client.createGist(gistFiles, "Cursor Sync - Settings Backup")
     );
@@ -253,12 +256,36 @@ async function doPush(
         trigger,
         status_code: result.error.statusCode,
       });
-      return false;
+      return undefined;
     }
-    gistId = result.data.id;
-    isNewGist = true;
-  } else {
+    return result.data.id;
+  };
+
+  if (!gistId) {
+    const existingResult = await withRetry(() => client.findExistingGist());
+    if (existingResult.ok && existingResult.data) {
+      gistId = existingResult.data.id;
+    }
+  }
+
+  while (true) {
+    if (!gistId) {
+      const createdId = await createGistOnPush();
+      if (!createdId) {
+        return false;
+      }
+      gistId = createdId;
+      isNewGist = true;
+      break;
+    }
+
     const existingResult = await withRetry(() => client.getGist(gistId!));
+    if (!existingResult.ok && existingResult.error.statusCode === 404) {
+      await clearStoredGistId();
+      gistId = undefined;
+      continue;
+    }
+
     let filesToDelete: Record<string, null> = {};
     if (existingResult.ok && !usePlaintextGist && e2e.kind === "dek") {
       const encNames = encryptedGistFileNamesForLogical(
@@ -293,6 +320,11 @@ async function doPush(
     const result = await withRetry(() =>
       client.updateGist(gistId!, updatePayload)
     );
+    if (!result.ok && result.error.statusCode === 404 && !usePlaintextGist) {
+      await clearStoredGistId();
+      gistId = undefined;
+      continue;
+    }
     if (!result.ok) {
       void showSyncFailureWithDebug(
         context,
@@ -322,6 +354,7 @@ async function doPush(
       });
       return false;
     }
+    break;
   }
 
   const checksums: Record<string, string> = {};

@@ -100,7 +100,8 @@ export async function requireToken(
     }
     const action = await vscode.window.showWarningMessage(
       "GitHub token not configured. Configure now?",
-      "Configure"
+      "Configure",
+      "Cancel"
     );
     if (action === "Configure") {
       await configureGithub(context);

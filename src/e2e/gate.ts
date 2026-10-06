@@ -5,12 +5,15 @@ import { clearStoredDekForUser, loadStoredDek } from "./dek-storage.js";
 import {
   fetchServerKeyMaterial,
   getCachedKeysGate,
+  hasVerifiedKeysCacheForOfflineUnlock,
   hydrateKeysCacheFromDisk,
   invalidateKeysGateCache,
   keysCacheNeedsRefresh,
   KeysApiError,
   type KeysGateCache,
 } from "./keys-client.js";
+import { isTransientNetworkError, userFriendlyConnectivityMessage } from "./network-errors.js";
+import type { ServerKeyMaterialResponse } from "./keys-wire.js";
 import { refreshSyncStatusBar } from "../sync-status-bar.js";
 
 export type E2eGatePhase =
@@ -26,6 +29,11 @@ export interface E2eGateSnapshot {
   userId?: string;
   keyVersion?: number;
   keysStatusMessage?: string;
+  /** Fresh or offline-fallback key material from the latest gate keys fetch (unlock reuses this). */
+  keysGateForCrypto?: {
+    material: ServerKeyMaterialResponse;
+    usedOfflineKeysCache: boolean;
+  };
 }
 
 let cachedSnapshot: E2eGateSnapshot | undefined;
@@ -56,9 +64,19 @@ export async function refreshE2eGateAfterCryptoChange(
   return snapshot;
 }
 
+function keysGateForCryptoFromCache(
+  keysCache: KeysGateCache,
+  usedOfflineKeysCache: boolean
+): E2eGateSnapshot["keysGateForCrypto"] | undefined {
+  if (!keysCache.keyMaterial) {
+    return undefined;
+  }
+  return { material: keysCache.keyMaterial, usedOfflineKeysCache };
+}
+
 export async function resolveE2eGateSnapshot(
   context: vscode.ExtensionContext,
-  options?: { refreshKeys?: boolean; bypassCache?: boolean }
+  options?: { refreshKeys?: boolean; bypassCache?: boolean; skipNetwork?: boolean }
 ): Promise<E2eGateSnapshot> {
   if (!options?.refreshKeys && !options?.bypassCache && cachedSnapshot) {
     return cachedSnapshot;
@@ -80,8 +98,14 @@ export async function resolveE2eGateSnapshot(
 
   const diskCache = getCachedKeysGate();
   let keysCache: KeysGateCache = diskCache;
+  let usedOfflineKeysCache = false;
+  const forceKeysFetch =
+    options?.refreshKeys === true || keysCacheNeedsRefresh(diskCache);
   try {
-    keysCache = await fetchServerKeyMaterial(context, { force: options?.refreshKeys });
+    keysCache = await fetchServerKeyMaterial(context, {
+      force: forceKeysFetch,
+      skipNetwork: options?.skipNetwork,
+    });
   } catch (err) {
     if (err instanceof KeysApiError && err.status === 401) {
       cachedSnapshot = { phase: "no_app_session" };
@@ -98,8 +122,25 @@ export async function resolveE2eGateSnapshot(
         };
         return cachedSnapshot;
       }
+    } else if (isTransientNetworkError(err)) {
+      if (hasVerifiedKeysCacheForOfflineUnlock(diskCache)) {
+        keysCache = diskCache;
+        usedOfflineKeysCache = true;
+      } else {
+        cachedSnapshot = {
+          phase: "keys_unavailable",
+          userId: claims.userId,
+          keysStatusMessage: userFriendlyConnectivityMessage(err),
+        };
+        return cachedSnapshot;
+      }
     } else {
-      throw err;
+      cachedSnapshot = {
+        phase: "keys_unavailable",
+        userId: claims.userId,
+        keysStatusMessage: userFriendlyConnectivityMessage(err),
+      };
+      return cachedSnapshot;
     }
   }
 
@@ -122,36 +163,28 @@ export async function resolveE2eGateSnapshot(
   }
 
   const keyVersion = keysCache.keyMaterial?.keyVersion ?? 1;
+  const keysGateForCrypto = keysGateForCryptoFromCache(keysCache, usedOfflineKeysCache);
   const dek = await loadStoredDek(context, claims.userId, keyVersion);
   if (!dek) {
-    cachedSnapshot = { phase: "locked", userId: claims.userId, keyVersion };
+    cachedSnapshot = {
+      phase: "locked",
+      userId: claims.userId,
+      keyVersion,
+      keysGateForCrypto,
+    };
     return cachedSnapshot;
   }
 
-  cachedSnapshot = { phase: "unlocked", userId: claims.userId, keyVersion };
+  cachedSnapshot = {
+    phase: "unlocked",
+    userId: claims.userId,
+    keyVersion,
+    keysGateForCrypto,
+  };
   return cachedSnapshot;
 }
 
-export async function refreshE2eGateContext(
-  context: vscode.ExtensionContext,
-  options?: { refreshKeys?: boolean; bypassCache?: boolean }
-): Promise<E2eGateSnapshot> {
-  let snapshot: E2eGateSnapshot;
-  try {
-    snapshot = await resolveE2eGateSnapshot(context, options);
-  } catch (err) {
-    const message =
-      err instanceof KeysApiError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err);
-    snapshot = {
-      phase: "keys_unavailable",
-      keysStatusMessage: message,
-    };
-    cachedSnapshot = snapshot;
-  }
+async function applyE2eGateSnapshotToContext(snapshot: E2eGateSnapshot): Promise<void> {
   await vscode.commands.executeCommand(
     "setContext",
     "cursorSync.e2e.unlocked",
@@ -172,6 +205,15 @@ export async function refreshE2eGateContext(
     "cursorSync.e2e.emailNotVerified",
     snapshot.phase === "email_not_verified"
   );
+}
+
+export async function refreshE2eGateContext(
+  context: vscode.ExtensionContext,
+  options?: { refreshKeys?: boolean; bypassCache?: boolean; skipNetwork?: boolean }
+): Promise<E2eGateSnapshot> {
+  const snapshot = await resolveE2eGateSnapshot(context, options);
+  cachedSnapshot = snapshot;
+  await applyE2eGateSnapshotToContext(snapshot);
   return snapshot;
 }
 
@@ -204,7 +246,7 @@ export async function requireE2eUnlocked(
     return { ok: false, message: "Log in to Cursor Sync to use encrypted sync." };
   }
 
-  const snapshot = await resolveE2eGateSnapshot(context);
+  const snapshot = await refreshE2eGateContext(context);
   if (snapshot.phase === "keys_unavailable") {
     return {
       ok: false,
@@ -225,6 +267,9 @@ export async function requireE2eUnlocked(
       ok: false,
       message: "Create a sync passphrase to enable encrypted sync (Cursor Sync: Unlock).",
     };
+  }
+  if (snapshot.phase === "no_app_session") {
+    return { ok: false, message: "Log in to Cursor Sync to use encrypted sync." };
   }
   if (snapshot.phase === "locked" || !snapshot.userId || !snapshot.keyVersion) {
     return { ok: false, message: "Sync is locked. Unlock with your passphrase or recovery key." };
@@ -262,5 +307,20 @@ export async function lockLocalDek(context: vscode.ExtensionContext): Promise<vo
   }
   invalidateE2eGateSnapshot();
   await invalidateKeysGateCache(context);
-  await refreshE2eGateContext(context, { bypassCache: true });
+
+  const session = await getAppSession(context);
+  const claims = session ? parseAppSessionClaims(session) : undefined;
+  const lockedUserId =
+    claims?.userId ?? context.globalState.get<string>("cursorSync.e2e.lastUserId");
+  const lockedKeyVersion = snapshot?.keyVersion ?? 1;
+  if (lockedUserId) {
+    cachedSnapshot = {
+      phase: "locked",
+      userId: lockedUserId,
+      keyVersion: lockedKeyVersion,
+    };
+  } else {
+    cachedSnapshot = { phase: "no_app_session" };
+  }
+  await applyE2eGateSnapshotToContext(cachedSnapshot);
 }
