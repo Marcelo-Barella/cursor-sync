@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
-import type { SyncTabState } from "./sync-tab.js";
+import type { E2eSidebarPhase, SyncTabState } from "./sync-tab.js";
+import { resolveE2eGateSnapshot } from "../e2e/gate.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 import { renderSidebarAppearanceTokenCss } from "./sidebar-appearance-tokens.js";
@@ -14,10 +15,22 @@ export async function buildSyncTabState(
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
+  const gate = await resolveE2eGateSnapshot(context);
+  const e2ePhase: E2eSidebarPhase =
+    gate.phase === "unlocked"
+      ? "unlocked"
+      : gate.phase === "locked"
+        ? "locked"
+        : gate.phase === "keys_not_set"
+          ? "needs_setup"
+          : gate.phase === "email_not_verified"
+            ? "email_not_verified"
+            : "no_app_session";
 
   const base = {
     history,
     appSessionActive,
+    e2ePhase,
   };
 
   if (isSyncOperationActive()) {

@@ -137,6 +137,22 @@
         "title": "Cursor Sync: Reset Extension State"
       },
       {
+        "command": "cursorSync.e2e.unlock",
+        "title": "Cursor Sync: Unlock Encrypted Sync"
+      },
+      {
+        "command": "cursorSync.e2e.lock",
+        "title": "Cursor Sync: Lock Encrypted Sync"
+      },
+      {
+        "command": "cursorSync.e2e.changePassphrase",
+        "title": "Cursor Sync: Change Sync Passphrase"
+      },
+      {
+        "command": "cursorSync.e2e.rotateRecoveryKey",
+        "title": "Cursor Sync: Rotate Recovery Key"
+      },
+      {
         "command": "cursorSync.export",
         "title": "Cursor Sync: Export Settings to Private Gist"
       },

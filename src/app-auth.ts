@@ -400,6 +400,8 @@ export async function clearAppSession(
     // Clear in-memory session even when SecretStorage is unavailable or hung.
   }
   inMemoryAppSession = undefined;
+  const { onAppSessionCleared } = await import("./e2e/gate.js");
+  onAppSessionCleared();
 }
 
 async function completeLoginWithCode(
@@ -423,6 +425,8 @@ async function completeLoginWithCode(
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
+    const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
+    await ensureE2eGateAfterLogin(context);
     refreshSidebar();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;

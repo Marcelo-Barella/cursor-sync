@@ -1,5 +1,12 @@
 import type { SyncHistoryEntry } from "../types.js";
 
+export type E2eSidebarPhase =
+  | "unlocked"
+  | "locked"
+  | "needs_setup"
+  | "email_not_verified"
+  | "no_app_session";
+
 export interface SyncTabState {
   status: "synced" | "not-synced" | "syncing" | "error";
   lastSyncTime: string | undefined;
@@ -8,6 +15,7 @@ export interface SyncTabState {
   gistId: string | undefined;
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
+  e2ePhase: E2eSidebarPhase;
 }
 
 export function renderAccountSection(appSessionActive: boolean): string {
@@ -99,6 +107,30 @@ export function renderHistoryEntry(entry: SyncHistoryEntry): string {
   </div>`;
 }
 
+export function renderE2eLockBanner(state: SyncTabState): string {
+  if (state.e2ePhase === "unlocked" || state.e2ePhase === "no_app_session") {
+    return "";
+  }
+  if (state.e2ePhase === "email_not_verified") {
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">Verify your email on the Cursor Sync website before setting up encryption.</p>
+  </div>`;
+  }
+  if (state.e2ePhase === "needs_setup") {
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">Create a sync passphrase to enable push, pull, and cloud sync.</p>
+    <button class="configure-btn" data-command="e2eUnlock"><span class="codicon codicon-key"></span> Set up passphrase</button>
+  </div>`;
+  }
+  return `<div class="section e2e-lock-banner">
+    <div class="section-header">Locked</div>
+    <p class="e2e-lock-copy">Sync is locked on this device. Unlock with your passphrase or recovery key.</p>
+    <button class="configure-btn" data-command="e2eUnlock"><span class="codicon codicon-unlock"></span> Unlock</button>
+  </div>`;
+}
+
 export function renderSyncPane(state: SyncTabState): string {
   const statusIconMap = {
     synced: "check",
@@ -134,7 +166,11 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
+  const syncDisabled = state.e2ePhase !== "unlocked";
+  const syncDisabledAttr = syncDisabled ? ' disabled aria-disabled="true"' : "";
+
   return `<div id="sync-pane" class="tab-pane">
+  ${renderE2eLockBanner(state)}
   <div class="status-card ${state.status}">
     <div class="status-icon-wrapper">
       ${state.status === "synced" ? cursorLogoSvg : `<span class="codicon codicon-${statusIcon}"></span>`}
@@ -149,7 +185,7 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
-  <button class="sync-now-btn" data-command="syncNow">
+  <button class="sync-now-btn" data-command="syncNow"${syncDisabledAttr}>
     <span class="codicon codicon-sync"></span>
     Sync Now
   </button>
@@ -157,10 +193,10 @@ export function renderSyncPane(state: SyncTabState): string {
   <div class="section">
     <div class="section-header">Actions</div>
     <div class="action-grid">
-      <button class="action-btn" data-command="push"><span class="codicon codicon-cloud-upload"></span> Push</button>
-      <button class="action-btn" data-command="pull"><span class="codicon codicon-cloud-download"></span> Pull</button>
-      <button class="action-btn" data-command="export"><span class="codicon codicon-export"></span> Export</button>
-      <button class="action-btn" data-command="import"><span class="codicon codicon-desktop-download"></span> Import</button>
+      <button class="action-btn" data-command="push"${syncDisabledAttr}><span class="codicon codicon-cloud-upload"></span> Push</button>
+      <button class="action-btn" data-command="pull"${syncDisabledAttr}><span class="codicon codicon-cloud-download"></span> Pull</button>
+      <button class="action-btn" data-command="export"${syncDisabledAttr}><span class="codicon codicon-export"></span> Export</button>
+      <button class="action-btn" data-command="import"${syncDisabledAttr}><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>
   </div>
 

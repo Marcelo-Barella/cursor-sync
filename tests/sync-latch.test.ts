@@ -33,6 +33,15 @@ vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: refreshSidebarMock,
 }));
 
+vi.mock("../src/e2e/gate.js", () => ({
+  requireE2eUnlocked: vi.fn().mockResolvedValue({
+    ok: true,
+    userId: "user-1",
+    keyVersion: 1,
+    dek: Buffer.alloc(32, 1),
+  }),
+}));
+
 describe("sync latch recovery", () => {
   beforeEach(() => {
     vi.resetModules();

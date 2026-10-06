@@ -65,6 +65,13 @@ import { flushPendingSidebarWriteback } from "./chat-import-sidebar-writeback.js
 import { executeInstallSkillTransportChat } from "./install-skill-transport-chat.js";
 import { clearR2CredentialsCache } from "./app-r2-storage.js";
 import { registerDeveloperUrlConfigurationListener } from "./config/urls.js";
+import { refreshE2eGateContext } from "./e2e/gate.js";
+import {
+  executeE2eChangePassphrase,
+  executeE2eLock,
+  executeE2eRotateRecoveryKey,
+  executeE2eUnlock,
+} from "./e2e/commands.js";
 let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -156,6 +163,27 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.reset", () =>
       executeReset(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.unlock", () =>
+      executeE2eUnlock(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.lock", () =>
+      executeE2eLock(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.changePassphrase", () =>
+      executeE2eChangePassphrase(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.rotateRecoveryKey", () =>
+      executeE2eRotateRecoveryKey(context)
     )
   );
 
@@ -293,6 +321,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
+  void refreshE2eGateContext(context);
   getOrCreateClientId(context);
   startScheduler(context);
 
@@ -336,6 +365,13 @@ export async function executeSyncNow(
 ): Promise<void> {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
+
+  const { requireE2eUnlocked } = await import("./e2e/gate.js");
+  const e2e = await requireE2eUnlocked(context);
+  if (!e2e.ok) {
+    vscode.window.showWarningMessage(e2e.message);
+    return;
+  }
 
   if (!tryBeginSyncOperation()) {
     await recoverSyncOperationLatch(context, { force: true });

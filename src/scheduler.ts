@@ -189,6 +189,16 @@ export async function scheduledTick(
     return;
   }
 
+  const { requireE2eUnlocked } = await import("./e2e/gate.js");
+  const e2e = await requireE2eUnlocked(context);
+  if (!e2e.ok) {
+    logger.appendLine(
+      `[${new Date().toISOString()}] Scheduled sync skipped: ${e2e.message}`
+    );
+    sendEvent(context, "scheduled_sync_skipped", { reason: "e2e_locked" });
+    return;
+  }
+
   logger.appendLine(
     `[${new Date().toISOString()}] Scheduled sync triggered`
   );

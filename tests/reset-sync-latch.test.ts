@@ -25,6 +25,19 @@ vi.mock("../src/diagnostics.js", () => ({
   clearSyncState: vi.fn(async () => {}),
 }));
 
+vi.mock("../src/e2e/dek-storage.js", () => ({
+  clearAllStoredDeks: vi.fn(async () => {}),
+}));
+
+vi.mock("../src/e2e/migration.js", () => ({
+  clearMigrationState: vi.fn(async () => {}),
+}));
+
+vi.mock("../src/e2e/gate.js", () => ({
+  onAppSessionCleared: vi.fn(),
+  refreshE2eGateContext: vi.fn(async () => ({ phase: "no_app_session" })),
+}));
+
 vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({
