@@ -27,16 +27,19 @@ import {
   registerAppAuthUriHandler,
 } from "./app-auth.js";
 import {
+  determineAppStorageSyncAction,
   executePullAppConfigs,
   executePushAppConfigs,
+  hasAppSession,
 } from "./app-configs.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { executeReset } from "./reset.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
-import { determineSyncAction, shouldSkipGistPushForAppSession } from "./scheduler.js";
+import { determineSyncAction } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
+import { refreshSyncCommandContexts } from "./sync-context.js";
 import {
   buildSyncDebugFailure,
   showSyncFailureWithDebug,
@@ -353,7 +356,9 @@ export async function executeSyncNow(
   const lockedSyncOptions = { skipOperationLock: true as const, trigger: "manual" as const };
   let syncFailed = false;
   try {
-    const result = await determineSyncAction(context);
+    const result = (await hasAppSession(context))
+      ? await determineAppStorageSyncAction(context)
+      : await determineSyncAction(context);
     switch (result.action) {
       case "none":
         vscode.window.showInformationMessage("Already in sync, nothing to do.");
@@ -364,15 +369,6 @@ export async function executeSyncNow(
         }
         break;
       case "push":
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Sync Now: Gist push skipped (app session active)`
-          );
-          vscode.window.showInformationMessage(
-            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
-          );
-          break;
-        }
         if (!(await executePush(context, lockedSyncOptions))) {
           syncFailed = true;
         }
@@ -381,15 +377,6 @@ export async function executeSyncNow(
         const pullOk = await executePull(context, lockedSyncOptions);
         if (!pullOk) {
           syncFailed = true;
-          break;
-        }
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Sync Now: Gist push skipped after pull (app session active)`
-          );
-          vscode.window.showInformationMessage(
-            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
-          );
           break;
         }
         if (!(await executePush(context, lockedSyncOptions))) {
@@ -446,20 +433,6 @@ export async function executeSyncNow(
 async function updateConfiguredContext(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const token = await getToken(context);
-  const isConfigured = token !== undefined;
-  
-  await vscode.commands.executeCommand(
-    "setContext",
-    "cursorSync.configured",
-    isConfigured
-  );
-
-  if (isConfigured) {
-    const syncState = await loadSyncState(context);
-    const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
-    updateStatusBar("ok", lastSync);
-  } else {
-    updateStatusBar("unconfigured");
-  }
+  const { refreshSyncCommandContextsAndStatusBar } = await import("./sync-context.js");
+  await refreshSyncCommandContextsAndStatusBar(context);
 }

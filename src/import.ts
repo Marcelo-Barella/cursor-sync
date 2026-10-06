@@ -74,7 +74,7 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
     return;
   }
 
-  const roots = resolveSyncRoots();
+  const roots = resolveSyncRoots(process.platform, context);
   const availableFiles: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
   for (const [gistFileName, gistFile] of Object.entries(gistData.files)) {

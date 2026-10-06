@@ -16,15 +16,29 @@ export function getLogger(): vscode.OutputChannel {
   return outputChannel;
 }
 
-function latestHistoryForDestination(
+function latestHistoryAttempt(
   history: SyncHistoryEntry[],
   destination: SyncDestinationId
 ): SyncHistoryEntry | undefined {
   return history.find(
-    (entry) =>
-      entry.success &&
-      (entry.destination ?? "github-gist") === destination
+    (entry) => (entry.destination ?? "github-gist") === destination
   );
+}
+
+export function formatStatusTimestamp(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    return iso;
+  }
+  return parsed.toLocaleString();
+}
+
+function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
+  const when = formatStatusTimestamp(entry.timestamp);
+  if (entry.success) {
+    return `${when} — succeeded (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
+  }
+  return `${when} — failed${entry.error ? `: ${entry.error}` : ""}`;
 }
 
 export function buildStatusQuickPickItems(
@@ -33,10 +47,10 @@ export function buildStatusQuickPickItems(
 ): vscode.QuickPickItem[] {
   const items: vscode.QuickPickItem[] = [];
 
-  const gistHistory = latestHistoryForDestination(history, "github-gist");
-  const appHistory = latestHistoryForDestination(history, "cursor-sync-storage");
+  const gistAttempt = latestHistoryAttempt(history, "github-gist");
+  const appAttempt = latestHistoryAttempt(history, "cursor-sync-storage");
 
-  if (!syncState && !gistHistory && !appHistory) {
+  if (!syncState && !gistAttempt && !appAttempt) {
     items.push({ label: "Status", description: "No sync performed yet" });
     return items;
   }
@@ -44,7 +58,7 @@ export function buildStatusQuickPickItems(
   if (syncState) {
     items.push({
       label: "GitHub Gist — last sync",
-      description: syncState.lastSyncTimestamp,
+      description: formatStatusTimestamp(syncState.lastSyncTimestamp),
     });
     items.push({
       label: "GitHub Gist — direction",
@@ -62,33 +76,25 @@ export function buildStatusQuickPickItems(
       label: "GitHub Gist — files tracked",
       description: String(Object.keys(syncState.localChecksums).length),
     });
-  } else if (gistHistory) {
+  } else if (gistAttempt) {
     items.push({
-      label: `GitHub Gist — last ${gistHistory.direction}`,
-      description: gistHistory.timestamp,
+      label: `GitHub Gist — last ${gistAttempt.direction}`,
+      description: formatHistoryAttemptDescription(gistAttempt),
     });
     items.push({
       label: "GitHub Gist — destination",
       description: syncDestinationLabel("github-gist"),
     });
-    items.push({
-      label: "GitHub Gist — files",
-      description: String(gistHistory.fileCount),
-    });
   }
 
-  if (appHistory) {
+  if (appAttempt) {
     items.push({
-      label: `Cursor Sync storage — last ${appHistory.direction}`,
-      description: appHistory.timestamp,
+      label: `Cursor Sync storage — last ${appAttempt.direction}`,
+      description: formatHistoryAttemptDescription(appAttempt),
     });
     items.push({
       label: "Cursor Sync storage — destination",
       description: syncDestinationLabel("cursor-sync-storage"),
-    });
-    items.push({
-      label: "Cursor Sync storage — files",
-      description: String(appHistory.fileCount),
     });
   }
 

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.8
+
+### Fixed
+- Sync enumeration uses the Cursor **User** dir from `globalStorageUri` everywhere settings are packaged or written (Gist push, app storage, scheduler, conflicts, import/export).
+- App storage push skips unreadable files, logs real R2 HTTP status, fails partial uploads without updating `/configs` (R2 bytes may be newer until a full push succeeds).
+- **Sync Now** and scheduled sync use app storage when logged in; palette Push/Pull/Sync enable with Gist token or app session.
+- **Show Status** shows the latest storage attempt including failures, with local-formatted timestamps.
+- Sidebar status card reflects Cursor Sync storage history when logged in; redundant **Push storage** / **Pull storage** buttons removed (main Push/Pull route to storage).
+- Shorter Push/Pull toasts; storage safe-mode picker title uses **Cursor Sync storage** naming.
+
 ### Changed
 - Staging developer preset API/website URLs now point at `api-staging.cursor-sync.com` and `staging.cursor-sync.com`; legacy bergamota staging hosts remain available via the **custom** preset.
 

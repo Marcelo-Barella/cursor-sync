@@ -6,6 +6,7 @@ export interface SyncTabState {
   lastSyncDirection: "push" | "pull" | undefined;
   fileCount: number;
   gistId: string | undefined;
+  statusDetail: string | undefined;
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
 }
@@ -116,8 +117,14 @@ export function renderSyncPane(state: SyncTabState): string {
   const statusIcon = statusIconMap[state.status];
   const statusLabel = statusLabelMap[state.status];
   const lastSyncText = state.lastSyncTime ? relativeTime(state.lastSyncTime) : "Never";
+  const localTimeText = state.lastSyncTime
+    ? new Date(state.lastSyncTime).toLocaleString()
+    : "";
   const directionIcon = state.lastSyncDirection === "push" ? "arrow-up" : state.lastSyncDirection === "pull" ? "arrow-down" : "";
   const directionLabel = state.lastSyncDirection === "push" ? "Push" : state.lastSyncDirection === "pull" ? "Pull" : "";
+  const actionsHeader = state.appSessionActive
+    ? "Actions (Cursor Sync storage)"
+    : "Actions";
 
   const cursorLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.78 746.78">
     <rect fill="transparent" width="746.78" height="746.78"/>
@@ -134,11 +141,6 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
-  const appStorageActions = state.appSessionActive
-    ? `<button class="action-btn action-btn-app" data-command="pushAppConfigs"><span class="codicon codicon-cloud-upload"></span> Push storage</button>
-      <button class="action-btn action-btn-app" data-command="pullAppConfigs"><span class="codicon codicon-cloud-download"></span> Pull storage</button>`
-    : "";
-
   return `<div id="sync-pane" class="tab-pane">
   <div class="status-card ${state.status}">
     <div class="status-icon-wrapper">
@@ -149,8 +151,10 @@ export function renderSyncPane(state: SyncTabState): string {
       <div class="status-meta">
         <span>${lastSyncText}</span>
         ${directionLabel ? `<span class="codicon codicon-${directionIcon}"></span><span>${directionLabel}</span>` : ""}
+        ${state.statusDetail ? `<span>· ${escapeHtml(state.statusDetail)}</span>` : ""}
       </div>
-      ${state.fileCount > 0 ? `<div class="file-count">${state.fileCount} file${state.fileCount !== 1 ? "s" : ""} tracked</div>` : ""}
+      ${localTimeText ? `<div class="file-count">${escapeHtml(localTimeText)}</div>` : ""}
+      ${state.fileCount > 0 ? `<div class="file-count">${state.fileCount} file${state.fileCount !== 1 ? "s" : ""}</div>` : ""}
     </div>
   </div>
 
@@ -160,11 +164,10 @@ export function renderSyncPane(state: SyncTabState): string {
   </button>
 
   <div class="section">
-    <div class="section-header">Actions</div>
+    <div class="section-header">${actionsHeader}</div>
     <div class="action-grid">
       <button class="action-btn" data-command="push"><span class="codicon codicon-cloud-upload"></span> Push</button>
       <button class="action-btn" data-command="pull"><span class="codicon codicon-cloud-download"></span> Pull</button>
-      ${appStorageActions}
       <button class="action-btn" data-command="export"><span class="codicon codicon-export"></span> Export</button>
       <button class="action-btn" data-command="import"><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>

@@ -29,6 +29,11 @@ vi.mock("../src/sidebar/index.js", () => ({
 }));
 
 vi.mock("vscode", () => ({
+  commands: {
+    executeCommand: vi.fn().mockResolvedValue(undefined),
+    registerCommand: vi.fn(() => ({ dispose: () => {} })),
+    getCommands: vi.fn().mockResolvedValue([]),
+  },
   workspace: {
     getConfiguration: () => ({
       get: <T>(_key: string, defaultValue?: T) => defaultValue,

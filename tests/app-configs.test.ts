@@ -59,6 +59,7 @@ vi.mock("../src/paths.js", () => ({
 
 vi.mock("../src/packaging.js", () => ({
   packageFiles: async () => ({
+    skipped: [],
     packaged: new Map([
       [
         "cursor-user/settings.json",
@@ -158,7 +159,7 @@ describe("app-configs API", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      "Log in to Cursor Sync to sync with Cursor Sync storage."
     );
   });
 
@@ -246,7 +247,7 @@ describe("app-configs API", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      expect.stringContaining("Log in to Cursor Sync to sync with Cursor Sync storage.")
     );
   });
 });
@@ -343,7 +344,7 @@ describe("app-configs R2 sync", () => {
     });
     expect(body.payload.files["cursor-user/settings.json"].content).toBeUndefined();
     expect(showInformationMessageMock).toHaveBeenCalledWith(
-      "Push complete: 1 file(s) synced to Cursor Sync storage."
+      "Pushed 1 file to Cursor Sync storage"
     );
     expect(appendLineMock).toHaveBeenCalledWith(
       expect.stringContaining("Uploaded cursor-user/settings.json")

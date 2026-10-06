@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
+import { determineAppStorageSyncAction } from "./app-configs.js";
 import { executePush, isPushLocked } from "./push.js";
 import { executePull, isPullLocked } from "./pull.js";
 import { GistClient } from "./gist.js";
@@ -110,7 +111,7 @@ export async function determineSyncAction(
     remoteChecksums[key] = entry.checksum;
   }
 
-  const localFiles = await enumerateSyncFiles();
+  const localFiles = await enumerateSyncFiles(context);
   const localChecksums: Record<string, string> = {};
   for (const file of localFiles) {
     try {
@@ -176,6 +177,10 @@ export const scheduledSyncActionResolver = {
   determineSyncAction,
 };
 
+export const scheduledAppStorageSyncActionResolver = {
+  determineAppStorageSyncAction,
+};
+
 export async function scheduledTick(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -194,7 +199,11 @@ export async function scheduledTick(
   );
 
   try {
-    const result = await scheduledSyncActionResolver.determineSyncAction(context);
+    const result = (await getAppSession(context))
+      ? await scheduledAppStorageSyncActionResolver.determineAppStorageSyncAction(
+          context
+        )
+      : await scheduledSyncActionResolver.determineSyncAction(context);
 
     switch (result.action) {
       case "none":
@@ -213,13 +222,6 @@ export async function scheduledTick(
       }
 
       case "push": {
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped (app session active)`
-          );
-          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
-          break;
-        }
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local changes detected, pushing`
         );
@@ -233,13 +235,6 @@ export async function scheduledTick(
         );
         const pullOk = await executePull(context, { trigger: "scheduled" });
         if (!pullOk) {
-          break;
-        }
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped after pull (app session active)`
-          );
-          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
           break;
         }
         await executePush(context, { trigger: "scheduled" });

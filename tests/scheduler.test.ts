@@ -581,6 +581,7 @@ describe("scheduled sync debug wiring", () => {
     executePullMock.mockReset().mockResolvedValue(true);
     isPushLockedMock.mockReset().mockReturnValue(false);
     isPullLockedMock.mockReset().mockReturnValue(false);
+    getAppSessionMock.mockReset().mockResolvedValue(undefined);
 
     const diagnostics = await import("../src/diagnostics.js");
     vi.spyOn(diagnostics, "getLogger").mockReturnValue({
@@ -785,29 +786,4 @@ describe("scheduled sync debug wiring", () => {
     expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
   });
 
-  it("skips scheduled Gist push when app session is active", async () => {
-    getAppSessionMock.mockResolvedValue("jwt-session");
-    const scheduler = await import("../src/scheduler.js");
-    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
-      action: "push",
-    });
-
-    await scheduler.scheduledTick(mockContext());
-
-    expect(executePushMock).not.toHaveBeenCalled();
-  });
-
-  it("skips scheduled Gist push after pull when app session is active", async () => {
-    getAppSessionMock.mockResolvedValue("jwt-session");
-    const scheduler = await import("../src/scheduler.js");
-    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
-      action: "pull-push",
-    });
-    executePullMock.mockResolvedValue(true);
-
-    await scheduler.scheduledTick(mockContext());
-
-    expect(executePullMock).toHaveBeenCalled();
-    expect(executePushMock).not.toHaveBeenCalled();
-  });
 });

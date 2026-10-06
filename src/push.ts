@@ -22,7 +22,10 @@ import {
 } from "./sync-debug.js";
 import type { SyncState } from "./types.js";
 import { hasAppSession, executePushAppConfigs } from "./app-configs.js";
-import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
+import {
+  formatPushSuccessToast,
+  SYNC_DESTINATION_GIST_LABEL,
+} from "./sync-destination.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
@@ -146,10 +149,12 @@ async function doPush(
   }
 
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = (await import("./paths.js")).resolveSyncRoots().cursorUser;
+  const { resolveSyncRoots } = await import("./paths.js");
+  const roots = resolveSyncRoots(process.platform, context);
+  const cursorUserRoot = roots.cursorUser;
   await writeExtensionsFile(cursorUserRoot, extensionsJson);
 
-  const files = await enumerateSyncFiles();
+  const files = await enumerateSyncFiles(context, roots);
   const config = vscode.workspace.getConfiguration("cursorSync");
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(files, profileName);
@@ -291,7 +296,7 @@ async function doPush(
     is_new_gist: isNewGist,
   });
   vscode.window.showInformationMessage(
-    `Push complete: ${fileCount} file(s) synced to ${SYNC_DESTINATION_GIST_LABEL}.`
+    formatPushSuccessToast(fileCount, "github-gist")
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Push succeeded: ${fileCount} files`

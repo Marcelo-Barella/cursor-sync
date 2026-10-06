@@ -161,7 +161,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).toContain("cursor-user/settings.json");
@@ -187,7 +190,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).not.toContain("cursor-user/settings.json");
@@ -203,7 +209,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).toContain("cursor-user/vsix/big.vsix");

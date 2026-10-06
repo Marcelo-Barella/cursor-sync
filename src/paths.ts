@@ -86,21 +86,31 @@ export function resolveSyncRoots(
   context?: vscode.ExtensionContext
 ): SyncRoots {
   const defaults = defaultSyncRoots(platform);
-  const fromContext =
-    context?.globalStorageUri !== undefined
-      ? deriveCursorUserDirFromGlobalStorage(context.globalStorageUri)
-      : undefined;
+
+  if (context?.globalStorageUri !== undefined) {
+    const fromContext = deriveCursorUserDirFromGlobalStorage(context.globalStorageUri);
+    if (!fromContext) {
+      throw new Error(
+        "Could not derive Cursor User directory from extension globalStorageUri."
+      );
+    }
+    return {
+      cursorUser: fromContext,
+      dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
+    };
+  }
 
   return {
-    cursorUser: fromContext ?? defaults.cursorUser,
+    cursorUser: defaults.cursorUser,
     dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
   };
 }
 
 export async function enumerateSyncFiles(
+  context: vscode.ExtensionContext,
   roots?: SyncRoots
 ): Promise<SyncFileEntry[]> {
-  const resolved = roots ?? resolveSyncRoots();
+  const resolved = roots ?? resolveSyncRoots(process.platform, context);
   const config = vscode.workspace.getConfiguration("cursorSync");
   const enabledPaths = config.get<string[]>("enabledPaths") ?? getDefaultEnabledPaths();
   const excludeGlobs = config.get<string[]>("excludeGlobs") ?? [];

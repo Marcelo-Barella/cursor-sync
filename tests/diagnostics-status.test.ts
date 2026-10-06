@@ -19,6 +19,7 @@ describe("buildStatusQuickPickItems", () => {
 
     const labels = items.map((item) => item.label);
     expect(labels.some((label) => label.includes("Cursor Sync storage"))).toBe(true);
-    expect(labels).toContain("Cursor Sync storage — files");
+    const storageLine = items.find((item) => item.label.startsWith("Cursor Sync storage — last"));
+    expect(storageLine?.description).toContain("succeeded");
   });
 });

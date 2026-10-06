@@ -70,7 +70,7 @@ describe("app-r2-storage", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      "Log in to Cursor Sync to sync with Cursor Sync storage."
     );
   });
 
@@ -160,7 +160,7 @@ describe("app-r2-storage", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      "Log in to Cursor Sync to sync with Cursor Sync storage."
     );
   });
 

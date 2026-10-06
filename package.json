@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.7",
+  "version": "0.8.4-staging.8",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -89,7 +89,7 @@
         "command": "cursorSync.syncNow",
         "title": "Cursor Sync: Sync Now",
         "icon": "$(sync)",
-        "enablement": "cursorSync.configured"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive"
       },
       {
         "command": "cursorSync.configureGithub",
@@ -115,13 +115,13 @@
         "command": "cursorSync.push",
         "title": "Cursor Sync: Push Now",
         "icon": "$(cloud-upload)",
-        "enablement": "cursorSync.configured"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive"
       },
       {
         "command": "cursorSync.pull",
         "title": "Cursor Sync: Pull Now",
         "icon": "$(cloud-download)",
-        "enablement": "cursorSync.configured"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive"
       },
       {
         "command": "cursorSync.showStatus",

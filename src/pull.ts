@@ -25,7 +25,11 @@ import {
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
 import { hasAppSession, executePullAppConfigs } from "./app-configs.js";
-import { SYNC_DESTINATION_GIST_LABEL } from "./sync-destination.js";
+import {
+  formatPullEmptyToast,
+  formatPullSuccessToast,
+  SYNC_DESTINATION_GIST_LABEL,
+} from "./sync-destination.js";
 
 export type PullTrigger = "manual" | "scheduled";
 
@@ -255,7 +259,7 @@ async function doPull(
     }
   }
 
-  const roots = resolveSyncRoots();
+  const roots = resolveSyncRoots(process.platform, context);
   const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
   for (const [gistFileName, gistFile] of Object.entries(gistData.files)) {
@@ -317,9 +321,7 @@ async function doPull(
 
   if (filesToWrite.length === 0) {
     if (trigger === "manual") {
-      vscode.window.showInformationMessage(
-        `Pull complete: no files to update from ${SYNC_DESTINATION_GIST_LABEL}.`
-      );
+      vscode.window.showInformationMessage(formatPullEmptyToast("github-gist"));
     }
     sendEvent(context, "sync_completed", { direction: "pull", file_count: 0, trigger });
     return true;
@@ -412,7 +414,7 @@ async function doPull(
   await syncExtensionsAfterPull(gistData.files, logger);
 
   vscode.window.showInformationMessage(
-    `Pull complete: ${filesToWrite.length} file(s) updated from ${SYNC_DESTINATION_GIST_LABEL}.`
+    formatPullSuccessToast(filesToWrite.length, "github-gist")
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Pull succeeded: ${filesToWrite.length} files`

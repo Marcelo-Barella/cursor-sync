@@ -10,10 +10,16 @@ import {
 } from "./app-r2-storage.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { addSyncHistoryEntry, getLogger } from "./diagnostics.js";
-import { syncDestinationLabel } from "./sync-destination.js";
+import {
+  formatPullEmptyToast,
+  formatPullSuccessToast,
+  formatPushSuccessToast,
+  syncDestinationLabel,
+} from "./sync-destination.js";
 import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
+import { computeChecksum } from "./packaging.js";
 import type { Manifest, ManifestFileEntry } from "./types.js";
 
 export const APP_CONFIGS_PAYLOAD_SCHEMA_VERSION = 1 as const;
@@ -36,7 +42,7 @@ export interface AppConfigsResponse {
   updated_at: string;
 }
 
-const LOGIN_REQUIRED_MESSAGE = "Log in to Cursor Sync to sync configs with the app.";
+const LOGIN_REQUIRED_MESSAGE = `Log in to Cursor Sync to sync with ${syncDestinationLabel("cursor-sync-storage")}.`;
 
 export async function hasAppSession(
   context: vscode.ExtensionContext
@@ -53,6 +59,27 @@ export async function requireAppSession(
     return undefined;
   }
   return session;
+}
+
+async function recordAppStorageAuthFailure(
+  context: vscode.ExtensionContext,
+  direction: "push" | "pull",
+  trigger: "manual" | "scheduled",
+  error: string
+): Promise<void> {
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction,
+    trigger,
+    fileCount: 0,
+    success: false,
+    destination: "cursor-sync-storage",
+    error,
+  });
+}
+
+export function formatSyncRootsSummary(roots: { cursorUser: string; dotCursor: string }): string {
+  return `cursor-user=${roots.cursorUser}, dot-cursor=${roots.dotCursor}`;
 }
 
 function appConfigsBaseUrl(): string {
@@ -80,7 +107,9 @@ export async function fetchAppConfigs(
   });
 
   if (response.status === 401) {
-    vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
+    await recordAppStorageAuthFailure(context, "pull", "manual", message);
+    vscode.window.showErrorMessage(message);
     return undefined;
   }
 
@@ -113,7 +142,9 @@ export async function putAppConfigs(
   });
 
   if (response.status === 401) {
-    vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
+    await recordAppStorageAuthFailure(context, "push", "manual", message);
+    vscode.window.showErrorMessage(message);
     return undefined;
   }
 
@@ -148,19 +179,29 @@ export function buildMetadataOnlyPayload(
   };
 }
 
+export interface LocalAppConfigsBuildResult {
+  payload: AppConfigsPayloadV1;
+  roots: { cursorUser: string; dotCursor: string };
+  enumeratedCount: number;
+  skippedReads: Array<{ relativeSyncKey: string; reason: string }>;
+}
+
 export async function buildLocalAppConfigsPayload(
-  context?: vscode.ExtensionContext
-): Promise<AppConfigsPayloadV1> {
+  context: vscode.ExtensionContext
+): Promise<LocalAppConfigsBuildResult> {
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = resolveSyncRoots(process.platform, context).cursorUser;
+  const roots = resolveSyncRoots(process.platform, context);
+  const cursorUserRoot = roots.cursorUser;
   const extensionsPath = path.join(cursorUserRoot, "extensions.json");
   await fs.mkdir(path.dirname(extensionsPath), { recursive: true });
   await fs.writeFile(extensionsPath, extensionsJson, "utf-8");
 
-  const files = await enumerateSyncFiles();
+  const files = await enumerateSyncFiles(context, roots);
   const config = vscode.workspace.getConfiguration("cursorSync");
   const profileName = config.get<string>("syncProfileName") ?? "default";
-  const { packaged, manifest } = await packageFiles(files, profileName);
+  const { packaged, manifest, skipped } = await packageFiles(files, profileName, {
+    skipUnreadable: true,
+  });
 
   const payloadFiles: Record<string, AppConfigsPayloadFile> = {};
   for (const [syncKey, entry] of packaged) {
@@ -173,10 +214,93 @@ export async function buildLocalAppConfigsPayload(
   }
 
   return {
-    schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
-    manifest,
-    files: payloadFiles,
+    payload: {
+      schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
+      manifest,
+      files: payloadFiles,
+    },
+    roots,
+    enumeratedCount: files.length,
+    skippedReads: skipped,
   };
+}
+
+export async function computeLocalAppConfigChecksums(
+  context: vscode.ExtensionContext
+): Promise<Record<string, string>> {
+  const roots = resolveSyncRoots(process.platform, context);
+  const localFiles = await enumerateSyncFiles(context, roots);
+  const checksums: Record<string, string> = {};
+  for (const file of localFiles) {
+    try {
+      const buf = await fs.readFile(file.absolutePath);
+      checksums[file.relativeSyncKey] = computeChecksum(buf);
+    } catch {
+      continue;
+    }
+  }
+  return checksums;
+}
+
+export type AppStorageSyncAction =
+  | { action: "none" }
+  | { action: "pull" }
+  | { action: "push" }
+  | { action: "pull-push" }
+  | { action: "error"; reason: string };
+
+export async function determineAppStorageSyncAction(
+  context: vscode.ExtensionContext
+): Promise<AppStorageSyncAction> {
+  const response = await fetchAppConfigs(context);
+  if (!response) {
+    return { action: "error", reason: "app_storage_auth" };
+  }
+
+  const localChecksums = await computeLocalAppConfigChecksums(context);
+
+  if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
+    return Object.keys(localChecksums).length > 0 ? { action: "push" } : { action: "none" };
+  }
+
+  const remoteChecksums: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(response.payload.manifest.files)) {
+    remoteChecksums[key] = entry.checksum;
+  }
+
+  const allKeys = new Set([
+    ...Object.keys(localChecksums),
+    ...Object.keys(remoteChecksums),
+  ]);
+
+  let localHasChanges = false;
+  let remoteHasChanges = false;
+
+  for (const key of allKeys) {
+    const local = localChecksums[key];
+    const remote = remoteChecksums[key];
+    if (local !== remote) {
+      if (local !== undefined && remote === undefined) {
+        localHasChanges = true;
+      } else if (local === undefined && remote !== undefined) {
+        remoteHasChanges = true;
+      } else if (local !== remote) {
+        localHasChanges = true;
+        remoteHasChanges = true;
+      }
+    }
+  }
+
+  if (localHasChanges && remoteHasChanges) {
+    return { action: "pull-push" };
+  }
+  if (remoteHasChanges) {
+    return { action: "pull" };
+  }
+  if (localHasChanges) {
+    return { action: "push" };
+  }
+  return { action: "none" };
 }
 
 function syncKeyToAbsolutePath(
@@ -255,14 +379,28 @@ export async function executePushAppConfigs(
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
   try {
-    const localPayload = await buildLocalAppConfigsPayload(context);
-    const credentials = await getR2StorageCredentials(context);
-    if (!credentials) {
+    const buildResult = await buildLocalAppConfigsPayload(context);
+    const { payload: localPayload, roots, enumeratedCount, skippedReads } = buildResult;
+    const skipped: Array<{ syncKey: string; reason: string }> = skippedReads.map((s) => ({
+      syncKey: s.relativeSyncKey,
+      reason: s.reason,
+    }));
+
+    if (enumeratedCount === 0) {
+      const message = `Push to ${destinationLabel} failed: no syncable files found under ${formatSyncRootsSummary(roots)}.`;
+      await recordAppStorageAuthFailure(context, "push", trigger, message);
+      vscode.window.showErrorMessage(message);
       return false;
     }
 
-    const skipped: Array<{ syncKey: string; reason: string }> = [];
+    const credentials = await getR2StorageCredentials(context);
+    if (!credentials) {
+      await recordAppStorageAuthFailure(context, "push", trigger, LOGIN_REQUIRED_MESSAGE);
+      return false;
+    }
+
     let uploadedCount = 0;
+    const uploadedKeys: string[] = [];
 
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
       const manifestEntry = localPayload.manifest.files[syncKey];
@@ -283,10 +421,11 @@ export async function executePushAppConfigs(
           ? Buffer.from(file.content, "base64")
           : Buffer.from(file.content, "utf-8");
       try {
-        await putR2Object(credentials, syncKey, body);
+        const status = await putR2Object(credentials, syncKey, body);
         uploadedCount += 1;
+        uploadedKeys.push(syncKey);
         logger.appendLine(
-          `[${new Date().toISOString()}] Uploaded ${syncKey} (${body.length} bytes) status=200`
+          `[${new Date().toISOString()}] Uploaded ${syncKey} (${body.length} bytes) status=${status}`
         );
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -302,7 +441,7 @@ export async function executePushAppConfigs(
       const message =
         uploadedCount === 0
           ? `Push to ${destinationLabel} failed: no files uploaded.${detail ? ` Skipped: ${detail}` : ""}`
-          : `Push to ${destinationLabel} failed: ${skipped.length} file(s) skipped or errored. ${detail}`;
+          : `Push to ${destinationLabel} failed: partial upload (${uploadedCount} succeeded). Skipped: ${detail}. Remote /configs metadata was not updated.`;
       logger.appendLine(`[${new Date().toISOString()}] Push app configs failed: ${message}`);
       await addSyncHistoryEntry(context, {
         timestamp: new Date().toISOString(),
@@ -317,11 +456,19 @@ export async function executePushAppConfigs(
       return false;
     }
 
-    const payload = buildMetadataOnlyPayload(
-      localPayload.manifest,
-      localPayload.files
+    const uploadedFiles: Record<string, AppConfigsPayloadFile> = {};
+    for (const key of uploadedKeys) {
+      uploadedFiles[key] = localPayload.files[key]!;
+    }
+    const manifestFiles: Manifest["files"] = {};
+    for (const key of uploadedKeys) {
+      manifestFiles[key] = localPayload.manifest.files[key]!;
+    }
+    const metadataPayload = buildMetadataOnlyPayload(
+      { ...localPayload.manifest, files: manifestFiles },
+      uploadedFiles
     );
-    const result = await putAppConfigs(context, payload);
+    const result = await putAppConfigs(context, metadataPayload);
     if (!result) {
       return false;
     }
@@ -335,7 +482,7 @@ export async function executePushAppConfigs(
       destination,
     });
     vscode.window.showInformationMessage(
-      `Push complete: ${uploadedCount} file(s) synced to ${destinationLabel}.`
+      formatPushSuccessToast(uploadedCount, destination)
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${uploadedCount} files`
@@ -377,9 +524,7 @@ export async function executePullAppConfigs(
     }
 
     if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
-      vscode.window.showInformationMessage(
-        `Pull complete: no remote configs in ${destinationLabel}.`
-      );
+      vscode.window.showInformationMessage(formatPullEmptyToast(destination));
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs: empty or invalid payload`
       );
@@ -429,7 +574,7 @@ export async function executePullAppConfigs(
       }));
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
-        title: "App configs files to overwrite",
+        title: "Cursor Sync storage: files to overwrite",
         placeHolder: "Deselect files you do not want to overwrite",
       });
 
@@ -445,9 +590,7 @@ export async function executePullAppConfigs(
     }
 
     if (filesToWrite.length === 0) {
-      vscode.window.showInformationMessage(
-        `Pull complete: no files to update from ${destinationLabel}.`
-      );
+      vscode.window.showInformationMessage(formatPullEmptyToast(destination));
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
       );
@@ -502,7 +645,7 @@ export async function executePullAppConfigs(
       destination,
     });
     vscode.window.showInformationMessage(
-      `Pull complete: ${filesToWrite.length} file(s) updated from ${destinationLabel}.`
+      formatPullSuccessToast(filesToWrite.length, destination)
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
