@@ -544,6 +544,7 @@ export async function executeLogoutAppSession(
   await clearAppSession(context);
   const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
   clearR2CredentialsCache();
+  refreshSidebar();
   vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
 }
 

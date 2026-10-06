@@ -119,16 +119,38 @@ function authHeaders(session: string): Record<string, string> {
   };
 }
 
+const FETCH_FAILURE_HISTORY_RECORDED = Symbol("fetchFailureHistoryRecorded");
+
+function isFetchFailureHistoryRecorded(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { [FETCH_FAILURE_HISTORY_RECORDED]?: boolean })[
+      FETCH_FAILURE_HISTORY_RECORDED
+    ] === true
+  );
+}
+
+function markFetchFailureHistoryRecorded(err: Error): Error {
+  (err as { [FETCH_FAILURE_HISTORY_RECORDED]?: boolean })[
+    FETCH_FAILURE_HISTORY_RECORDED
+  ] = true;
+  return err;
+}
+
 export async function fetchAppConfigs(
   context: vscode.ExtensionContext,
   options?: {
     trigger?: AppConfigsSyncTrigger;
     recordAuthFailure?: boolean;
+    recordServerFailureHistory?: boolean;
     authFailureDirection?: "push" | "pull";
   }
 ): Promise<AppConfigsResponse | undefined> {
   const trigger = options?.trigger ?? "manual";
   const recordAuthFailure = options?.recordAuthFailure ?? true;
+  const recordServerFailureHistory =
+    options?.recordServerFailureHistory ?? recordAuthFailure;
   const authFailureDirection = options?.authFailureDirection ?? "pull";
   const session = await requireAppSession(context);
   if (!session) {
@@ -152,7 +174,7 @@ export async function fetchAppConfigs(
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     const message = `Failed to fetch app configs (${response.status})${text ? `: ${text}` : ""}`;
-    if (response.status >= 500 && recordAuthFailure) {
+    if (response.status >= 500 && recordServerFailureHistory) {
       await addSyncHistoryEntry(context, {
         timestamp: new Date().toISOString(),
         direction: authFailureDirection,
@@ -162,6 +184,7 @@ export async function fetchAppConfigs(
         destination: "cursor-sync-storage",
         error: message,
       });
+      throw markFetchFailureHistoryRecorded(new Error(message));
     }
     throw new Error(message);
   }
@@ -414,6 +437,7 @@ export async function determineAppStorageSyncAction(
   const response = await fetchAppConfigs(context, {
     ...options,
     recordAuthFailure: false,
+    recordServerFailureHistory: true,
   });
   if (!response) {
     await recordAppStorageSessionExpired(context, trigger);
@@ -422,8 +446,6 @@ export async function determineAppStorageSyncAction(
 
   const roots = resolveSyncRoots(process.platform, context);
   const extensionsEmpty = await localExtensionsJsonIsEmpty(roots);
-  const localScan = await scanLocalAppConfigFiles(context);
-  let localChecksums = { ...localScan.checksums };
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
   const baseline = await loadAppStorageBaseline(
     context,
@@ -431,6 +453,10 @@ export async function determineAppStorageSyncAction(
     "cursor-sync-storage",
     session
   );
+  const localScan = await scanLocalAppConfigFiles(context, {
+    probeBaselineKeys: baseline ? Object.keys(baseline.localChecksums) : undefined,
+  });
+  let localChecksums = { ...localScan.checksums };
 
   if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
     const build = await buildLocalAppConfigsPayload(context);
@@ -973,15 +999,17 @@ export async function executePushAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
     );
-    await addSyncHistoryEntry(context, {
-      timestamp: new Date().toISOString(),
-      direction: "push",
-      trigger,
-      fileCount: 0,
-      success: false,
-      destination,
-      error: message,
-    });
+    if (!isFetchFailureHistoryRecorded(err)) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination,
+        error: message,
+      });
+    }
     vscode.window.showErrorMessage(`Push to ${destinationLabel} failed: ${message}`);
     return false;
   }
@@ -1167,7 +1195,7 @@ export async function executePullAppConfigs(
     ];
     const { entries: backupEntries } = await createBackup(context, pathsNeedingBackup);
 
-    const writtenBackups: typeof backupEntries = [];
+    const appliedBackups: typeof backupEntries = [];
     for (const file of filesToWrite) {
       try {
         const dir = path.dirname(file.absolutePath);
@@ -1177,13 +1205,13 @@ export async function executePullAppConfigs(
         await fs.rename(tmpPath, file.absolutePath);
         const backup = backupEntries.find((b) => b.absolutePath === file.absolutePath);
         if (backup) {
-          writtenBackups.push(backup);
+          appliedBackups.push(backup);
         }
       } catch (err) {
         logger.appendLine(
           `[${new Date().toISOString()}] Pull app configs write failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
         );
-        await rollbackFromBackup(writtenBackups);
+        await rollbackFromBackup(appliedBackups);
         const writeErrorMessage = `Pull from ${destinationLabel} failed: file write error. Changes have been rolled back.`;
         await addSyncHistoryEntry(context, {
           timestamp: new Date().toISOString(),
@@ -1204,13 +1232,17 @@ export async function executePullAppConfigs(
       try {
         await fs.unlink(file.absolutePath);
         deletedLocally.push(file.syncKey);
+        const backup = backupEntries.find((b) => b.absolutePath === file.absolutePath);
+        if (backup) {
+          appliedBackups.push(backup);
+        }
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== "ENOENT") {
           logger.appendLine(
             `[${new Date().toISOString()}] Pull app configs delete failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
           );
-          await rollbackFromBackup(writtenBackups);
+          await rollbackFromBackup(appliedBackups);
           const deleteErrorMessage = `Pull from ${destinationLabel} failed: could not remove local file. Changes have been rolled back.`;
           await addSyncHistoryEntry(context, {
             timestamp: new Date().toISOString(),
@@ -1303,15 +1335,17 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs failed: ${message}`
     );
-    await addSyncHistoryEntry(context, {
-      timestamp: new Date().toISOString(),
-      direction: "pull",
-      trigger,
-      fileCount: 0,
-      success: false,
-      destination,
-      error: message,
-    });
+    if (!isFetchFailureHistoryRecorded(err)) {
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "pull",
+        trigger,
+        fileCount: 0,
+        success: false,
+        destination,
+        error: message,
+      });
+    }
     vscode.window.showErrorMessage(`Pull from ${destinationLabel} failed: ${message}`);
     return false;
   }

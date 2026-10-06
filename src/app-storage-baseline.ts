@@ -313,6 +313,10 @@ export type DerivedAppStorageSyncAction =
   | { action: "conflict"; keys: string[] }
   | { action: "baseline_refresh"; keys: string[] };
 
+function pullActionKeys(classified: ClassifiedAppStorageKeys): string[] {
+  return [...new Set([...classified.pullKeys, ...classified.baselineRefreshKeys])];
+}
+
 export function appStorageSyncActionFromClassification(
   classified: ClassifiedAppStorageKeys,
   remoteChecksums: Record<string, string>
@@ -328,7 +332,7 @@ export function appStorageSyncActionFromClassification(
     if (pullKeys.length > 0 && classified.pushKeys.length === 0) {
       return {
         action: "pull",
-        keys: classified.pullKeys,
+        keys: pullActionKeys(classified),
         remoteDeletions: classified.remoteDeleteKeys,
       };
     }
@@ -342,7 +346,7 @@ export function appStorageSyncActionFromClassification(
     if (pullKeys.length > 0 || classified.pushKeys.length > 0) {
       return {
         action: "pull",
-        keys: classified.pullKeys,
+        keys: pullActionKeys(classified),
         remoteDeletions: classified.remoteDeleteKeys,
       };
     }
@@ -361,7 +365,7 @@ export function appStorageSyncActionFromClassification(
   if (hasPull) {
     return {
       action: "pull",
-      keys: classified.pullKeys,
+      keys: pullActionKeys(classified),
       remoteDeletions: classified.remoteDeleteKeys,
     };
   }

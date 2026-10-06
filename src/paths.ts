@@ -266,7 +266,7 @@ async function walkDirectory(dir: string): Promise<string[]> {
     if (entry.isDirectory()) {
       const sub = await walkDirectory(fullPath);
       results.push(...sub);
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() || entry.isSymbolicLink()) {
       results.push(fullPath);
     }
   }
