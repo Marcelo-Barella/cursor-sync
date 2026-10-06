@@ -326,7 +326,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
-  void refreshE2eGateContext(context);
+  void refreshE2eGateContext(context, { bypassCache: true });
   getOrCreateClientId(context);
   startScheduler(context);
 

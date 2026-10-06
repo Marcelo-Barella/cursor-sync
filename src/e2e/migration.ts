@@ -61,21 +61,21 @@ export async function tryCompleteMigration(
 
   const { getAppSession } = await import("../app-auth.js");
   const { loadSyncState } = await import("../diagnostics.js");
-  const { listRemoteLegacyPlaintextKeys } = await import("./legacy-cleanup.js");
+  const { listPlaintextObjectKeys } = await import("./storage-plaintext.js");
+  const { fetchConfigsApi } = await import("./configs-sync.js");
 
   const hasApp = !!(await getAppSession(context));
   const syncState = await loadSyncState(context);
   const hasGist = Boolean(syncState?.gistId);
 
   if (hasApp) {
-    const legacyKeys = await listRemoteLegacyPlaintextKeys(context);
-    const pendingLegacy = legacyKeys.filter(
-      (k) => !state.completedPlaintextR2Keys.includes(k)
-    );
-    if (legacyKeys.length > 0 && pendingLegacy.length > 0) {
+    const remainingPlaintext = await listPlaintextObjectKeys(context);
+    if (remainingPlaintext.length > 0) {
       return;
     }
-    if (!state.legacyPayloadCleared && legacyKeys.length > 0) {
+    const remote = await fetchConfigsApi(context);
+    const legacyPayloadStillPresent = Boolean(remote?.payload);
+    if (legacyPayloadStillPresent) {
       return;
     }
   }

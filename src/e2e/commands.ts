@@ -156,16 +156,6 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
     return false;
   }
 
-  const passphrase = await promptPassphrase("Create sync passphrase");
-  if (!passphrase) {
-    return false;
-  }
-  const confirm = await promptPassphrase("Confirm sync passphrase");
-  if (!confirm || confirm !== passphrase) {
-    vscode.window.showErrorMessage("Passphrases do not match.");
-    return false;
-  }
-
   const session = await getAppSession(context);
   const claims = session ? parseAppSessionClaims(session) : undefined;
   if (!claims?.userId) {
@@ -173,6 +163,16 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
     return false;
   }
   if (!(await ensureEmailVerifiedForSetup(context))) {
+    return false;
+  }
+
+  const passphrase = await promptPassphrase("Create sync passphrase");
+  if (!passphrase) {
+    return false;
+  }
+  const confirm = await promptPassphrase("Confirm sync passphrase");
+  if (!confirm || confirm !== passphrase) {
+    vscode.window.showErrorMessage("Passphrases do not match.");
     return false;
   }
 
@@ -260,6 +260,12 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
   }
   if (snapshot.phase === "keys_not_set") {
     return runCreatePassphraseFlow(context);
+  }
+  if (snapshot.phase === "email_not_verified") {
+    vscode.window.showErrorMessage(
+      "Verify your email on the Cursor Sync website, then use “I verified, re-check” in the sidebar."
+    );
+    return false;
   }
   if (snapshot.phase !== "locked" || !snapshot.userId || !snapshot.keyVersion) {
     vscode.window.showInformationMessage("Sync is not locked.");
@@ -496,7 +502,19 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
 }
 
 export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext): Promise<void> {
-  const snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+  let snapshot: Awaited<ReturnType<typeof refreshE2eGateAfterCryptoChange>>;
+  try {
+    snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+  } catch (err) {
+    if (err instanceof KeysApiError && err.status === 429) {
+      snapshot = await refreshE2eGateContext(context, { bypassCache: true });
+      vscode.window.showInformationMessage(
+        `Logged in. Encryption key status check was deferred: ${err.message}`
+      );
+    } else {
+      throw err;
+    }
+  }
   if (snapshot.phase === "keys_not_set") {
     void runCreatePassphraseFlow(context);
   } else if (snapshot.phase === "locked") {

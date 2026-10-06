@@ -8,6 +8,9 @@ import {
 import { isE2eDekUnlocked, requireE2eUnlocked } from "./gate.js";
 import { isBase64Cse1Envelope, readLogicalFileFromGistMap } from "./gist-read.js";
 import { wrapGistFilesForUpload } from "./gist-bundle.js";
+import { assertPlaintextGistWriteAllowed } from "./gist-plaintext-guard.js";
+import { GistClient } from "../gist.js";
+import { requireToken } from "../auth.js";
 import { decryptGistFileContent } from "./gist-e2e.js";
 
 export async function encryptChatPayloadForGist(
@@ -15,16 +18,27 @@ export async function encryptChatPayloadForGist(
   plaintext: string,
   logicalFileName: string
 ): Promise<Record<string, { content: string }>> {
-  const unlocked = await requireE2eUnlocked(context);
-  if (!isE2eDekUnlocked(unlocked)) {
-    throw new Error(unlocked.ok ? "Unlock sync encryption first." : unlocked.message);
-  }
-  return wrapGistFilesForUpload(
+  const unlocked = await requireE2eUnlocked(context, { gistSync: true });
+  if (isE2eDekUnlocked(unlocked)) {
+    return wrapGistFilesForUpload(
     unlocked.dek,
     unlocked.userId,
     unlocked.keyVersion,
-    { [logicalFileName]: { content: plaintext } }
-  );
+      { [logicalFileName]: { content: plaintext } }
+    );
+  }
+  if (unlocked.ok && unlocked.kind === "gist_plaintext") {
+    const token = await requireToken(context);
+    if (token) {
+      const client = new GistClient(token);
+      const guard = await assertPlaintextGistWriteAllowed(client);
+      if (!guard.ok) {
+        throw new Error(guard.message);
+      }
+    }
+    return { [logicalFileName]: { content: plaintext } };
+  }
+  throw new Error(unlocked.ok ? "Unlock sync encryption first." : unlocked.message);
 }
 
 export async function decryptChatPayloadFromGist(

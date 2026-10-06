@@ -132,7 +132,13 @@ vi.mock("../src/e2e/r2-storage.js", () => ({
 }));
 
 vi.mock("../src/e2e/storage-plaintext.js", () => ({
-  deletePlaintextR2Objects: vi.fn().mockResolvedValue([]),
+  deletePlaintextR2Objects: vi.fn().mockResolvedValue({
+    settled: [],
+    failed: [],
+    partial: false,
+    results: [],
+  }),
+  listPlaintextObjectKeys: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../src/e2e/configs-sync.js", async (importOriginal) => {

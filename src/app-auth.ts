@@ -426,7 +426,21 @@ async function completeLoginWithCode(
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
     const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
-    await ensureE2eGateAfterLogin(context);
+    const { KeysApiError } = await import("./e2e/keys-client.js");
+    try {
+      await ensureE2eGateAfterLogin(context);
+    } catch (err) {
+      if (err instanceof KeysApiError && err.status === 429) {
+        const { refreshE2eGateContext } = await import("./e2e/gate.js");
+        await refreshE2eGateContext(context, { bypassCache: true });
+        refreshSidebar();
+        vscode.window.showInformationMessage(
+          `Logged in to Cursor Sync. Encryption key status check was deferred: ${err.message}`
+        );
+        return true;
+      }
+      throw err;
+    }
     refreshSidebar();
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;

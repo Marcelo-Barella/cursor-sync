@@ -17,12 +17,14 @@ export type E2eGatePhase =
   | "email_not_verified"
   | "keys_not_set"
   | "locked"
-  | "unlocked";
+  | "unlocked"
+  | "keys_unavailable";
 
 export interface E2eGateSnapshot {
   phase: E2eGatePhase;
   userId?: string;
   keyVersion?: number;
+  keysStatusMessage?: string;
 }
 
 let cachedSnapshot: E2eGateSnapshot | undefined;
@@ -83,7 +85,8 @@ export async function resolveE2eGateSnapshot(
 
   await hydrateKeysCacheFromDisk(context);
 
-  let keysCache: KeysGateCache;
+  const diskCache = getCachedKeysGate();
+  let keysCache: KeysGateCache = diskCache;
   try {
     keysCache = await loadKeysForGate(context, options);
   } catch (err) {
@@ -91,7 +94,28 @@ export async function resolveE2eGateSnapshot(
       cachedSnapshot = { phase: "no_app_session" };
       return cachedSnapshot;
     }
-    throw err;
+    if (err instanceof KeysApiError && err.status === 429) {
+      if (diskCache.verification === "verified" && diskCache.presence !== "unknown") {
+        keysCache = diskCache;
+      } else {
+        cachedSnapshot = {
+          phase: "keys_unavailable",
+          userId: claims.userId,
+          keysStatusMessage: err.message,
+        };
+        return cachedSnapshot;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  if (
+    keysCache.verification === "email_not_verified" &&
+    diskCache.verification === "verified" &&
+    !options?.refreshKeys
+  ) {
+    keysCache = diskCache;
   }
 
   if (keysCache.verification === "email_not_verified") {
@@ -119,7 +143,20 @@ export async function refreshE2eGateContext(
   context: vscode.ExtensionContext,
   options?: { refreshKeys?: boolean; bypassCache?: boolean }
 ): Promise<E2eGateSnapshot> {
-  const snapshot = await resolveE2eGateSnapshot(context, options);
+  let snapshot: E2eGateSnapshot;
+  try {
+    snapshot = await resolveE2eGateSnapshot(context, options);
+  } catch (err) {
+    if (err instanceof KeysApiError && err.status === 429) {
+      snapshot = {
+        phase: "keys_unavailable",
+        keysStatusMessage: err.message,
+      };
+      cachedSnapshot = snapshot;
+    } else {
+      throw err;
+    }
+  }
   await vscode.commands.executeCommand(
     "setContext",
     "cursorSync.e2e.unlocked",

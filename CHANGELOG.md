@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.3
+
+### Fixed
+- Legacy plaintext migration uses `GET /v1/storage/plaintext-objects` as source of truth; unions config manifest keys before `clearLegacyPayload`; completes only when the listing is empty. Delete API parses `{results}` and retains partial progress on HTTP 502.
+- Plaintext Gist push/export/chat export refuses to overwrite an encrypted (CSE1) sync gist when not logged in.
+- Login and startup handle `GET /v1/keys` rate limits without failed login or blank sidebar; gate refreshes on activation using disk cache when verified.
+- Unlock while unverified shows the email verification message; setup checks verification before passphrase prompts.
+
 ## v0.9.0-staging.2
 
 ### Fixed

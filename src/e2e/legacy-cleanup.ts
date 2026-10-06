@@ -1,7 +1,11 @@
 import * as vscode from "vscode";
 import type { AppConfigsPayloadV1 } from "../app-configs.js";
 import { fetchConfigsApi } from "./configs-sync.js";
-import { deletePlaintextR2Objects } from "./storage-plaintext.js";
+import {
+  deletePlaintextR2Objects,
+  listPlaintextObjectKeys,
+  type PlaintextDeleteOutcome,
+} from "./storage-plaintext.js";
 import { loadMigrationState, saveMigrationState } from "./migration.js";
 import { getLogger } from "../diagnostics.js";
 
@@ -23,57 +27,91 @@ export function legacyPlaintextSyncKeysFromPayload(payload: AppConfigsPayloadV1)
   return Object.keys(payload.files).sort();
 }
 
+export function legacyPlaintextKeysFromConfigsResponse(
+  remote: Awaited<ReturnType<typeof fetchConfigsApi>>
+): string[] {
+  if (!remote) {
+    return [];
+  }
+  const fromField = remote.legacyPlaintextObjectKeys ?? [];
+  const fromPayload =
+    remote.payload && isAppConfigsPayloadV1(remote.payload)
+      ? legacyPlaintextSyncKeysFromPayload(remote.payload)
+      : [];
+  return [...new Set([...fromField, ...fromPayload])].sort();
+}
+
+/** @deprecated Prefer listPlaintextObjectKeys */
 export async function listRemoteLegacyPlaintextKeys(
   context: vscode.ExtensionContext
 ): Promise<string[]> {
-  const remote = await fetchConfigsApi(context);
-  if (!remote?.payload || !isAppConfigsPayloadV1(remote.payload)) {
-    return [];
-  }
-  return legacyPlaintextSyncKeysFromPayload(remote.payload);
+  return listPlaintextObjectKeys(context);
+}
+
+function unionKeys(...lists: string[][]): string[] {
+  return [...new Set(lists.flat())].sort();
+}
+
+export interface LegacyPlaintextCleanupResult {
+  deleted: string[];
+  failed: string[];
+  partial: boolean;
+  remainingKeys: string[];
+  legacyPayloadPresent: boolean;
 }
 
 export async function runLegacyPlaintextCleanup(
   context: vscode.ExtensionContext,
-  options?: { throwOnDeleteFailure?: boolean }
-): Promise<{ deleted: string[]; legacyPayloadPresent: boolean }> {
+  options?: {
+    /** Keys captured from GET /configs before clearLegacyPayload */
+    extraKeysFromConfigs?: string[];
+  }
+): Promise<LegacyPlaintextCleanupResult> {
   const logger = getLogger();
   const remote = await fetchConfigsApi(context);
   const legacyPayloadPresent = Boolean(
     remote?.payload && isAppConfigsPayloadV1(remote.payload)
   );
-  const legacyKeys = legacyPayloadPresent
-    ? legacyPlaintextSyncKeysFromPayload(remote!.payload as AppConfigsPayloadV1)
-    : [];
 
-  const migration = await loadMigrationState(context);
-  const completed = new Set(migration?.completedPlaintextR2Keys ?? []);
-  const pending = legacyKeys.filter((k) => !completed.has(k));
+  const serverKeys = await listPlaintextObjectKeys(context);
+  const keysToDelete = unionKeys(serverKeys, options?.extraKeysFromConfigs ?? []);
 
-  let deleted: string[] = [];
-  if (pending.length > 0) {
-    deleted = await deletePlaintextR2Objects(context, pending);
-    for (const key of deleted) {
-      completed.add(key);
-    }
-    const failed = pending.filter((k) => !deleted.includes(k));
-    if (failed.length > 0) {
-      const message = `Plaintext cleanup incomplete for ${failed.length} object(s). Will retry on next sync.`;
+  let deleteOutcome: PlaintextDeleteOutcome = {
+    settled: [],
+    failed: [],
+    partial: false,
+    results: [],
+  };
+
+  if (keysToDelete.length > 0) {
+    deleteOutcome = await deletePlaintextR2Objects(context, keysToDelete);
+    if (deleteOutcome.failed.length > 0 || deleteOutcome.partial) {
+      const message = `Plaintext cleanup incomplete for ${deleteOutcome.failed.length || "some"} object(s). Will retry on next sync.`;
       logger.appendLine(`[${new Date().toISOString()}] ${message}`);
-      if (options?.throwOnDeleteFailure) {
-        throw new Error(message);
-      }
     }
   }
 
+  const remainingKeys = await listPlaintextObjectKeys(context);
+
+  const migration = await loadMigrationState(context);
   if (migration) {
+    const completed = new Set(migration.completedPlaintextR2Keys ?? []);
+    for (const key of deleteOutcome.settled) {
+      completed.add(key);
+    }
     await saveMigrationState(context, {
       phase: migration.phase,
       completedPlaintextR2Keys: [...completed],
       completedPlaintextGistFiles: migration.completedPlaintextGistFiles,
-      legacyPayloadCleared: !legacyPayloadPresent,
+      legacyPayloadCleared: !legacyPayloadPresent && remainingKeys.length === 0,
     });
   }
 
-  return { deleted, legacyPayloadPresent };
+  return {
+    deleted: deleteOutcome.settled,
+    failed: deleteOutcome.failed,
+    partial: deleteOutcome.partial,
+    remainingKeys,
+    legacyPayloadPresent,
+  };
 }

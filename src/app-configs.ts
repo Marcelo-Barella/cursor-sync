@@ -17,7 +17,10 @@ import {
 } from "./e2e/configs-sync.js";
 import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
-import { listRemoteLegacyPlaintextKeys, runLegacyPlaintextCleanup } from "./e2e/legacy-cleanup.js";
+import {
+  legacyPlaintextKeysFromConfigsResponse,
+  runLegacyPlaintextCleanup,
+} from "./e2e/legacy-cleanup.js";
 import { KeysApiError } from "./e2e/keys-client.js";
 import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
@@ -318,9 +321,11 @@ export async function executePushAppConfigs(
 
     const remoteBefore = await fetchConfigsApi(context);
     const hadLegacyPayload = Boolean(remoteBefore?.payload);
-    const legacyKeys = await listRemoteLegacyPlaintextKeys(context);
+    const extraKeysFromConfigs = legacyPlaintextKeysFromConfigsResponse(remoteBefore);
     const clearLegacyPayload =
-      hadLegacyPayload || legacyKeys.length > 0 || (migration && migration.phase !== "completed");
+      hadLegacyPayload ||
+      extraKeysFromConfigs.length > 0 ||
+      (migration && migration.phase !== "completed");
 
     await putConfigsManifestWithRetry(context, (expectedManifestVersion) => ({
       manifestCiphertext: encryptManifestPayload(
@@ -333,14 +338,22 @@ export async function executePushAppConfigs(
       ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
     }));
 
-    const cleanup = await runLegacyPlaintextCleanup(context);
-    if (cleanup.legacyPayloadPresent || cleanup.deleted.length > 0) {
+    const cleanup = await runLegacyPlaintextCleanup(context, {
+      extraKeysFromConfigs,
+    });
+    if (
+      cleanup.legacyPayloadPresent ||
+      cleanup.deleted.length > 0 ||
+      cleanup.remainingKeys.length > 0 ||
+      cleanup.partial
+    ) {
       const existing = await loadMigrationState(context);
       if (existing && existing.phase !== "completed") {
         await saveMigrationState(context, {
           ...existing,
           phase: "in_progress",
-          legacyPayloadCleared: !cleanup.legacyPayloadPresent,
+          legacyPayloadCleared:
+            !cleanup.legacyPayloadPresent && cleanup.remainingKeys.length === 0,
         });
       }
     }
@@ -505,6 +518,7 @@ export async function executePullAppConfigs(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
     );
     await runLegacyPlaintextCleanup(context);
+    await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
     const message =

@@ -14,6 +14,7 @@ export interface ConfigsApiResponse {
   manifestCiphertext: string | null;
   manifestVersion: number;
   updated_at: string;
+  legacyPlaintextObjectKeys?: string[];
 }
 
 export interface ConfigsPutBody {
@@ -33,7 +34,17 @@ function parseConfigsResponse(data: Record<string, unknown>): ConfigsApiResponse
       : 0;
   const updated_at =
     typeof data.updated_at === "string" ? data.updated_at : new Date().toISOString();
-  return { payload, manifestCiphertext, manifestVersion, updated_at };
+  const legacyRaw = data.legacyPlaintextObjectKeys;
+  const legacyPlaintextObjectKeys = Array.isArray(legacyRaw)
+    ? legacyRaw.filter((k): k is string => typeof k === "string")
+    : undefined;
+  return {
+    payload,
+    manifestCiphertext,
+    manifestVersion,
+    updated_at,
+    ...(legacyPlaintextObjectKeys?.length ? { legacyPlaintextObjectKeys } : {}),
+  };
 }
 
 export async function fetchConfigsApi(

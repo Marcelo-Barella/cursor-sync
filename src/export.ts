@@ -9,6 +9,7 @@ import { generateExtensionsJson } from "./extensions.js";
 import * as fs from "node:fs/promises";
 import { requireE2eUnlocked } from "./e2e/gate.js";
 import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
+import { assertPlaintextGistWriteAllowed } from "./e2e/gist-plaintext-guard.js";
 
 async function writeExtensionsFile(
   cursorUserRoot: string,
@@ -81,14 +82,22 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
     logicalGistFiles[gistFileName] = { content: value.content };
   }
 
+  const usePlaintextGist = e2e.ok && e2e.kind === "gist_plaintext";
+  const client = new GistClient(token);
+  if (usePlaintextGist) {
+    const guard = await assertPlaintextGistWriteAllowed(client);
+    if (!guard.ok) {
+      vscode.window.showWarningMessage(guard.message);
+      return;
+    }
+  }
+
   const gistFiles =
-    e2e.ok && e2e.kind === "gist_plaintext"
+    usePlaintextGist
       ? logicalGistFiles
       : e2e.ok && e2e.kind === "dek"
         ? wrapGistFilesForUpload(e2e.dek, e2e.userId, e2e.keyVersion, logicalGistFiles)
         : logicalGistFiles;
-
-  const client = new GistClient(token);
   
   vscode.window.withProgress(
     {

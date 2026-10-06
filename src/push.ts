@@ -22,6 +22,7 @@ import { requireE2eUnlocked } from "./e2e/gate.js";
 import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 import { encryptedGistFileNamesForLogical } from "./e2e/gist-read.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
+import { assertPlaintextGistWriteAllowed } from "./e2e/gist-plaintext-guard.js";
 
 export type PushTrigger = "manual" | "scheduled";
 
@@ -168,6 +169,20 @@ async function doPush(
   }
 
   const usePlaintextGist = e2e.ok && e2e.kind === "gist_plaintext";
+  if (usePlaintextGist) {
+    const guard = await assertPlaintextGistWriteAllowed(client, syncState?.gistId);
+    if (!guard.ok) {
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("push", trigger, guard.message, {
+          direction: "push",
+          category: "AUTH_FAILED",
+        }),
+        { title: guard.message }
+      );
+      return false;
+    }
+  }
   let gistFiles: Record<string, { content: string }>;
   if (usePlaintextGist) {
     gistFiles = logicalGistFiles;

@@ -5,7 +5,8 @@ export type E2eSidebarPhase =
   | "locked"
   | "needs_setup"
   | "email_not_verified"
-  | "no_app_session";
+  | "no_app_session"
+  | "keys_unavailable";
 
 export interface SyncTabState {
   status: "synced" | "not-synced" | "syncing" | "error";
@@ -16,6 +17,7 @@ export interface SyncTabState {
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
   e2ePhase: E2eSidebarPhase;
+  keysStatusMessage?: string;
 }
 
 export function renderAccountSection(appSessionActive: boolean): string {
@@ -118,6 +120,15 @@ export function renderE2eLockBanner(state: SyncTabState): string {
     <button class="configure-btn" data-command="e2eRecheckEmail"><span class="codicon codicon-refresh"></span> I verified, re-check</button>
   </div>`;
   }
+  if (state.e2ePhase === "keys_unavailable") {
+    const msg = state.keysStatusMessage
+      ? escapeHtml(state.keysStatusMessage)
+      : "Encryption key status is temporarily unavailable.";
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">${msg}</p>
+  </div>`;
+  }
   if (state.e2ePhase === "needs_setup") {
     return `<div class="section e2e-lock-banner">
     <div class="section-header">Encrypted sync</div>
@@ -174,7 +185,9 @@ export function renderSyncPane(state: SyncTabState): string {
       ? "Unlock encrypted sync to use Push, Pull, and Sync Now."
       : state.e2ePhase === "email_not_verified"
         ? "Verify your email before encrypted sync is available."
-        : "";
+        : state.e2ePhase === "keys_unavailable"
+          ? state.keysStatusMessage ?? "Encryption key status unavailable. Retry after the rate limit."
+          : "";
   const syncDisabledAttr = syncDisabled
     ? ` disabled aria-disabled="true" title="${escapeHtml(syncDisabledTitle)}"`
     : "";

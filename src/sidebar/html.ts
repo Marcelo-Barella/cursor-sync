@@ -15,7 +15,20 @@ export async function buildSyncTabState(
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
-  const gate = await resolveE2eGateSnapshot(context);
+  let gate: Awaited<ReturnType<typeof resolveE2eGateSnapshot>>;
+  try {
+    gate = await resolveE2eGateSnapshot(context);
+  } catch (err) {
+    const { KeysApiError } = await import("../e2e/keys-client.js");
+    if (err instanceof KeysApiError && err.status === 429) {
+      gate = {
+        phase: "keys_unavailable",
+        keysStatusMessage: err.message,
+      };
+    } else {
+      throw err;
+    }
+  }
   const e2ePhase: E2eSidebarPhase =
     gate.phase === "unlocked"
       ? "unlocked"
@@ -25,12 +38,15 @@ export async function buildSyncTabState(
           ? "needs_setup"
           : gate.phase === "email_not_verified"
             ? "email_not_verified"
-            : "no_app_session";
+            : gate.phase === "keys_unavailable"
+              ? "keys_unavailable"
+              : "no_app_session";
 
   const base = {
     history,
     appSessionActive,
     e2ePhase,
+    ...(gate.keysStatusMessage ? { keysStatusMessage: gate.keysStatusMessage } : {}),
   };
 
   if (isSyncOperationActive()) {
