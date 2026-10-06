@@ -16,7 +16,10 @@ import {
   rewrapPassphraseOnServer,
   rotateRecoveryOnServer,
 } from "./keys-client.js";
-import { loadKeyMaterialForCryptoOps } from "./key-material-load.js";
+import {
+  loadKeyMaterialForCryptoOps,
+  OFFLINE_UNLOCK_SUCCESS_LABEL,
+} from "./key-material-load.js";
 import {
   dekMatches,
   unwrapDekWithPassphraseMaterial,
@@ -254,27 +257,22 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
   return true;
 }
 
-async function showKeyMaterialFallbackNotice(notice?: string): Promise<void> {
-  if (notice) {
-    await vscode.window.showWarningMessage(notice);
-  }
-}
-
 async function tryPassphraseUnlock(
   context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
-  passphrase: string
+  passphrase: string,
+  options?: { offlineUnlock?: boolean }
 ): Promise<Buffer | undefined> {
   try {
     return await unwrapDekWithPassphraseMaterial(material, passphrase, userId);
   } catch {
-    const fresh = await loadKeyMaterialForCryptoOps(context);
-    if (!fresh.ok) {
+    if (options?.offlineUnlock) {
       return undefined;
     }
-    if (fresh.fallbackNotice) {
-      await showKeyMaterialFallbackNotice(fresh.fallbackNotice);
+    const fresh = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
+    if (!fresh.ok) {
+      return undefined;
     }
     try {
       return await unwrapDekWithPassphraseMaterial(fresh.material, passphrase, userId);
@@ -288,17 +286,18 @@ async function tryRecoveryUnlock(
   context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
-  recoveryInput: string
+  recoveryInput: string,
+  options?: { offlineUnlock?: boolean }
 ): Promise<Buffer | undefined> {
   try {
     return unwrapDekWithRecoveryMaterial(material, recoveryInput, userId);
   } catch {
-    const fresh = await loadKeyMaterialForCryptoOps(context);
-    if (!fresh.ok) {
+    if (options?.offlineUnlock) {
       return undefined;
     }
-    if (fresh.fallbackNotice) {
-      await showKeyMaterialFallbackNotice(fresh.fallbackNotice);
+    const fresh = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
+    if (!fresh.ok) {
+      return undefined;
     }
     try {
       return unwrapDekWithRecoveryMaterial(fresh.material, recoveryInput, userId);
@@ -313,12 +312,11 @@ async function verifyCurrentUnlockCredential(
   userId: string,
   expectedDek: Buffer
 ): Promise<boolean> {
-  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return false;
   }
-  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
 
   const mode = await vscode.window.showQuickPick(
     [
@@ -400,13 +398,13 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     return false;
   }
 
-  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: true });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return false;
   }
-  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
   const material = keyLoad.material;
+  const offlineUnlock = keyLoad.usedCacheFallback;
 
   let dek: Buffer | undefined;
   let usedRecovery = false;
@@ -419,9 +417,15 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!input) {
       return false;
     }
-    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input);
+    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input, {
+      offlineUnlock,
+    });
     if (!dek) {
-      vscode.window.showErrorMessage("Recovery key did not match.");
+      vscode.window.showErrorMessage(
+        offlineUnlock
+          ? "Recovery key did not match (offline; if you changed it recently, reconnect and try again)."
+          : "Recovery key did not match."
+      );
       return false;
     }
     usedRecovery = true;
@@ -430,9 +434,15 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!passphrase) {
       return false;
     }
-    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase);
+    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase, {
+      offlineUnlock,
+    });
     if (!dek) {
-      vscode.window.showErrorMessage("Wrong passphrase.");
+      vscode.window.showErrorMessage(
+        offlineUnlock
+          ? "Wrong passphrase (offline; if you changed it recently, reconnect and try again)."
+          : "Wrong passphrase."
+      );
       return false;
     }
   }
@@ -454,7 +464,9 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
   await markMigrationPending(context);
   await refreshE2eGateAfterCryptoChange(context);
   refreshSidebar();
-  vscode.window.showInformationMessage("Sync unlocked.");
+  vscode.window.showInformationMessage(
+    offlineUnlock ? OFFLINE_UNLOCK_SUCCESS_LABEL : "Sync unlocked."
+  );
   return true;
 }
 
@@ -475,12 +487,11 @@ export async function executeE2eChangePassphrase(context: vscode.ExtensionContex
     return;
   }
 
-  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return;
   }
-  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
   const material = keyLoad.material;
 
   const newPass = await promptPassphrase("New sync passphrase");
@@ -532,12 +543,11 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
     return;
   }
 
-  const keyLoad = await loadKeyMaterialForCryptoOps(context);
+  const keyLoad = await loadKeyMaterialForCryptoOps(context, { allowOfflineFallback: false });
   if (!keyLoad.ok) {
     vscode.window.showErrorMessage(keyLoad.message);
     return;
   }
-  await showKeyMaterialFallbackNotice(keyLoad.fallbackNotice);
   const material = keyLoad.material;
 
   const recoveryBytes = generateRecoveryKeyBytes();

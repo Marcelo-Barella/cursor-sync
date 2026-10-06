@@ -73,4 +73,45 @@ describe("refreshE2eGateOnActivation", () => {
     expect(fetchServerKeyMaterialMock).toHaveBeenCalledWith(context, { force: true });
     expect(snapshot.phase).toBe("unlocked");
   });
+
+  it("forces GET when keys cache is unverified_offline", async () => {
+    getCachedMock.mockReturnValue({
+      presence: "set",
+      verification: "unverified_offline",
+      fetchedAtMs: Date.now(),
+      keyMaterial: {
+        keyVersion: 1,
+        kdf: "argon2id",
+        kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+        salt: Buffer.alloc(16),
+        passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+        recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+      },
+    });
+    fetchServerKeyMaterialMock.mockResolvedValue({
+      presence: "set",
+      verification: "verified",
+      keyMaterial: {
+        keyVersion: 1,
+        kdf: "argon2id",
+        kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+        salt: Buffer.alloc(16),
+        passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+        recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+      },
+      fetchedAtMs: Date.now(),
+    });
+
+    const { refreshE2eGateOnActivation, invalidateE2eGateSnapshot } = await import(
+      "../src/e2e/gate.js"
+    );
+    invalidateE2eGateSnapshot();
+    const context = {
+      globalState: { get: async () => undefined, update: async () => {} },
+      secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
+    } as unknown as import("vscode").ExtensionContext;
+
+    await refreshE2eGateOnActivation(context);
+    expect(fetchServerKeyMaterialMock).toHaveBeenCalledWith(context, { force: true });
+  });
 });

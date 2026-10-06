@@ -4,8 +4,10 @@ import {
   getCachedKeysGate,
   hydrateKeysCacheFromDisk,
   KeysApiError,
+  markKeysCacheUnverifiedOffline,
 } from "./keys-client.js";
 import type { ServerKeyMaterialResponse } from "./keys-wire.js";
+import { isTransientNetworkError } from "./network-errors.js";
 
 function keysApiUserMessage(err: unknown): string {
   if (err instanceof KeysApiError) {
@@ -14,28 +16,30 @@ function keysApiUserMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function canFallbackToCachedKeyMaterial(err: unknown): boolean {
-  if (err instanceof KeysApiError) {
-    return err.status === 429;
-  }
-  if (err instanceof TypeError) {
-    return true;
-  }
-  return false;
-}
+export const OFFLINE_KEY_MATERIAL_MESSAGE =
+  "Could not reach the Cursor Sync API. Connect to the internet and try again.";
+
+export const OFFLINE_UNLOCK_SUCCESS_LABEL = "Unlocked offline using cached keys";
+
+export type KeyMaterialLoadOptions = {
+  /** Only unlock may use persisted key material when the API is unreachable. */
+  allowOfflineFallback?: boolean;
+};
 
 export type KeyMaterialLoadResult =
   | {
       ok: true;
       material: ServerKeyMaterialResponse;
       usedCacheFallback: boolean;
-      fallbackNotice?: string;
     }
   | { ok: false; message: string };
 
+/** Force GET /v1/keys for crypto ops; optional disk cache only on true network failure (unlock only). */
 export async function loadKeyMaterialForCryptoOps(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: KeyMaterialLoadOptions
 ): Promise<KeyMaterialLoadResult> {
+  const allowOfflineFallback = options?.allowOfflineFallback === true;
   try {
     const cache = await fetchServerKeyMaterial(context, { force: true });
     if (!cache.keyMaterial) {
@@ -43,20 +47,25 @@ export async function loadKeyMaterialForCryptoOps(
     }
     return { ok: true, material: cache.keyMaterial, usedCacheFallback: false };
   } catch (err) {
-    if (!canFallbackToCachedKeyMaterial(err)) {
+    if (err instanceof KeysApiError && err.status === 429) {
       return { ok: false, message: keysApiUserMessage(err) };
+    }
+    if (!isTransientNetworkError(err)) {
+      return { ok: false, message: keysApiUserMessage(err) };
+    }
+    if (!allowOfflineFallback) {
+      return { ok: false, message: OFFLINE_KEY_MATERIAL_MESSAGE };
     }
     await hydrateKeysCacheFromDisk(context);
     const disk = getCachedKeysGate();
     if (!disk.keyMaterial) {
-      return { ok: false, message: keysApiUserMessage(err) };
+      return { ok: false, message: OFFLINE_KEY_MATERIAL_MESSAGE };
     }
-    const base = keysApiUserMessage(err);
+    await markKeysCacheUnverifiedOffline(context);
     return {
       ok: true,
       material: disk.keyMaterial,
       usedCacheFallback: true,
-      fallbackNotice: `${base} Using the last key metadata stored on this device.`,
     };
   }
 }

@@ -56,7 +56,11 @@ function b64(buf: Buffer): string {
 
 export type KeysPresence = "unknown" | "not_set" | "set";
 
-export type KeysVerificationState = "unknown" | "verified" | "email_not_verified";
+export type KeysVerificationState =
+  | "unknown"
+  | "verified"
+  | "email_not_verified"
+  | "unverified_offline";
 
 export interface KeysGateCache {
   presence: KeysPresence;
@@ -70,7 +74,10 @@ let inMemoryKeysCache: KeysGateCache = { presence: "unknown", verification: "unk
 export const KEYS_CACHE_STALE_MS = 5 * 60 * 1000;
 
 export function keysCacheNeedsRefresh(cache: KeysGateCache): boolean {
-  if (cache.presence === "unknown" || cache.verification !== "verified") {
+  if (cache.presence === "unknown" || cache.verification === "unverified_offline") {
+    return true;
+  }
+  if (cache.verification !== "verified") {
     return true;
   }
   if (!cache.fetchedAtMs) {
@@ -111,6 +118,21 @@ export async function invalidateKeysGateCache(
   if (context) {
     await clearPersistedKeysCache(context);
   }
+}
+
+/** After offline unlock, force the next gate check to re-fetch and verify keys online. */
+export async function markKeysCacheUnverifiedOffline(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await hydrateKeysCacheFromDisk(context);
+  const cache = inMemoryKeysCache;
+  if (cache.presence === "unknown") {
+    return;
+  }
+  await setCachedKeysGate(context, {
+    ...cache,
+    verification: "unverified_offline",
+  });
 }
 
 async function authFetch(

@@ -6,7 +6,7 @@ export function rateLimitMessageFromResponse(
   const seconds = retryAfter && /^\d+$/.test(retryAfter) ? retryAfter : undefined;
   if (seconds) {
     const minutes = Math.max(1, Math.ceil(Number(seconds) / 60));
-    return `Cursor Sync API rate limit reached. Try again in about ${minutes} minute(s).`;
+    return `Cursor Sync API rate limit reached, try again in about ${minutes} min`;
   }
   return `Cursor Sync API rate limit reached (${fallbackCode}). Try again later.`;
 }

@@ -21,8 +21,10 @@ vi.mock("../src/app-auth.js", () => ({
   getAppSession: vi.fn(async () => "jwt"),
 }));
 
-vi.mock("../src/e2e/keys-client.js", () => ({
-  invalidateKeysGateCache: vi.fn(async () => undefined),
+vi.mock("../src/e2e/keys-client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/keys-client.js")>();
+  return {
+    ...actual,
   fetchServerKeyMaterial: vi.fn(async () => ({
     presence: "set",
     verification: "verified",
@@ -37,7 +39,8 @@ vi.mock("../src/e2e/keys-client.js", () => ({
   })),
   hydrateKeysCacheFromDisk: vi.fn(async () => undefined),
   getCachedKeysGate: vi.fn(),
-}));
+  };
+});
 
 describe("lockLocalDek", () => {
   beforeEach(() => {
@@ -70,5 +73,42 @@ describe("lockLocalDek", () => {
 
     expect(clearStoredDekForUserMock).toHaveBeenCalledWith(context, "user-a", 1);
     expect(clearStoredDekForUserMock).toHaveBeenCalledWith(context, "user-a", 2);
+  });
+
+  it("clears persisted keys cache from globalState on lock", async () => {
+    const updates: Array<{ key: string; value: unknown }> = [];
+    const context = {
+      globalState: {
+        get: (key: string) => {
+          if (key === "cursorSync.e2e.lastUserId") return "user-a";
+          if (key === "cursorSync.e2e.dekVersions") return [1];
+          if (key === "cursorSync.e2e.keysCache.v1") {
+            return {
+              presence: "set",
+              verification: "verified",
+              fetchedAtMs: Date.now(),
+            };
+          }
+          return undefined;
+        },
+        update: vi.fn(async (key: string, value: unknown) => {
+          updates.push({ key, value });
+        }),
+      },
+      secrets: {
+        get: async () => undefined,
+        store: async () => undefined,
+        delete: async () => undefined,
+      },
+    } as unknown as import("vscode").ExtensionContext;
+
+    const gate = await import("../src/e2e/gate.js");
+    gate.invalidateE2eGateSnapshot();
+    await gate.lockLocalDek(context);
+
+    const keysCacheClears = updates.filter(
+      (u) => u.key === "cursorSync.e2e.keysCache.v1" && u.value === undefined
+    );
+    expect(keysCacheClears.length).toBeGreaterThan(0);
   });
 });

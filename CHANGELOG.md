@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.6
+
+### Fixed
+- Unlock fails closed on `GET /v1/keys` 429 (no cached key material); rate-limit message uses Retry-After when present.
+- Offline key cache fallback only on true network errors during unlock; offline unlock label and offline wrong-secret messages; change passphrase and rotate recovery never use the fallback.
+- Offline unlock marks keys cache `unverified_offline` so the next gate check forces a fresh `GET /v1/keys`.
+- Lock clears persisted `cursorSync.e2e.keysCache.v1` from globalState, not only in-memory cache.
+
 ## v0.9.0-staging.5
 
 ### Fixed
