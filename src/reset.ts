@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { clearAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
 import { clearToken } from "./auth.js";
 import { clearAllStoredDeks } from "./e2e/dek-storage.js";
-import { onAppSessionCleared, refreshE2eGateContext } from "./e2e/gate.js";
+import { onAppSessionCleared, refreshE2eGateAfterCryptoChange } from "./e2e/gate.js";
 import { clearMigrationState } from "./e2e/migration.js";
 import { clearSyncState } from "./diagnostics.js";
 import { refreshSidebar } from "./sidebar/index.js";
@@ -49,7 +49,6 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   // Update UI Context
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-  const { refreshE2eGateAfterCryptoChange } = await import("./e2e/gate.js");
   await refreshE2eGateAfterCryptoChange(context);
   await refreshSyncStatusBar(context);
   refreshSidebar();

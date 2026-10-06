@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
-import { packageFiles, computeChecksum } from "./packaging.js";
+import { packageFiles } from "./packaging.js";
 import { GistClient } from "./gist.js";
 import { requireToken, validateStoredToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
-import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForKey } from "./conflicts.js";
+import { detectConflicts, clearConflicts, getResolutionForKey } from "./conflicts.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";

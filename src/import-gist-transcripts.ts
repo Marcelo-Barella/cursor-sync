@@ -9,8 +9,6 @@ import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js
 import {
   TRANSCRIPT_MANIFEST_FILE_NAME,
   computeArtifactChecksum,
-  decodeTranscriptArtifact,
-  encodeTranscriptArtifact,
   gistFileNameToSyncKey,
   syncKeyToGistFileName,
   parseTranscriptBundleManifest,
@@ -41,7 +39,6 @@ const {
   resolveChatsRoot,
   escapeSqlLiteral,
   mergeComposerHeadersChain,
-  mergeComposerDataAdditive,
   deriveComposerHeadersPayloadFromSidebarSnapshot,
   stampWorkspaceIdentifierOnPayload,
   isExecFileTimeoutError,
@@ -205,19 +202,15 @@ async function importTranscriptsFromGist(
   const chatsRoot = resolveChatsRoot();
   const localWorkspaces = await listChatsWorkspaceDirs(chatsRoot);
 
-  let targetWorkspaceKey: string;
   if (localWorkspaces.length === 0) {
     throw new Error(
       "No local chat workspaces found in ~/.cursor/chats/. Open a workspace in Cursor first."
     );
-  } else if (localWorkspaces.length === 1) {
-    targetWorkspaceKey = localWorkspaces[0]!.name;
-  } else {
+  } else if (localWorkspaces.length > 1) {
     const picked = await promptForTargetWorkspace(localWorkspaces);
     if (!picked) {
       return { transcriptsWritten: 0, sidebarMerged: false, conversationIds: [], warnings: ["Cancelled by user."] };
     }
-    targetWorkspaceKey = picked;
   }
 
   // Step 5: Map source projects to target projects
@@ -270,10 +263,10 @@ async function importTranscriptsFromGist(
     const dbPath = stateDbPaths[0]!;
 
     try {
-      const headersPayloads = buildHeadersPayloads(transcripts, projectMapping, logger);
+      const headersPayloads = buildHeadersPayloads(transcripts, logger);
 
       if (headersPayloads.length > 0) {
-        const rows = await readExistingComposerState(dbPath, logger);
+        const rows = await readExistingComposerState(dbPath);
         const existingHeadersRaw = rows.headersRaw;
 
         const scriptParts: string[] = ["BEGIN IMMEDIATE;"];
@@ -380,7 +373,7 @@ function discoverTranscripts(
 
   if (manifest.schemaVersion === 1) {
     const v1 = manifest as TranscriptManifestV1;
-    for (const [gistFileName, entry] of Object.entries(v1.files)) {
+    for (const gistFileName of Object.keys(v1.files)) {
       if (!gistFileName.endsWith(".jsonl")) continue;
 
       const content = readGistFile(gistFileName);
@@ -436,7 +429,6 @@ function discoverTranscripts(
 
 function buildHeadersPayloads(
   transcripts: DiscoveredTranscript[],
-  projectMapping: Map<string, string>,
   logger?: ReturnType<typeof getLogger>
 ): Array<Record<string, unknown>> {
   const payloads: Array<Record<string, unknown>> = [];
@@ -468,8 +460,7 @@ function buildHeadersPayloads(
 // --- SQLite Helpers ---
 
 async function readExistingComposerState(
-  dbPath: string,
-  logger?: ReturnType<typeof getLogger>
+  dbPath: string
 ): Promise<{ headersRaw: string | undefined; dataRaw: string | undefined }> {
   const { querySqliteRows } = __chatPersistenceInternals;
   const rows = await querySqliteRows(

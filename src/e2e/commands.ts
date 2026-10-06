@@ -29,7 +29,6 @@ import {
 } from "./recovery-key.js";
 import {
   refreshE2eGateAfterCryptoChange,
-  refreshE2eGateContext,
   lockLocalDek,
   resolveE2eGateSnapshot,
   invalidateE2eGateSnapshot,

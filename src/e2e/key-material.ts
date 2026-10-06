@@ -71,12 +71,7 @@ export async function deriveKekFromPassphrase(
   return Buffer.from(keyBytes);
 }
 
-function wrapDekWithKey(
-  wrappingKey: Buffer,
-  dek: Buffer,
-  aad: string,
-  keyVersion: number
-): KeyWrapBytes {
+function wrapDekWithKey(wrappingKey: Buffer, dek: Buffer, aad: string): KeyWrapBytes {
   const nonce = randomBytes(GCM_NONCE_BYTE_LENGTH);
   const cipher = createCipheriv("aes-256-gcm", wrappingKey, nonce);
   cipher.setAAD(Buffer.from(aad, "utf8"));
@@ -126,7 +121,7 @@ export async function wrapDekForPassphrase(
 ): Promise<{ salt: Buffer; kdfParams: KdfParamsWire; wrap: KeyWrapBytes }> {
   const kek = await deriveKekFromPassphrase(passphrase, salt, kdfParams);
   const aad = buildPassphraseWrapAad(userId, keyVersion);
-  const wrap = wrapDekWithKey(kek, dek, aad, keyVersion);
+  const wrap = wrapDekWithKey(kek, dek, aad);
   return { salt, kdfParams, wrap };
 }
 
@@ -142,7 +137,7 @@ export function wrapDekForRecovery(
 ): KeyWrapBytes {
   const rk = deriveRecoveryWrappingKey(recoveryKeyBytes);
   const aad = buildRecoveryWrapAad(userId, keyVersion);
-  return wrapDekWithKey(rk, dek, aad, keyVersion);
+  return wrapDekWithKey(rk, dek, aad);
 }
 
 export async function unwrapDekWithPassphrase(

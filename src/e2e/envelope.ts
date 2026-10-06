@@ -93,7 +93,7 @@ export function decryptAes256Gcm(
   aad: string,
   options?: { wrongPassphraseMessage?: string }
 ): Buffer {
-  const { keyVersion, nonce, ciphertextWithTag } = unpackCse1Envelope(envelopeBytes);
+  const { nonce, ciphertextWithTag } = unpackCse1Envelope(envelopeBytes);
   const tag = ciphertextWithTag.subarray(ciphertextWithTag.length - 16);
   const ciphertext = ciphertextWithTag.subarray(0, ciphertextWithTag.length - 16);
   try {

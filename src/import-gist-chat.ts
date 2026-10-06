@@ -110,7 +110,6 @@ async function resolveGistChatFileContent(
   context: vscode.ExtensionContext,
   gistId: string,
   raw: string,
-  label: string,
   logicalFileName: string,
   gistFiles?: Record<string, { content?: string }>
 ): Promise<string> {
@@ -146,7 +145,6 @@ async function resolveChatBundlesFromGistContent(
     context,
     gistId,
     raw,
-    fileLabel,
     logicalFileName ?? fileLabel,
     gistFiles
   );

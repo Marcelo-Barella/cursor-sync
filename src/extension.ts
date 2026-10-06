@@ -64,7 +64,6 @@ import { flushPendingSidebarWriteback } from "./chat-import-sidebar-writeback.js
 import { executeInstallSkillTransportChat } from "./install-skill-transport-chat.js";
 import { clearR2CredentialsCache } from "./app-r2-storage.js";
 import { registerDeveloperUrlConfigurationListener } from "./config/urls.js";
-import { refreshE2eGateContext } from "./e2e/gate.js";
 import {
   executeE2eChangePassphrase,
   executeE2eLock,
