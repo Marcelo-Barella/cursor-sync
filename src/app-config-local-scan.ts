@@ -33,15 +33,11 @@ function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException).code === "ENOENT";
 }
 
-function trackingScopeFromBaseline(baseline: AppStorageBaseline | undefined) {
-  return baseline?.trackingScope;
-}
-
 function trackingScopeMatches(
   baseline: AppStorageBaseline | undefined,
   current: ReturnType<typeof getSyncEnumerationConfig>
 ): boolean {
-  const saved = trackingScopeFromBaseline(baseline);
+  const saved = baseline?.trackingScope;
   if (!saved) {
     return true;
   }
@@ -191,7 +187,6 @@ export async function scanLocalAppConfigFiles(
           continue;
         }
       } catch {
-        // fall through to presence check
       }
     }
     if (provablyAbsentKeys.has(key) || enoentKeys.has(key)) {

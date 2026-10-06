@@ -60,8 +60,7 @@ let appAuthActivateReady = false;
 const consumedAuthCodes = new Set<string>();
 let inFlightAuthCode: string | undefined;
 
-const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
-export { AUTH_STATE_TTL_MS };
+export const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 export interface PendingAuthHandoff {
   nonce: string;

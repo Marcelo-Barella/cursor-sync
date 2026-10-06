@@ -75,7 +75,6 @@ export async function clearAllAppStorageBaselines(
   try {
     await fs.unlink(baselinePath(context));
   } catch {
-    // missing file is fine
   }
 }
 
