@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.1",
+  "version": "0.8.4-staging.6",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -355,9 +355,29 @@
         },
         "cursorSync.appApiUrl": {
           "type": "string",
-          "default": "http://localhost:8100",
+          "default": "",
           "markdownDeprecationMessage": "Deprecated. Use **Cursor Sync: Developer › Api Url** (`cursorSync.developer.apiUrl`) instead.",
           "description": "Deprecated. Use cursorSync.developer.apiUrl."
+        }
+      }
+    },
+    {
+      "title": "Cursor Sync: Appearance",
+      "properties": {
+        "cursorSync.appearance.theme": {
+          "type": "string",
+          "enum": [
+            "system",
+            "dark",
+            "light"
+          ],
+          "default": "system",
+          "enumDescriptions": [
+            "Match the Cursor / VS Code color theme and update when it changes.",
+            "Always use the dark sidebar theme.",
+            "Always use the light sidebar theme."
+          ],
+          "description": "Color theme for the Cursor Sync sidebar webview."
         }
       }
     },
@@ -373,7 +393,7 @@
             "custom"
           ],
           "default": "staging",
-          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging.sync.bergamota.dev and https://staging.sync.bergamota.dev. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
+          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging-sync.bergamota.dev and https://staging.sync.bergamota.dev. **production** uses the default hosted API and website URLs. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
         },
         "cursorSync.developer.apiUrl": {
           "type": "string",

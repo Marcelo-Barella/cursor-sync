@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
+import { clearAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
 import { clearToken } from "./auth.js";
 import { clearSyncState } from "./diagnostics.js";
-import { updateStatusBar } from "./statusbar.js";
 import { refreshSidebar } from "./sidebar/index.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import { resetSyncOperation } from "./sync-operation.js";
 
 export async function executeReset(context: vscode.ExtensionContext): Promise<void> {
   const confirmation = await vscode.window.showWarningMessage(
@@ -15,10 +17,12 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
     return;
   }
 
-  // Clear GitHub Token
-  await clearToken(context);
+  resetSyncOperation();
 
-  // Clear Sync State (Gist ID, timestamps, checksums)
+  await clearToken(context);
+  await clearAppSession(context);
+  await clearPersistedAuthHandoff(context);
+
   await clearSyncState(context);
 
   // Reset Configuration Settings
@@ -39,7 +43,7 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   // Update UI Context
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-  updateStatusBar("unconfigured");
+  await refreshSyncStatusBar(context);
   refreshSidebar();
 
   vscode.window.showInformationMessage("Cursor Sync has been fully reset.");

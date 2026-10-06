@@ -160,6 +160,7 @@ export const env = {
 };
 
 export const window = {
+  activeColorTheme: { kind: ColorThemeKind.Dark },
   createOutputChannel: (_name: string) => ({
     appendLine: (_msg: string) => {},
     show: () => {},
@@ -230,6 +231,13 @@ export const extensions = {
 export enum ExtensionKind {
   UI = 1,
   Workspace = 2,
+}
+
+export enum ColorThemeKind {
+  Light = 1,
+  Dark = 2,
+  HighContrast = 3,
+  HighContrastLight = 4,
 }
 
 export const Uri = {

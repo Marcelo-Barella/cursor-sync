@@ -41,8 +41,15 @@ import {
   buildSyncDebugFailure,
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
-import { initializeSidebar } from "./sidebar/index.js";
+import { initializeSidebar, refreshSidebar } from "./sidebar/index.js";
 import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import {
+  endSyncOperation,
+  recoverSyncOperationLatch,
+  resetSyncOperation,
+  tryBeginSyncOperation,
+} from "./sync-operation.js";
 import { getOrCreateClientId } from "./analytics.js";
 import {
   executeFinalizeStateReconciliation,
@@ -89,6 +96,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   initializeStatusBar(context);
+  resetSyncOperation();
+  void refreshSyncStatusBar(context).then(() => refreshSidebar());
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.configureGithub", () =>
@@ -319,6 +328,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   disposeActivationWatcher();
   stopScheduler();
+  resetSyncOperation();
 }
 
 export async function executeSyncNow(
@@ -327,6 +337,21 @@ export async function executeSyncNow(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
+  if (!tryBeginSyncOperation()) {
+    await recoverSyncOperationLatch(context, { force: true });
+    if (!tryBeginSyncOperation()) {
+      vscode.window.showWarningMessage("A sync operation is already in progress.");
+      await refreshSyncStatusBar(context);
+      refreshSidebar();
+      return;
+    }
+  }
+
+  updateStatusBar("syncing");
+  refreshSidebar();
+
+  const lockedSyncOptions = { skipOperationLock: true as const, trigger: "manual" as const };
+  let syncFailed = false;
   try {
     const result = await determineSyncAction(context);
     switch (result.action) {
@@ -334,7 +359,9 @@ export async function executeSyncNow(
         vscode.window.showInformationMessage("Already in sync, nothing to do.");
         break;
       case "pull":
-        await executePull(context);
+        if (!(await executePull(context, lockedSyncOptions))) {
+          syncFailed = true;
+        }
         break;
       case "push":
         if (await shouldSkipGistPushForAppSession(context)) {
@@ -346,25 +373,32 @@ export async function executeSyncNow(
           );
           break;
         }
-        await executePush(context);
+        if (!(await executePush(context, lockedSyncOptions))) {
+          syncFailed = true;
+        }
         break;
       case "pull-push": {
-        const pullOk = await executePull(context);
-        if (pullOk) {
-          if (await shouldSkipGistPushForAppSession(context)) {
-            logger.appendLine(
-              `[${new Date().toISOString()}] Sync Now: Gist push skipped after pull (app session active)`
-            );
-            vscode.window.showInformationMessage(
-              "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
-            );
-            break;
-          }
-          await executePush(context);
+        const pullOk = await executePull(context, lockedSyncOptions);
+        if (!pullOk) {
+          syncFailed = true;
+          break;
+        }
+        if (await shouldSkipGistPushForAppSession(context)) {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Sync Now: Gist push skipped after pull (app session active)`
+          );
+          vscode.window.showInformationMessage(
+            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
+          );
+          break;
+        }
+        if (!(await executePush(context, lockedSyncOptions))) {
+          syncFailed = true;
         }
         break;
       }
       case "conflict": {
+        syncFailed = true;
         const conflictMessage = `${result.keys.length} conflict(s) detected. Resolve them first.`;
         void showSyncFailureWithDebug(
           context,
@@ -378,6 +412,7 @@ export async function executeSyncNow(
         break;
       }
       case "error": {
+        syncFailed = true;
         const errorMessage = `Sync failed: ${result.reason}`;
         void showSyncFailureWithDebug(
           context,
@@ -390,6 +425,7 @@ export async function executeSyncNow(
       }
     }
   } catch (err) {
+    syncFailed = true;
     const errMessage = err instanceof Error ? err.message : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Sync Now failed: ${errMessage}`
@@ -400,6 +436,10 @@ export async function executeSyncNow(
       buildSyncDebugFailure("syncNow", "manual", errMessage),
       { title: errorMessage }
     );
+  } finally {
+    endSyncOperation();
+    await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);
+    refreshSidebar();
   }
 }
 
