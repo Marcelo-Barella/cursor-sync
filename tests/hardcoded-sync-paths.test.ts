@@ -1,315 +1,179 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import ts from "typescript";
+import * as esbuild from "esbuild";
 import { describe, expect, it } from "vitest";
+import { assertBundleRuntimeImports } from "../esbuild-bundle-guard.mjs";
+import {
+  AST_ALLOWLIST,
+  bundleInputPathsFromMetafile,
+  scanFileAt,
+  scanSourceText,
+  SOURCE_EXTS,
+} from "./sync-path-ast-guard.js";
 
-const ALLOWLIST = new Set([
-  path.join("src", "paths.ts"),
-  path.join("src", "os-runtime.ts"),
-]);
-
-const SOURCE_EXTS = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs"];
+const repoRoot = process.cwd();
 
 describe("sync path hardcoding guard (AST)", () => {
-  it("forbids process/os outside allowlist in all src sources", () => {
-    const srcDir = path.join(process.cwd(), "src");
+  it("forbids runtime bypass patterns outside allowlist in bundle graph sources", () => {
+    const metaPath = path.join(repoRoot, "dist", "extension.meta.json");
+    expect(fs.existsSync(metaPath)).toBe(true);
+    const metafile = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+      inputs?: Record<string, unknown>;
+    };
+    const bundlePaths = bundleInputPathsFromMetafile(metafile);
     const offenders: string[] = [];
 
-    for (const rel of collectSourceFiles(srcDir)) {
-      if (ALLOWLIST.has(rel)) {
+    for (const normalized of bundlePaths) {
+      if (normalized.includes("node_modules/")) {
         continue;
       }
-      const filePath = path.join(process.cwd(), rel);
-      const content = fs.readFileSync(filePath, "utf-8");
-      const kind = scriptKindFor(rel);
-      const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
-      visit(source, rel, offenders);
+      if (!normalized.startsWith("src/")) {
+        continue;
+      }
+      if (!SOURCE_EXTS.some((ext) => normalized.endsWith(ext))) {
+        continue;
+      }
+      const rel = normalized.startsWith("src/")
+        ? normalized
+        : path.relative(repoRoot, path.resolve(repoRoot, normalized));
+      if (AST_ALLOWLIST.has(rel.replace(/\\/g, "/"))) {
+        continue;
+      }
+      const abs = path.isAbsolute(normalized)
+        ? normalized
+        : path.join(repoRoot, normalized);
+      if (!fs.existsSync(abs)) {
+        continue;
+      }
+      offenders.push(...scanFileAt(abs, rel.replace(/\\/g, "/")));
     }
 
     expect(offenders).toEqual([]);
   });
 
-  it("flags representative bypass patterns in synthetic snippets", () => {
+  it("flags representative bypass patterns in synthetic snippets (Tester probes)", () => {
     const cases: Array<{ name: string; code: string; expectHit: boolean }> = [
-      { name: "export * from os", code: `export * from "os";`, expectHit: true },
+      { name: "require-process", code: `const _p = require("process");`, expectHit: true },
       {
-        name: "export {homedir} from os",
-        code: `export { homedir } from "node:os";`,
+        name: "globalThis-process",
+        code: `const x = globalThis["process"];`,
         expectHit: true,
       },
       {
-        name: "globalThis.process.env",
-        code: `const x = globalThis.process.env.HOME;`,
+        name: "reflect-get",
+        code: `Reflect.get(globalThis, "process");`,
         expectHit: true,
       },
       {
-        name: "Reflect.get process env",
-        code: `const x = Reflect.get(process, "env");`,
+        name: "concat-process",
+        code: `const g = globalThis; g["proc" + "ess"];`,
         expectHit: true,
       },
       {
-        name: "import env from process",
-        code: `import { env } from "process";`,
+        name: "getOwnPropertyDescriptor",
+        code: `Object.getOwnPropertyDescriptor(globalThis, "process");`,
+        expectHit: true,
+      },
+      { name: "comma-eval", code: `(0, eval)("1");`, expectHit: true },
+      {
+        name: "globalThis-eval",
+        code: `globalThis.eval("1");`,
         expectHit: true,
       },
       {
-        name: "alias process env",
-        code: `const p = process; p.env;`,
+        name: "constructor-chain",
+        code: `const f = [].constructor.constructor;`,
         expectHit: true,
       },
       {
-        name: "paren process env",
-        code: `const x = (process).env;`,
+        name: "import-equals-os",
+        code: `import os = require("os");`,
         expectHit: true,
       },
+      { name: "paren-require", code: `(require)("os");`, expectHit: true },
+      { name: "require-call", code: `require.call(null, "os");`, expectHit: true },
       {
-        name: "destructure env from process",
-        code: `const { env: e } = process;`,
-        expectHit: true,
-      },
-      {
-        name: "Function constructor",
-        code: `const f = new Function("return 1");`,
-        expectHit: true,
-      },
-      {
-        name: "eval",
-        code: `eval("1");`,
-        expectHit: true,
-      },
-      {
-        name: "module.require",
-        code: `module.require("fs");`,
-        expectHit: true,
-      },
-      {
-        name: "aliased require os",
-        code: `const r = require; r("os");`,
-        expectHit: true,
-      },
-      {
-        name: "dynamic import non-literal",
-        code: `const m = "os"; import(m);`,
+        name: "module-require",
+        code: `module["require"]("fs");`,
         expectHit: true,
       },
       {
         name: "createRequire",
-        code: `import { createRequire } from "node:module"; createRequire(import.meta.url);`,
+        code: `import { createRequire } from "node:module"; const cr = createRequire; cr(".");`,
         expectHit: true,
       },
       {
-        name: "allowed nodePlatform usage",
+        name: "aliased-createRequire",
+        code: `const m = { createRequire: () => {} }; m.createRequire();`,
+        expectHit: true,
+      },
+      {
+        name: "vm-run",
+        code: `import vm from "node:vm"; vm.runInThisContext("1");`,
+        expectHit: true,
+      },
+      {
+        name: "child-process-echo",
+        code: "import child_process from 'node:child_process'; child_process`echo $HOME`;",
+        expectHit: true,
+      },
+      {
+        name: "jsx-process",
+        code: `export const x = process.env;`,
+        expectHit: true,
+      },
+      {
+        name: "allowed-nodePlatform",
         code: `import { nodePlatform } from "./os-runtime.js"; nodePlatform();`,
         expectHit: false,
       },
     ];
 
     for (const { name, code, expectHit } of cases) {
-      const offenders: string[] = [];
-      const source = ts.createSourceFile(
-        "synthetic.ts",
-        code,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-      visit(source, `synthetic/${name}`, offenders);
+      const ext = name === "jsx-importee" ? ".jsx" : ".ts";
+      const offenders = scanSourceText(`synthetic/${name}${ext}`, code);
       if (expectHit) {
-        expect(offenders.length).toBeGreaterThan(0);
+        expect(offenders.length, `expected AST hit for ${name}`).toBeGreaterThan(0);
       } else {
         expect(offenders).toEqual([]);
       }
     }
   });
-});
 
-describe("bundle runtime import guard", () => {
-  it("metafile exists after build and passes check script", () => {
-    const metaPath = path.join(process.cwd(), "dist", "extension.meta.json");
-    expect(fs.existsSync(metaPath)).toBe(true);
+  it("scans a file outside src when present in bundle graph", () => {
+    const outsideDir = path.join(repoRoot, "tests", "fixtures", "ast-outside-src");
+    const outsideFile = path.join(outsideDir, "runtime-probe.ts");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(outsideFile, `const x = globalThis.process;\n`, "utf8");
+    const offenders = scanFileAt(outsideFile, "tests/fixtures/ast-outside-src/runtime-probe.ts");
+    expect(offenders.length).toBeGreaterThan(0);
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   });
 });
 
-function scriptKindFor(rel: string): ts.ScriptKind {
-  if (rel.endsWith(".mts")) return ts.ScriptKind.MTS;
-  if (rel.endsWith(".cts")) return ts.ScriptKind.CTS;
-  if (rel.endsWith(".tsx")) return ts.ScriptKind.TSX;
-  if (rel.endsWith(".js") || rel.endsWith(".mjs")) return ts.ScriptKind.JS;
-  if (rel.endsWith(".cjs")) return ts.ScriptKind.JSON;
-  return ts.ScriptKind.TS;
-}
+describe("bundle runtime import guard", () => {
+  it("fails build when a non-allowlisted file imports node:process", async () => {
+    const fixtureDir = path.join(repoRoot, "tests", "fixtures", "bundle-forbidden-import");
+    const entry = path.join(fixtureDir, "entry.ts");
+    const bad = path.join(fixtureDir, "bad.ts");
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(bad, `import process from "node:process";\nexport const pid = process.pid;\n`, "utf8");
+    fs.writeFileSync(entry, `import "./bad.js";\nexport {};\n`, "utf8");
 
-function collectSourceFiles(dir: string, base = "src"): string[] {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const rel = path.join(base, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...collectSourceFiles(path.join(dir, entry.name), rel));
-    } else if (SOURCE_EXTS.some((ext) => entry.name.endsWith(ext))) {
-      files.push(rel);
-    }
-  }
-  return files;
-}
+    const result = await esbuild.build({
+      entryPoints: [entry],
+      bundle: true,
+      outfile: path.join(fixtureDir, "out.js"),
+      platform: "node",
+      format: "cjs",
+      write: true,
+      metafile: true,
+      logLevel: "silent",
+    });
 
-function isOsModule(text: string): boolean {
-  return text === "os" || text === "node:os";
-}
-
-function isProcessModule(text: string): boolean {
-  return text === "process" || text === "node:process";
-}
-
-function noteProcessIdentifier(rel: string, offenders: string[]): void {
-  offenders.push(`${rel}: references identifier process`);
-}
-
-function visit(node: ts.Node, rel: string, offenders: string[]): void {
-  if (ts.isIdentifier(node) && node.text === "process") {
-    const parent = node.parent;
-    if (ts.isPropertyAccessExpression(parent) && parent.name.text === "env") {
-      noteProcessIdentifier(rel, offenders);
-    } else if (ts.isPropertyAccessChain(parent) && parent.name.text === "env") {
-      noteProcessIdentifier(rel, offenders);
-    } else if (
-      ts.isPropertyAccessExpression(parent) &&
-      parent.expression === node
-    ) {
-      noteProcessIdentifier(rel, offenders);
-    } else if (ts.isPropertyAccessChain(parent) && parent.expression === node) {
-      noteProcessIdentifier(rel, offenders);
-    } else if (ts.isElementAccessExpression(parent) && parent.expression === node) {
-      noteProcessIdentifier(rel, offenders);
-    } else if (ts.isVariableDeclaration(parent) && parent.initializer === node) {
-      noteProcessIdentifier(rel, offenders);
-    } else if (parent.kind === ts.SyntaxKind.ParenthesizedExpression) {
-      noteProcessIdentifier(rel, offenders);
-    } else if (
-      ts.isMetaProperty(parent) ||
-      (ts.isCallExpression(parent) && parent.expression === node)
-    ) {
-    } else {
-      noteProcessIdentifier(rel, offenders);
-    }
-  }
-
-  if (ts.isIdentifier(node) && node.text === "globalThis") {
-    const parent = node.parent;
-    if (
-      ts.isPropertyAccessExpression(parent) &&
-      parent.name.text === "process"
-    ) {
-      noteProcessIdentifier(rel, offenders);
-    }
-  }
-
-  if (ts.isIdentifier(node) && node.text === "eval") {
-    const parent = node.parent;
-    if (ts.isCallExpression(parent) && parent.expression === node) {
-      offenders.push(`${rel}: eval()`);
-    }
-  }
-
-  if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
-    if (node.expression.text === "Function") {
-      offenders.push(`${rel}: new Function`);
-    }
-  }
-
-  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-    if (node.expression.text === "Function") {
-      offenders.push(`${rel}: Function()`);
-    }
-    if (node.expression.text === "require") {
-      const arg = node.arguments[0];
-      if (!arg || !ts.isStringLiteral(arg)) {
-        offenders.push(`${rel}: dynamic require()`);
-      } else if (isOsModule(arg.text)) {
-        offenders.push(`${rel}: require('os')`);
-      }
-    }
-  }
-
-  if (ts.isPropertyAccessExpression(node)) {
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "module" &&
-      node.name.text === "require"
-    ) {
-      offenders.push(`${rel}: module.require`);
-    }
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "Reflect" &&
-      node.name.text === "get"
-    ) {
-      const parent = node.parent;
-      if (ts.isCallExpression(parent) && parent.expression === node) {
-        const [target, key] = parent.arguments;
-        if (
-          target &&
-          ts.isIdentifier(target) &&
-          target.text === "process" &&
-          key &&
-          ts.isStringLiteral(key) &&
-          key.text === "env"
-        ) {
-          noteProcessIdentifier(rel, offenders);
-        }
-      }
-    }
-  }
-
-  if (ts.isVariableDeclaration(node) && node.initializer) {
-    if (
-      ts.isIdentifier(node.initializer) &&
-      node.initializer.text === "require" &&
-      ts.isVariableDeclarationList(node.parent) &&
-      ts.isVariableStatement(node.parent.parent)
-    ) {
-      offenders.push(`${rel}: aliased require`);
-    }
-    if (
-      ts.isObjectBindingPattern(node.name) &&
-      ts.isIdentifier(node.initializer) &&
-      node.initializer.text === "process"
-    ) {
-      noteProcessIdentifier(rel, offenders);
-    }
-  }
-
-  if (ts.isImportDeclaration(node)) {
-    const spec = node.moduleSpecifier;
-    if (ts.isStringLiteral(spec)) {
-      if (isOsModule(spec.text) || isProcessModule(spec.text)) {
-        offenders.push(`${rel}: imports ${spec.text}`);
-      }
-    }
-  }
-
-  if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
-    const spec = node.moduleSpecifier;
-    if (ts.isStringLiteral(spec) && (isOsModule(spec.text) || isProcessModule(spec.text))) {
-      offenders.push(`${rel}: export-from ${spec.text}`);
-    }
-  }
-
-  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-    const arg = node.arguments[0];
-    if (!arg || !ts.isStringLiteral(arg)) {
-      offenders.push(`${rel}: dynamic import()`);
-    } else if (isOsModule(arg.text) || isProcessModule(arg.text)) {
-      offenders.push(`${rel}: dynamic import(${arg.text})`);
-    }
-  }
-
-  if (ts.isIdentifier(node) && node.text === "createRequire") {
-    const parent = node.parent;
-    if (ts.isCallExpression(parent) && parent.expression === node) {
-      offenders.push(`${rel}: createRequire`);
-    }
-  }
-
-  ts.forEachChild(node, (child) => visit(child, rel, offenders));
-}
+    expect(() => assertBundleRuntimeImports(result.metafile)).toThrow(
+      /Forbidden runtime imports/
+    );
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+});

@@ -1,5 +1,13 @@
-import { spawn } from "node:child_process";
+import {
+  execFile as execFileCallback,
+  spawn,
+  spawnSync,
+  type ExecFileOptions,
+} from "node:child_process";
 import * as os from "node:os";
+import { promisify } from "node:util";
+
+const execFilePromisified = promisify(execFileCallback);
 
 export function systemTmpDir(): string {
   return os.tmpdir();
@@ -37,6 +45,35 @@ export interface SpawnPython3Options {
   args: string[];
   cwd?: string;
   log?: (line: string) => void;
+}
+
+export async function execFileAsync(
+  file: string,
+  args: readonly string[],
+  options?: ExecFileOptions
+): Promise<{ stdout: string; stderr: string }> {
+  const result = await execFilePromisified(file, args, {
+    ...options,
+    env: options?.env ?? spawnProcessEnv(),
+  });
+  return { stdout: String(result.stdout), stderr: String(result.stderr) };
+}
+
+export function spawnSyncCapture(
+  command: string,
+  args: readonly string[],
+  options?: { cwd?: string; encoding?: BufferEncoding }
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync(command, args, {
+    cwd: options?.cwd,
+    encoding: options?.encoding ?? "utf-8",
+    env: spawnProcessEnv(),
+  });
+  return {
+    status: res.status,
+    stdout: String(res.stdout ?? ""),
+    stderr: String(res.stderr ?? ""),
+  };
 }
 
 export async function spawnPython3Capture(

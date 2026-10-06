@@ -44,6 +44,9 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | Symlink pointing outside root (e.g. `skills` → external dir) | skipped_unknown | noop; pull write blocked (S3) |
 | Sync root missing with baseline entries | skipped_unknown for all keys under root | noop; no deletes either direction |
 | Sync root missing without baseline (fresh device) | absent_eligible / provably_absent | pull allowed; create root only at write time (never during scan) |
+| Every tracked file under a root missing on disk (per-root hold) | skipped_unknown under that root | noop; deletes held both directions; Sync Now shows held-root notice |
+| Sync root cannot be created (dangling root symlink, b12) | keys under that root | pull skips those keys only; other roots still sync; warning names the root |
+| Sync root parent not a real directory (b16) | keys under that root | same partial pull as b12 |
 | Symlinked sync root (`realpath` once) | absent_eligible under resolved empty target | pull allowed; walk/classify below resolved root; symlink at root is not skipped_unknown |
 | Remote-only baseline key, absent locally and remotely | provably_absent / absent_eligible | baseline_refresh prune (F6), not recurring pull |
 | Key excluded but still in baseline | untracked | noop for sync actions on that key |

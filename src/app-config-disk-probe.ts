@@ -21,12 +21,14 @@ export {
   assertSafePullTarget,
   ensureSyncRootDirectory,
   ensureSyncRootsForFreshPull,
+  syncKeyUnderFailedRoot,
   mkdirParentsForSafePull,
   removeEmptyParentDirsWithinRoot,
   resolveSyncRootsRealpaths,
   syncRootRealForKey,
   writeFileWithoutFollow,
 } from "./app-config-sync-path-safety.js";
+export type { SyncRootEnsureFailure } from "./app-config-sync-path-safety.js";
 
 export async function classifyLocalPath(
   context: vscode.ExtensionContext,

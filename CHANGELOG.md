@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.21
+
+### Fixed
+- `npm test` runs `tsc --noEmit` before build/tests so bundle/type errors cannot ship.
+- Esbuild metafile guard iterates `imports[].path`, checks all bundled inputs (including outside `src/`), and runs on watch rebuilds.
+- Manual push skip notice uses disk-probe classification over baseline, remote manifest, and on-disk keys (F3); integration test uses a real symlink on disk.
+- Pull creates missing sync roots before `realpath` resolution (b14); root creation failure skips only that root’s keys (b12/b16).
+- AST guard expanded (finite deny-list): `globalThis`/`eval`/`Function`/`Reflect`/`module`/`vm`, strict `require`, `.constructor.constructor`, `createRequire`, `.jsx`, and metafile-scoped sources.
+- Sync Now shows per-file held notice when paths are `skipped_unknown`; manual pull warns on empty remote manifest.
+
+### Changed
+- Decision table: per-root delete hold and b12/b16 root-creation failure rows.
+
 ## v0.8.4-staging.20
 
 ### Fixed

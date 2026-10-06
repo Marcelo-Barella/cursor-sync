@@ -98,8 +98,8 @@ export async function ensurePythonReady(): Promise<string> {
   const candidates = configured ? [configured] : ["python3", "python"];
   for (const cand of candidates) {
     try {
-      const { spawnSync } = await import("node:child_process");
-      const res = spawnSync(cand, ["--version"], { encoding: "utf-8" });
+      const { spawnSyncCapture } = await import("./os-runtime.js");
+      const res = spawnSyncCapture(cand, ["--version"], { encoding: "utf-8" });
       if (res.status === 0) {
         pythonInterpreterMemo = cand;
         return cand;

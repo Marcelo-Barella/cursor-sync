@@ -109,6 +109,36 @@ const ROOT_HELD_LABELS: Record<string, string> = {
   "cursor-user/": "Cursor User settings",
 };
 
+export function listPerFileHeldSyncKeys(
+  scan: LocalConfigFileScan,
+  localChecksums: Record<string, string>,
+  remoteChecksums: Record<string, string>
+): string[] {
+  const held: string[] = [];
+  for (const key of scan.skippedUnknownKeys) {
+    const remote = remoteChecksums[key];
+    const local = localChecksums[key];
+    if (remote !== undefined && local !== remote) {
+      held.push(key);
+      continue;
+    }
+    if (remote !== undefined && local === undefined) {
+      held.push(key);
+      continue;
+    }
+    if (local !== undefined && remote === undefined) {
+      held.push(key);
+    }
+  }
+  return held.sort();
+}
+
+export function formatPerFileSyncHeldNotice(heldKeys: string[]): string {
+  const preview = heldKeys.slice(0, 3).join(", ");
+  const suffix = heldKeys.length > 3 ? ` (+${heldKeys.length - 3} more)` : "";
+  return `Sync held: ${heldKeys.length} file(s) blocked by unsafe or unreadable paths: ${preview}${suffix}`;
+}
+
 export function formatSyncRootDeleteHeldNotice(scan: LocalConfigFileScan): string {
   const prefixes = [...scan.deleteBlockedRootPrefixes];
   if (prefixes.length === 0 && !scan.deletesAllowed && scan.deleteBlockReason) {

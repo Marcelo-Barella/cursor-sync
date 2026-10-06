@@ -94,21 +94,52 @@ export {
   syncKeyRootPrefix,
 } from "./app-config-sync-root-keys.js";
 
+export type SyncRootEnsureFailure = {
+  prefix: "cursor-user/" | "dot-cursor/";
+  rootPath: string;
+  message: string;
+};
+
 export async function ensureSyncRootsForFreshPull(
   roots: SyncRoots,
   syncKeysToWrite: string[],
   baselineLocalKeys: string[]
-): Promise<void> {
+): Promise<SyncRootEnsureFailure[]> {
+  const failures: SyncRootEnsureFailure[] = [];
   const needsUser = syncKeysToWrite.some((k) => k.startsWith("cursor-user/"));
   const needsDot = syncKeysToWrite.some((k) => k.startsWith("dot-cursor/"));
   const hasUserBaseline = baselineLocalKeys.some((k) => k.startsWith("cursor-user/"));
   const hasDotBaseline = baselineLocalKeys.some((k) => k.startsWith("dot-cursor/"));
   if (needsUser && !hasUserBaseline) {
-    await ensureSyncRootDirectory(roots.cursorUser);
+    try {
+      await ensureSyncRootDirectory(roots.cursorUser);
+    } catch (err) {
+      failures.push({
+        prefix: "cursor-user/",
+        rootPath: roots.cursorUser,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
   if (needsDot && !hasDotBaseline) {
-    await ensureSyncRootDirectory(roots.dotCursor);
+    try {
+      await ensureSyncRootDirectory(roots.dotCursor);
+    } catch (err) {
+      failures.push({
+        prefix: "dot-cursor/",
+        rootPath: roots.dotCursor,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
+  return failures;
+}
+
+export function syncKeyUnderFailedRoot(
+  syncKey: string,
+  failures: SyncRootEnsureFailure[]
+): SyncRootEnsureFailure | undefined {
+  return failures.find((f) => syncKey.startsWith(f.prefix));
 }
 
 export async function pathHasUnsafeComponentBelowRoot(

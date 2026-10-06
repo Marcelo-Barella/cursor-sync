@@ -1,12 +1,8 @@
-import { execFile } from "node:child_process";
-import { nodePlatform } from "./os-runtime.js";
+import { execFileAsync, nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { resolveExtensionSyncRoots } from "./sync-roots.js";
-
-const execFileAsync = promisify(execFile);
 
 export async function executeInstallSkillTransportChat(
   context: vscode.ExtensionContext
@@ -82,7 +78,7 @@ async function chmodScripts(scriptsDir: string): Promise<void> {
       const name = ent.name.toString();
       if (!name.endsWith(".sh") && !name.endsWith(".py")) continue;
       try {
-        await execFileAsync("chmod", ["+x", path.join(scriptsDir, name)]);
+        await execFileAsync("chmod", ["+x", path.join(scriptsDir, name)], {});
       } catch {
         continue;
       }

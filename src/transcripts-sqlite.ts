@@ -1,8 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { isWin32Platform, systemTmpDir } from "./os-runtime.js";
-import { execFile as execFileCallback } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileAsync, isWin32Platform, systemTmpDir } from "./os-runtime.js";
 import { getComposerId } from "./composer-merge.js";
 import {
   globalStateVscdbPathsFromRoots,
@@ -10,8 +8,6 @@ import {
 } from "./paths.js";
 import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import type * as vscode from "vscode";
-
-const execFile = promisify(execFileCallback);
 
 export const SQLITE_SUBPROCESS_TIMEOUT_MS = 20_000;
 export const SQLITE_BUSY_TIMEOUT_MS = 5000;
@@ -54,7 +50,7 @@ async function probePythonInterpreter(): Promise<PythonSqliteInterpreter> {
   for (const c of candidates) {
     try {
       const args = [...c.argvPrefix, "-c", probe];
-      await execFile(c.command, args, execOpts);
+      await execFileAsync(c.command, args, execOpts);
       return c;
     } catch {
       continue;
@@ -178,7 +174,7 @@ async function runPythonSqliteQuery(
 ): Promise<{ stdout: string; stderr: string }> {
   const py = await resolvePythonInterpreterForSqlite();
   const args = [...py.argvPrefix, "-c", SQLITE_PYTHON_FALLBACK_SCRIPT, dbPath, sql];
-  return execFile(py.command, args, execOpts);
+  return execFileAsync(py.command, args, execOpts);
 }
 
 export async function runSqliteQuery(
@@ -190,7 +186,7 @@ export async function runSqliteQuery(
     return runPythonSqliteQuery(dbPath, sql, execOpts);
   }
   try {
-    return await execFile("sqlite3", ["-json", dbPath, sql], execOpts);
+    return await execFileAsync("sqlite3", ["-json", dbPath, sql], execOpts);
   } catch (error) {
     if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
       throw error;
@@ -207,7 +203,7 @@ export async function runSqliteScript(dbPath: string, script: string): Promise<v
   const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
   try {
     try {
-      await execFile("sqlite3", [dbPath, `.read ${tmpPath}`], execOpts);
+      await execFileAsync("sqlite3", [dbPath, `.read ${tmpPath}`], execOpts);
       return;
     } catch (error) {
       if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
@@ -226,7 +222,7 @@ export async function runSqliteScript(dbPath: string, script: string): Promise<v
       ].join(";");
       const py = await resolvePythonInterpreterForSqlite();
       const args = [...py.argvPrefix, "-c", pyScript, dbPath, tmpPath];
-      await execFile(py.command, args, execOpts);
+      await execFileAsync(py.command, args, execOpts);
     }
   } finally {
     await fs.unlink(tmpPath).catch(() => {});

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnPython3Capture } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
@@ -751,24 +751,10 @@ export async function runPythonComposerBridge(
       "utf8"
     );
 
-    const { exitCode, stdout, stderr } = await new Promise<{
-      exitCode: number;
-      stdout: string;
-      stderr: string;
-    }>((resolve, reject) => {
-      const proc = spawn("python3", args, { cwd: rawManifest.workspaceFolder });
-      let stdout = "";
-      let stderr = "";
-      proc.stdout?.on("data", (chunk: Buffer | string) => {
-        stdout += String(chunk);
-      });
-      proc.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr += String(chunk);
-      });
-      proc.on("error", reject);
-      proc.on("close", (code) => {
-        resolve({ exitCode: code ?? 1, stdout, stderr });
-      });
+    const { exitCode, stdout, stderr } = await spawnPython3Capture({
+      args,
+      cwd: rawManifest.workspaceFolder,
+      log: (line) => log(`bridge: ${line}`),
     });
 
     if (stderr.trim()) {

@@ -36,7 +36,9 @@ import {
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
   syncEvaluatedMassDeleteBlockState,
+  formatPerFileSyncHeldNotice,
   formatSyncRootDeleteHeldNotice,
+  listPerFileHeldSyncKeys,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
@@ -46,6 +48,7 @@ import {
   removeEmptyParentDirsWithinRoot,
   resolveSyncRootsRealpaths,
   scanWithDiskProbes,
+  syncKeyUnderFailedRoot,
   syncRootRealForKey,
   writeFileWithoutFollow,
 } from "./app-config-disk-probe.js";
@@ -439,10 +442,17 @@ export async function computeLocalAppConfigChecksums(
 
 function finalizeAppStorageSyncAction(
   action: AppStorageSyncAction,
-  scan: LocalConfigFileScan
+  scan: LocalConfigFileScan,
+  perFileHeldKeys?: string[]
 ): AppStorageSyncAction {
   if (action.action !== "none") {
     return action;
+  }
+  if (perFileHeldKeys && perFileHeldKeys.length > 0) {
+    return {
+      action: "blocked",
+      message: formatPerFileSyncHeldNotice(perFileHeldKeys),
+    };
   }
   if (
     !scan.deletesAllowed &&
@@ -454,6 +464,42 @@ function finalizeAppStorageSyncAction(
     };
   }
   return action;
+}
+
+function collectPushDiskProbeKeys(input: {
+  localManifestKeys: string[];
+  baselineLocalKeys: string[];
+  remoteManifestKeys: string[];
+  keysToUpload: string[];
+  deletions: string[];
+  explicitKeys?: string[];
+  skippedReadKeys: string[];
+}): string[] {
+  const set = new Set<string>();
+  for (const k of input.keysToUpload) {
+    set.add(k);
+  }
+  for (const k of input.deletions) {
+    set.add(k);
+  }
+  if (input.explicitKeys) {
+    for (const k of input.explicitKeys) {
+      set.add(k);
+    }
+  }
+  for (const k of input.localManifestKeys) {
+    set.add(k);
+  }
+  for (const k of input.baselineLocalKeys) {
+    set.add(k);
+  }
+  for (const k of input.remoteManifestKeys) {
+    set.add(k);
+  }
+  for (const k of input.skippedReadKeys) {
+    set.add(k);
+  }
+  return [...set];
 }
 
 export type AppStorageSyncAction =
@@ -665,7 +711,11 @@ export async function determineAppStorageSyncAction(
       if (classified.baselineRefreshKeys.length > 0) {
         return { action: "baseline_refresh", keys: classified.baselineRefreshKeys };
       }
-      return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
+      return finalizeAppStorageSyncAction(
+        { action: "none" },
+        probedScan,
+        listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+      );
     }
     return { action: "push", keys: pushKeys, deletions };
   }
@@ -748,7 +798,11 @@ export async function determineAppStorageSyncAction(
       remoteDeletions = [];
     }
     if (pullKeys.length === 0 && remoteDeletions.length === 0) {
-      return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
+      return finalizeAppStorageSyncAction(
+        { action: "none" },
+        probedScan,
+        listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+      );
     }
     return {
       action: "pull",
@@ -757,7 +811,11 @@ export async function determineAppStorageSyncAction(
     };
   }
 
-  return finalizeAppStorageSyncAction({ action: "none" }, probedScan);
+  return finalizeAppStorageSyncAction(
+    { action: "none" },
+    probedScan,
+    listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+  );
 }
 
 export async function applyAppStorageBaselineRefresh(
@@ -926,6 +984,7 @@ export async function executePushAppConfigs(
       explicitPush
     );
     let deletions = [...(options?.deletions ?? [])];
+    const explicitDeletionKeys = new Set(options?.deletions ?? []);
 
     if (meaningfulCount === 0 && keysToUpload.length === 0 && deletions.length === 0) {
       const message = `Push to ${destinationLabel} failed: no syncable files found under ${formatSyncRootsSummary(roots)}.`;
@@ -1016,24 +1075,33 @@ export async function executePushAppConfigs(
       }
     }
 
+    const baselineLocalKeysEarly = baselineEarly
+      ? Object.keys(baselineEarly.localChecksums)
+      : [];
+    const pushDiskProbeKeys = collectPushDiskProbeKeys({
+      localManifestKeys: Object.keys(localPayload.manifest.files),
+      baselineLocalKeys: baselineLocalKeysEarly,
+      remoteManifestKeys: Object.keys(remoteManifestFiles),
+      keysToUpload,
+      deletions,
+      explicitKeys: options?.keys,
+      skippedReadKeys: skippedReads.map((s) => s.relativeSyncKey),
+    });
     const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
-    const probedPushScan = await scanWithDiskProbes(
-      context,
-      pushScan,
-      Object.keys(localPayload.manifest.files),
-      {
-        baselineLocalKeys: baselineEarly
-          ? Object.keys(baselineEarly.localChecksums)
-          : [],
-      }
-    );
+    const probedPushScan = await scanWithDiskProbes(context, pushScan, pushDiskProbeKeys, {
+      baselineLocalKeys: baselineLocalKeysEarly,
+    });
     keysToUpload = keysToUpload.filter(
       (k) =>
         !probedPushScan.skippedUnknownKeys.has(k) &&
         !probedPushScan.untrackedKeys.has(k)
     );
     for (let i = deletions.length - 1; i >= 0; i--) {
-      if (!probedPushScan.provablyAbsentKeys.has(deletions[i]!)) {
+      const deletionKey = deletions[i]!;
+      if (explicitDeletionKeys.has(deletionKey)) {
+        continue;
+      }
+      if (!probedPushScan.provablyAbsentKeys.has(deletionKey)) {
         deletions.splice(i, 1);
       }
     }
@@ -1316,28 +1384,18 @@ export async function executePushAppConfigs(
       );
     }
     if (trigger === "manual") {
-      const pushCandidateKeys = new Set([
-        ...keysToUpload,
-        ...deletions,
-        ...(options?.keys ?? Object.keys(localPayload.manifest.files)),
-      ]);
-      const classificationSkipped = [
-        ...new Set([
-          ...[...pushCandidateKeys].filter(
-            (k) =>
-              probedPushScan.skippedUnknownKeys.has(k) ||
-              probedPushScan.untrackedKeys.has(k)
-          ),
-          ...Object.keys(localPayload.manifest.files).filter(
-            (k) =>
-              probedPushScan.skippedUnknownKeys.has(k) ||
-              probedPushScan.untrackedKeys.has(k)
-          ),
-        ]),
-      ];
+      const uploadedKeySet = new Set(uploadedKeys);
+      const classificationSkipped = pushDiskProbeKeys.filter(
+        (k) =>
+          !uploadedKeySet.has(k) &&
+          (probedPushScan.skippedUnknownKeys.has(k) ||
+            probedPushScan.untrackedKeys.has(k))
+      );
       const skipLabels = [
         ...new Set([
-          ...skippedReads.map((s) => s.relativeSyncKey),
+          ...skippedReads
+            .map((s) => s.relativeSyncKey)
+            .filter((k) => !uploadedKeySet.has(k)),
           ...classificationSkipped,
         ]),
       ];
@@ -1399,7 +1457,15 @@ export async function executePullAppConfigs(
     }
 
     if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
-      vscode.window.showInformationMessage(formatPullEmptyToast(destination));
+      const emptyMsg =
+        trigger === "manual"
+          ? `Pull from ${destinationLabel}: remote manifest is empty.`
+          : formatPullEmptyToast(destination);
+      if (trigger === "manual") {
+        vscode.window.showWarningMessage(emptyMsg);
+      } else {
+        vscode.window.showInformationMessage(emptyMsg);
+      }
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs: empty or invalid payload`
       );
@@ -1717,7 +1783,15 @@ export async function executePullAppConfigs(
           trackingScope: buildTrackingScopeForBaseline(context),
         });
       }
-      vscode.window.showInformationMessage(formatPullEmptyToast(destination));
+      const emptyRemote = manifestKeys.length === 0;
+      const emptyMsg = emptyRemote && trigger === "manual"
+        ? `Pull from ${destinationLabel}: remote manifest is empty.`
+        : formatPullEmptyToast(destination);
+      if (emptyRemote && trigger === "manual") {
+        vscode.window.showWarningMessage(emptyMsg);
+      } else {
+        vscode.window.showInformationMessage(emptyMsg);
+      }
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
       );
@@ -1746,15 +1820,30 @@ export async function executePullAppConfigs(
       return false;
     }
 
-    const pullResolvedRoots = await resolveSyncRootsRealpaths(roots);
     const baselineLocalKeys = pullBaseline
       ? Object.keys(pullBaseline.localChecksums)
       : [];
-    await ensureSyncRootsForFreshPull(
+    const rootEnsureFailures = await ensureSyncRootsForFreshPull(
       roots,
       filesToWrite.map((f) => f.syncKey),
       baselineLocalKeys
     );
+    const pullResolvedRoots = await resolveSyncRootsRealpaths(roots);
+
+    const pullRootCreateSkipped: string[] = [];
+    const writablePullFiles = filesToWrite.filter((file) => {
+      const failure = syncKeyUnderFailedRoot(file.syncKey, rootEnsureFailures);
+      if (failure) {
+        pullRootCreateSkipped.push(file.syncKey);
+        logger.appendLine(
+          `[${new Date().toISOString()}] Pull skipped ${file.syncKey}: sync root could not be created (${failure.message})`
+        );
+        return false;
+      }
+      return true;
+    });
+    filesToWrite.length = 0;
+    filesToWrite.push(...writablePullFiles);
 
     const writtenBackups: typeof backupEntries = [];
     const pullWriteSkipped: string[] = [];
@@ -1857,8 +1946,20 @@ export async function executePullAppConfigs(
 
     const session = await getAppSession(context);
     const pullSkippedKeys = [
-      ...new Set([...pullRefusedKeys, ...pullWriteSkipped, ...pullDeleteSkipped]),
+      ...new Set([
+        ...pullRefusedKeys,
+        ...pullWriteSkipped,
+        ...pullDeleteSkipped,
+        ...pullRootCreateSkipped,
+      ]),
     ];
+    if (rootEnsureFailures.length > 0 && trigger === "manual") {
+      for (const failure of rootEnsureFailures) {
+        vscode.window.showWarningMessage(
+          `Pull skipped sync root ${failure.rootPath}: ${failure.message}`
+        );
+      }
+    }
     const totalPulled = wroteCount + deletedLocally.length;
     const pullPartial =
       missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;
