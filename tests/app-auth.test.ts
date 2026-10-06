@@ -28,6 +28,10 @@ vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: refreshSidebarMock,
 }));
 
+vi.mock("../src/sync-context.js", () => ({
+  refreshSyncCommandContextsAndStatusBar: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("vscode", () => ({
   commands: {
     executeCommand: vi.fn().mockResolvedValue(undefined),
