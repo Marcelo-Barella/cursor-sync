@@ -261,7 +261,6 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
 }
 
 async function tryPassphraseUnlock(
-  _context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
   passphrase: string
@@ -274,7 +273,6 @@ async function tryPassphraseUnlock(
 }
 
 async function tryRecoveryUnlock(
-  _context: vscode.ExtensionContext,
   userId: string,
   material: ServerKeyMaterialResponse,
   recoveryInput: string
@@ -313,7 +311,7 @@ async function verifyCurrentUnlockCredential(
     if (!passphrase) {
       return false;
     }
-    const dek = await tryPassphraseUnlock(context, userId, keyLoad.material, passphrase);
+    const dek = await tryPassphraseUnlock(userId, keyLoad.material, passphrase);
     if (!dek || !dekMatches(dek, expectedDek)) {
       vscode.window.showErrorMessage("Wrong passphrase.");
       return false;
@@ -329,7 +327,7 @@ async function verifyCurrentUnlockCredential(
   if (!recoveryInput) {
     return false;
   }
-  const dek = await tryRecoveryUnlock(context, userId, keyLoad.material, recoveryInput);
+  const dek = await tryRecoveryUnlock(userId, keyLoad.material, recoveryInput);
   if (!dek || !dekMatches(dek, expectedDek)) {
     vscode.window.showErrorMessage("Recovery key did not match.");
     return false;
@@ -407,7 +405,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!input) {
       return false;
     }
-    dek = await tryRecoveryUnlock(context, snapshot.userId, material, input);
+    dek = await tryRecoveryUnlock(snapshot.userId, material, input);
     if (!dek) {
       vscode.window.showErrorMessage(
         offlineUnlock
@@ -422,7 +420,7 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     if (!passphrase) {
       return false;
     }
-    dek = await tryPassphraseUnlock(context, snapshot.userId, material, passphrase);
+    dek = await tryPassphraseUnlock(snapshot.userId, material, passphrase);
     if (!dek) {
       vscode.window.showErrorMessage(
         offlineUnlock

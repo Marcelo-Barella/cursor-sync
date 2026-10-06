@@ -29,7 +29,6 @@ export interface E2eGateSnapshot {
   userId?: string;
   keyVersion?: number;
   keysStatusMessage?: string;
-  /** Fresh or offline-fallback key material from the latest gate keys fetch (unlock reuses this). */
   keysGateForCrypto?: {
     material: ServerKeyMaterialResponse;
     usedOfflineKeysCache: boolean;
@@ -62,16 +61,6 @@ export async function refreshE2eGateAfterCryptoChange(
   });
   await refreshSyncStatusBar(context);
   return snapshot;
-}
-
-function keysGateForCryptoFromCache(
-  keysCache: KeysGateCache,
-  usedOfflineKeysCache: boolean
-): E2eGateSnapshot["keysGateForCrypto"] | undefined {
-  if (!keysCache.keyMaterial) {
-    return undefined;
-  }
-  return { material: keysCache.keyMaterial, usedOfflineKeysCache };
 }
 
 export async function resolveE2eGateSnapshot(
@@ -163,7 +152,9 @@ export async function resolveE2eGateSnapshot(
   }
 
   const keyVersion = keysCache.keyMaterial?.keyVersion ?? 1;
-  const keysGateForCrypto = keysGateForCryptoFromCache(keysCache, usedOfflineKeysCache);
+  const keysGateForCrypto = keysCache.keyMaterial
+    ? { material: keysCache.keyMaterial, usedOfflineKeysCache }
+    : undefined;
   const dek = await loadStoredDek(context, claims.userId, keyVersion);
   if (!dek) {
     cachedSnapshot = {

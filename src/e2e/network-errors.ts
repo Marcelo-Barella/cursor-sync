@@ -55,7 +55,6 @@ function isTlsOrCertError(err: unknown): boolean {
   return collectErrorMessages(err).some((m) => TLS_MESSAGE_RE.test(m));
 }
 
-/** True when the API host could not be reached (not TLS misconfig or bad URL). */
 export function isTransientNetworkError(err: unknown): boolean {
   if (isTlsOrCertError(err)) {
     return false;

@@ -23,7 +23,6 @@ export const OFFLINE_UNLOCK_SUCCESS_LABEL = "Unlocked offline using cached keys"
 
 export type KeyMaterialLoadOptions = {
   allowOfflineFallback?: boolean;
-  /** Reuse key material already loaded by the gate (avoids duplicate GET /v1/keys). */
   prefetched?: {
     material: ServerKeyMaterialResponse;
     usedCacheFallback: boolean;

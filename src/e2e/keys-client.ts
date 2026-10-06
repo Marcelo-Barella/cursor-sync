@@ -91,7 +91,6 @@ export function getCachedKeysGate(): KeysGateCache {
   return inMemoryKeysCache;
 }
 
-/** Disk cache usable for offline unlock when the API is unreachable. */
 export function hasVerifiedKeysCacheForOfflineUnlock(cache: KeysGateCache): boolean {
   return (
     cache.presence === "set" &&
