@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.32
+
+### Fixed
+- Scheduler/analytics: `sendEvent` no longer throws when `globalState` is missing or fails; `globalState.update` rejections are caught; scheduled timer ticks attach `.catch` so analytics cannot surface as unhandled rejections.
+- Vitest: fail on unhandled rejections (`dangerouslyIgnoreUnhandledErrors: false` + setup guard).
+
 ## v0.8.4-staging.31
 
 ### Fixed

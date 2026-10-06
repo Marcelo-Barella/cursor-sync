@@ -30,6 +30,15 @@ const MAX_JITTER_MS = 60_000;
 let timer: ReturnType<typeof setInterval> | undefined;
 let jitterTimeout: ReturnType<typeof setTimeout> | undefined;
 
+function runScheduledTick(context: vscode.ExtensionContext): void {
+  void scheduledTick(context).catch((err) => {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    getLogger().appendLine(
+      `[${new Date().toISOString()}] Scheduled sync tick rejected: ${errMessage}`
+    );
+  });
+}
+
 export async function shouldSkipGistPushForAppSession(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
@@ -65,8 +74,8 @@ export function startScheduler(context: vscode.ExtensionContext): void {
   );
 
   jitterTimeout = setTimeout(() => {
-    scheduledTick(context);
-    timer = setInterval(() => scheduledTick(context), intervalMs);
+    runScheduledTick(context);
+    timer = setInterval(() => runScheduledTick(context), intervalMs);
   }, jitter);
 }
 

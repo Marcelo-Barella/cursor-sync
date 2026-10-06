@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     globals: true,
+    setupFiles: ["tests/vitest.setup.ts"],
+    dangerouslyIgnoreUnhandledErrors: false,
   },
 });
