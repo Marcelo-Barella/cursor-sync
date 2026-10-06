@@ -256,14 +256,13 @@ describe("app-configs API", () => {
 
   it("GET /configs with Bearer token", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockFetchJsonResponse({
         payload: null,
         updated_at: "2026-01-01T00:00:00.000Z",
-      }),
-    });
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchAppConfigs } = await import("../src/app-configs.js");
@@ -283,14 +282,13 @@ describe("app-configs API", () => {
 
   it("PUT /configs with payload body", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockFetchJsonResponse({
         payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
         updated_at: "2026-01-02T00:00:00.000Z",
-      }),
-    });
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { putAppConfigs } = await import("../src/app-configs.js");
@@ -407,14 +405,13 @@ describe("app-configs R2 sync", () => {
 
   it("push uploads bytes to R2 and PUTs metadata-only payload", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockFetchJsonResponse({
         payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
         updated_at: "2026-01-02T00:00:00.000Z",
-      }),
-    });
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { executePushAppConfigs } = await import("../src/app-configs.js");
@@ -447,16 +444,15 @@ describe("app-configs R2 sync", () => {
   it("fails when R2 upload errors and reports zero successful uploads", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
     putR2ObjectMock.mockRejectedValue(new Error("403 forbidden"));
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      vi.fn().mockResolvedValue(
+        mockFetchJsonResponse({
           payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
           updated_at: "2026-01-02T00:00:00.000Z",
-        }),
-      })
+        })
+      )
     );
 
     const { executePushAppConfigs } = await import("../src/app-configs.js");
@@ -477,10 +473,9 @@ describe("app-configs R2 sync", () => {
     getR2StorageCredentialsMock.mockResolvedValue({ token: "r2" });
     getR2ObjectMock.mockResolvedValue(undefined);
     showQuickPickMock.mockImplementation(async (items: { label: string }[]) => items);
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockFetchJsonResponse({
         payload: {
           schemaVersion: 1,
           manifest: {
@@ -505,8 +500,8 @@ describe("app-configs R2 sync", () => {
           },
         },
         updated_at: "2026-01-01T00:00:00.000Z",
-      }),
-    });
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const fsPromises = await import("node:fs/promises");

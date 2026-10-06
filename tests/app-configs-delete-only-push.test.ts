@@ -146,7 +146,7 @@ function makeContext(): vscode.ExtensionContext {
 }
 
 describe("delete-only push", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     getAppSessionMock.mockResolvedValue("jwt");
     getR2StorageCredentialsMock.mockResolvedValue({
@@ -161,12 +161,11 @@ describe("delete-only push", () => {
     });
     deleteR2ObjectMock.mockResolvedValue(204);
     putR2ObjectMock.mockResolvedValue(200);
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      vi.fn().mockResolvedValue(
+        mockFetchJsonResponse({
           payload: {
             schemaVersion: 1,
             manifest: {
@@ -188,8 +187,8 @@ describe("delete-only push", () => {
             },
           },
           updated_at: "2026-01-02T00:00:00.000Z",
-        }),
-      })
+        })
+      )
     );
   });
 

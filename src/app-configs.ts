@@ -28,6 +28,7 @@ import {
 } from "./app-config-local-scan.js";
 import { nodePlatform } from "./os-runtime.js";
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
+import { syncKeyRootPrefix } from "./app-config-sync-root-keys.js";
 import {
   clearSchedulerMassDeleteBlockIfResolved,
   resetSchedulerMassDeleteBlockDedupe,
@@ -38,6 +39,7 @@ import {
   syncEvaluatedMassDeleteBlockState,
   formatPerFileSyncHeldNotice,
   formatPullHeldRemoteUpdateNotice,
+  formatPullSkippedFilesNotice,
   formatSyncRootDeleteHeldNotice,
   listPerFileHeldSyncKeys,
   perFileHeldReasonForKey,
@@ -52,6 +54,7 @@ import {
   scanWithDiskProbes,
   syncKeyUnderFailedRoot,
   syncRootRealForKey,
+  type SyncRootEnsureFailure,
   writeFileWithoutFollow,
 } from "./app-config-disk-probe.js";
 import {
@@ -200,9 +203,10 @@ export async function fetchAppConfigs(
     return undefined;
   }
 
+  const bodyText = await response.text().catch(() => "");
+
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    const message = `Failed to fetch app configs (${response.status})${text ? `: ${text}` : ""}`;
+    const message = `Failed to fetch app configs (${response.status})${bodyText ? `: ${bodyText}` : ""}`;
     let historyRecorded = false;
     if (response.status >= 500 && recordHttpFailureInHistory) {
       await addSyncHistoryEntry(context, {
@@ -219,7 +223,7 @@ export async function fetchAppConfigs(
     throw new AppConfigsFetchError(message, historyRecorded);
   }
 
-  return (await response.json()) as AppConfigsResponse;
+  return JSON.parse(bodyText) as AppConfigsResponse;
 }
 
 export async function putAppConfigs(
@@ -249,14 +253,15 @@ export async function putAppConfigs(
     return undefined;
   }
 
+  const bodyText = await response.text().catch(() => "");
+
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
     throw new Error(
-      `Failed to push app configs (${response.status})${text ? `: ${text}` : ""}`
+      `Failed to push app configs (${response.status})${bodyText ? `: ${bodyText}` : ""}`
     );
   }
 
-  return (await response.json()) as AppConfigsResponse;
+  return JSON.parse(bodyText) as AppConfigsResponse;
 }
 
 export function countMeaningfulAppConfigKeys(
@@ -534,29 +539,52 @@ async function warnRootEnsureFailuresOnce(
     }
     return;
   }
-  const prior =
-    context.globalState.get<RootEnsureWarnEntry[]>(ROOT_ENSURE_WARN_STATE_KEY) ?? [];
   const next: RootEnsureWarnEntry[] = failures.map((f) => ({
     rootPath: f.rootPath,
     fingerprint: f.message,
   }));
-  const changed = failures.filter((f) => {
-    const prev = prior.find((p) => p.rootPath === f.rootPath);
-    return !prev || prev.fingerprint !== f.message;
-  });
-  await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, next);
-  if (trigger !== "scheduled" && changed.length > 0) {
-    const roots = changed.map((f) => f.rootPath).join(", ");
-    const detail = changed[0]?.message ?? "";
+  if (trigger === "scheduled") {
+    await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, next);
+  } else {
+    const roots = failures.map((f) => f.rootPath).join(", ");
+    const detail = failures[0]?.message ?? "";
     vscode.window.showWarningMessage(
       `Pull skipped sync root(s): ${roots}. ${detail}`
     );
+    await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, next);
   }
   for (const failure of failures) {
     logger.appendLine(
       `[${new Date().toISOString()}] Pull skipped sync root ${failure.rootPath}: ${failure.message}`
     );
   }
+}
+
+function isScheduledRootOnlyPullSkip(
+  scan: LocalConfigFileScan,
+  skippedKeys: string[],
+  rootEnsureFailures: SyncRootEnsureFailure[]
+): boolean {
+  if (
+    scan.deleteBlockedRootPrefixes.size === 0 &&
+    rootEnsureFailures.length === 0
+  ) {
+    return false;
+  }
+  if (skippedKeys.length === 0) {
+    return true;
+  }
+  return skippedKeys.every((key) => {
+    const reason = perFileHeldReasonForKey(key, scan);
+    if (reason !== "unsafe_path") {
+      return false;
+    }
+    const prefix = syncKeyRootPrefix(key);
+    if (prefix && scan.deleteBlockedRootPrefixes.has(prefix)) {
+      return true;
+    }
+    return syncKeyUnderFailedRoot(key, rootEnsureFailures) !== undefined;
+  });
 }
 
 async function recordScheduledRootHeldPullOnce(
@@ -595,6 +623,10 @@ function describePushSkipLabel(
   }
   if (reason === "symlink") {
     return `${syncKey} (symlink)`;
+  }
+  if (reason === "under_symlinked_dir") {
+    const folder = scan.symlinkedFolderLabels?.[syncKey] ?? "unknown";
+    return `${syncKey} (inside symlinked folder ${folder})`;
   }
   if (reason === "unreadable") {
     return `${syncKey} (unreadable)`;
@@ -1753,8 +1785,13 @@ export async function executePullAppConfigs(
         localChecksum = undefined;
       }
 
+      const remoteWouldChange = shouldPullAppConfigFile(
+        localChecksum,
+        manifestEntry.checksum
+      );
+
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
-        if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
+        if (remoteWouldChange) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
         }
@@ -1764,7 +1801,7 @@ export async function executePullAppConfigs(
         localChecksum === undefined &&
         !isLocallyAbsentSafeToPull(syncKey, pullLocalScan)
       ) {
-        if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
+        if (remoteWouldChange) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
         }
@@ -2201,7 +2238,19 @@ export async function executePullAppConfigs(
     }
     const pullPartial =
       missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;
-    const pullTotalExpected = pullCandidates + deletedLocally.length;
+    const pullTotalExpected = pullPartial
+      ? totalPulled + pullSkippedKeys.length + missingRemoteKeys.length
+      : totalPulled + missingRemoteKeys.length;
+    const suppressScheduledPartialUi =
+      trigger === "scheduled" &&
+      isScheduledRootOnlyPullSkip(pullLocalScan, pullSkippedKeys, rootEnsureFailures);
+    const partialToast = formatPullPartialToast(
+      totalPulled,
+      pullTotalExpected,
+      missingRemoteKeys.length,
+      destination,
+      pullSkippedKeys.length
+    );
     const successfulWriteKeys = filesToWrite
       .map((f) => f.syncKey)
       .filter((k) => !pullWriteSkipped.includes(k));
@@ -2235,40 +2284,27 @@ export async function executePullAppConfigs(
       success: !pullPartial,
       partial: pullPartial,
       destination,
-      ...(pullPartial
-        ? {
-            error: formatPullPartialToast(
-              totalPulled,
-              pullTotalExpected,
-              missingRemoteKeys.length,
-              destination
-            ),
-          }
-        : {}),
+      ...(pullPartial ? { error: partialToast } : {}),
     });
-    if (pullPartial && trigger !== "scheduled") {
-      vscode.window.showWarningMessage(
-        formatPullPartialToast(
-          totalPulled,
-          pullTotalExpected,
-          missingRemoteKeys.length,
-          destination
-        )
-      );
-    } else if (totalPulled > 0) {
+    if (pullPartial && !suppressScheduledPartialUi) {
+      vscode.window.showWarningMessage(partialToast);
+      const skipNotice = formatPullSkippedFilesNotice(pullLocalScan, pullSkippedKeys);
+      if (skipNotice) {
+        vscode.window.showWarningMessage(skipNotice);
+      }
+      if (rootEnsureFailures.length > 0) {
+        const roots = rootEnsureFailures.map((f) => f.rootPath).join(", ");
+        const detail = rootEnsureFailures[0]?.message ?? "";
+        vscode.window.showWarningMessage(
+          `Pull skipped sync root(s): ${roots}. ${detail}`
+        );
+      }
+    } else if (totalPulled > 0 && !pullPartial) {
       vscode.window.showInformationMessage(
         formatPullSuccessToast(totalPulled, destination, {
           wroteFiles: wroteCount,
           deletedLocally: deletedLocally.length,
         })
-      );
-    }
-    if (pullSkippedKeys.length > 0 && trigger !== "scheduled") {
-      const preview = pullSkippedKeys.slice(0, 3).join(", ");
-      const suffix =
-        pullSkippedKeys.length > 3 ? ` (+${pullSkippedKeys.length - 3} more)` : "";
-      vscode.window.showWarningMessage(
-        `Pull skipped ${pullSkippedKeys.length} file(s) (unsafe path or refused): ${preview}${suffix}`
       );
     }
     logger.appendLine(
@@ -2295,3 +2331,9 @@ export async function executePullAppConfigs(
     return false;
   }
 }
+
+/** @internal test hooks */
+export const __appConfigsPullTestHooks = {
+  warnRootEnsureFailuresOnce,
+  isScheduledRootOnlyPullSkip,
+};

@@ -155,12 +155,11 @@ describe("manual push skip notice (F3)", () => {
     await fs.writeFile(outside, "outside content\n", "utf8");
     await fs.mkdir(path.join(dotCursor, "rules"), { recursive: true });
     await fs.symlink(outside, path.join(dotCursor, "rules", "link.mdc"));
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      vi.fn().mockResolvedValue(
+        mockFetchJsonResponse({
           payload: {
             schemaVersion: 1,
             manifest: {
@@ -178,8 +177,8 @@ describe("manual push skip notice (F3)", () => {
             },
           },
           updated_at: "2026-01-02T00:00:00.000Z",
-        }),
-      })
+        })
+      )
     );
   });
 

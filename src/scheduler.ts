@@ -311,6 +311,35 @@ export async function scheduledTick(
         break;
       }
 
+      case "blocked": {
+        const blockMessage = result.message;
+        const fingerprint = `blocked:${blockMessage}`;
+        logger.appendLine(
+          `[${new Date().toISOString()}] Scheduled sync held: ${blockMessage}`
+        );
+        sendEvent(context, "scheduled_sync_skipped", { reason: "blocked" });
+        const { addSyncHistoryEntry } = await import("./diagnostics.js");
+        const prev = context.globalState.get<string>(
+          "cursorSync.appStorage.scheduledRootHeldHistory"
+        );
+        if (prev !== fingerprint) {
+          await context.globalState.update(
+            "cursorSync.appStorage.scheduledRootHeldHistory",
+            fingerprint
+          );
+          await addSyncHistoryEntry(context, {
+            timestamp: new Date().toISOString(),
+            direction: "pull",
+            trigger: "scheduled",
+            fileCount: 0,
+            success: true,
+            destination: "cursor-sync-storage",
+            error: `held: ${blockMessage}`,
+          });
+        }
+        break;
+      }
+
       case "error": {
         if (result.reason === "session_expired") {
           logger.appendLine(

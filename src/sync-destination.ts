@@ -92,10 +92,12 @@ export function formatPullPartialToast(
   pulled: number,
   total: number,
   missing: number,
-  destination: SyncDestinationId
+  destination: SyncDestinationId,
+  skipped = 0
 ): string {
+  const skippedPart = skipped > 0 ? `, ${skipped} skipped` : "";
   if (destination === "cursor-sync-storage") {
-    return `Pulled ${pulled} of ${total} from Cursor Sync storage, ${missing} missing`;
+    return `Pulled ${pulled} of ${total} from Cursor Sync storage, ${missing} missing${skippedPart}`;
   }
-  return `Pulled ${pulled} of ${total} from GitHub Gist, ${missing} missing`;
+  return `Pulled ${pulled} of ${total} from GitHub Gist, ${missing} missing${skippedPart}`;
 }

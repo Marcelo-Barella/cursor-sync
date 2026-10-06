@@ -142,6 +142,34 @@ export function syncKeyUnderFailedRoot(
   return failures.find((f) => syncKey.startsWith(f.prefix));
 }
 
+/** Relative path to the first symlinked directory component below root (not the file leaf). */
+export async function symlinkedAncestorRelativePath(
+  absolutePath: string,
+  rootPath: string
+): Promise<string | undefined> {
+  const normalized = path.resolve(absolutePath);
+  const root = path.resolve(rootPath);
+  if (normalized === root || !normalized.startsWith(root + path.sep)) {
+    return undefined;
+  }
+  let current = root;
+  const rel = path.relative(root, normalized);
+  const parts = rel.split(path.sep).filter(Boolean);
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i]!;
+    current = path.join(current, part);
+    try {
+      const st = await fs.lstat(current);
+      if (st.isSymbolicLink()) {
+        return parts.slice(0, i + 1).join("/");
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export async function pathHasUnsafeComponentBelowRoot(
   absolutePath: string,
   rootPath: string,

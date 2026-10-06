@@ -118,16 +118,15 @@ function makeContext(): vscode.ExtensionContext {
 }
 
 describe("M6 scheduled pull root held", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     addSyncHistoryEntryMock.mockClear();
     showWarningMessageMock.mockClear();
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      vi.fn().mockResolvedValue(
+        mockFetchJsonResponse({
           payload: {
             schemaVersion: 1,
             manifest: {
@@ -145,8 +144,8 @@ describe("M6 scheduled pull root held", () => {
             },
           },
           updated_at: "2026-01-02T00:00:00.000Z",
-        }),
-      })
+        })
+      )
     );
   });
 

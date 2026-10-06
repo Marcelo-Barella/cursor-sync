@@ -31,6 +31,10 @@ export interface LocalConfigFileScan {
   oversizeKeys?: Set<string>;
   /** Local path is a symlink (or non-file) */
   symlinkKeys?: Set<string>;
+  /** File lies under a symlinked directory (file itself is not a symlink) */
+  underSymlinkedDirKeys?: Set<string>;
+  /** Label for underSymlinkedDirKeys entries (relative symlink dir path) */
+  symlinkedFolderLabels?: Record<string, string>;
   enoentKeys: Set<string>;
   provablyAbsentKeys: Set<string>;
   skippedUnknownKeys: Set<string>;

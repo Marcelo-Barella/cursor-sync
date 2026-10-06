@@ -151,6 +151,7 @@ export type PerFileHeldReason =
   | "excluded"
   | "oversize"
   | "symlink"
+  | "under_symlinked_dir"
   | "unsafe_path";
 
 function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set<string> {
@@ -171,6 +172,9 @@ export function perFileHeldReasonForKey(
   if (scanSet(scan, "symlinkKeys").has(syncKey)) {
     return "symlink";
   }
+  if (scanSet(scan, "underSymlinkedDirKeys").has(syncKey)) {
+    return "under_symlinked_dir";
+  }
   const prefix = syncKeyRootPrefix(syncKey);
   if (prefix && scan.deleteBlockedRootPrefixes.has(prefix)) {
     return "unsafe_path";
@@ -179,7 +183,8 @@ export function perFileHeldReasonForKey(
     scan.skippedUnknownKeys.has(syncKey) &&
     !scanSet(scan, "excludedKeys").has(syncKey) &&
     !scanSet(scan, "oversizeKeys").has(syncKey) &&
-    !scanSet(scan, "symlinkKeys").has(syncKey)
+    !scanSet(scan, "symlinkKeys").has(syncKey) &&
+    !scanSet(scan, "underSymlinkedDirKeys").has(syncKey)
   ) {
     return "unreadable";
   }
@@ -200,6 +205,7 @@ export function formatPerFileSyncHeldNotice(
   const excluded: string[] = [];
   const oversize: string[] = [];
   const symlink: string[] = [];
+  const underSymlinkDir: string[] = [];
   const unsafe: string[] = [];
   for (const key of heldKeys) {
     const reason = perFileHeldReasonForKey(key, scan);
@@ -209,6 +215,8 @@ export function formatPerFileSyncHeldNotice(
       oversize.push(key);
     } else if (reason === "symlink") {
       symlink.push(key);
+    } else if (reason === "under_symlinked_dir") {
+      underSymlinkDir.push(key);
     } else if (reason === "unreadable") {
       unreadable.push(key);
     } else {
@@ -228,6 +236,23 @@ export function formatPerFileSyncHeldNotice(
   if (symlink.length > 0) {
     parts.push(formatHeldGroup("symlink", symlink));
   }
+  if (underSymlinkDir.length > 0) {
+    const labels = scan.symlinkedFolderLabels ?? {};
+    const byDir = new Map<string, string[]>();
+    for (const key of underSymlinkDir) {
+      const dir = labels[key] ?? key;
+      const list = byDir.get(dir) ?? [];
+      list.push(key);
+      byDir.set(dir, list);
+    }
+    for (const [dir, keys] of byDir) {
+      const preview = keys.slice(0, 2).join(", ");
+      const suffix = keys.length > 2 ? ` (+${keys.length - 2} more)` : "";
+      parts.push(
+        `${keys.length} inside symlinked folder ${dir} (${preview}${suffix})`
+      );
+    }
+  }
   if (unsafe.length > 0) {
     parts.push(formatHeldGroup("unsafe path", unsafe));
   }
@@ -246,19 +271,51 @@ export function formatPullHeldRemoteUpdateNotice(
   if (heldKeys.length === 1) {
     const key = heldKeys[0]!;
     const reason = perFileHeldReasonForKey(key, scan);
+    const folder = scan.symlinkedFolderLabels?.[key];
     const label =
       reason === "symlink"
         ? "is a symlink"
-        : reason === "unreadable"
-          ? "is unreadable"
-          : reason === "excluded"
-            ? "is excluded"
-            : reason === "oversize"
-              ? "is oversize"
-              : "cannot be overwritten safely";
+        : reason === "under_symlinked_dir"
+          ? `is inside symlinked folder ${folder ?? "unknown"}`
+          : reason === "unreadable"
+            ? "is unreadable"
+            : reason === "excluded"
+              ? "is excluded"
+              : reason === "oversize"
+                ? "is oversize"
+                : "cannot be overwritten safely";
     return `1 remote update not applied: ${key} ${label}.`;
   }
   return `${heldKeys.length} remote updates not applied (${formatPerFileSyncHeldNotice(scan, heldKeys).replace(/^Sync held: /, "")}).`;
+}
+
+export function formatPullSkippedFilesNotice(
+  scan: LocalConfigFileScan,
+  skippedKeys: string[]
+): string {
+  if (skippedKeys.length === 0) {
+    return "";
+  }
+  if (skippedKeys.length === 1) {
+    const key = skippedKeys[0]!;
+    const reason = perFileHeldReasonForKey(key, scan);
+    const folder = scan.symlinkedFolderLabels?.[key];
+    const label =
+      reason === "symlink"
+        ? "symlink"
+        : reason === "under_symlinked_dir"
+          ? `inside symlinked folder ${folder ?? "unknown"}`
+          : reason === "excluded"
+            ? "excluded"
+            : reason === "oversize"
+              ? "oversize"
+              : reason === "unreadable"
+                ? "unreadable"
+                : "unsafe path";
+    return `Pull skipped 1 file (${label}): ${key}`;
+  }
+  const detail = formatPerFileSyncHeldNotice(scan, skippedKeys).replace(/^Sync held: /, "");
+  return `Pull skipped ${skippedKeys.length} file(s): ${detail}`;
 }
 
 export function formatSyncRootDeleteHeldNotice(scan: LocalConfigFileScan): string {

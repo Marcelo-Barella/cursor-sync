@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.28
+
+### Fixed
+- App storage UX: disk probe carries excluded/oversize/symlink-folder reasons on fresh devices; pull partial toasts count skipped files with per-file reasons; remote-update-held only when checksum differs; manual pull always warns on root ensure failures; scheduled sync handles `blocked` with deduped held history; scheduled UI suppression limited to root-only holds.
+
 ## v0.8.4-staging.27
 
 ### Fixed
