@@ -11,3 +11,13 @@ export function isAppConfigsSessionExpiredError(error: unknown): boolean {
     (error instanceof Error && error.name === "AppConfigsSessionExpiredError")
   );
 }
+
+export function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof Error && error.name === "AbortError") {
+    return true;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return false;
+}

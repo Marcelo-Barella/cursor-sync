@@ -6,10 +6,12 @@ import {
 } from "./appearance-theme.js";
 import { hasAppSession } from "../app-configs.js";
 import { readCachedAppSessionEmail } from "../app-session-state.js";
+import { isLoggingOut } from "../app-session-coordination.js";
 
 export interface SettingsTabAccountState {
   appSessionActive: boolean;
   appSessionEmail?: string;
+  loggingOut?: boolean;
 }
 
 export interface SettingsTabValues {
@@ -25,6 +27,9 @@ export interface SettingsTabValues {
 export async function readSettingsAccountState(
   context: vscode.ExtensionContext
 ): Promise<SettingsTabAccountState> {
+  if (isLoggingOut()) {
+    return { appSessionActive: true, loggingOut: true };
+  }
   const appSessionActive = await hasAppSession(context);
   if (!appSessionActive) {
     return { appSessionActive: false };
@@ -47,6 +52,14 @@ export function readSettingsValues(account: SettingsTabAccountState): SettingsTa
 }
 
 export function renderSettingsAccountSection(account: SettingsTabAccountState): string {
+  if (account.loggingOut) {
+    return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="settings-list">
+      <div class="settings-account-email settings-account-muted">Logging out…</div>
+    </div>
+  </div>`;
+  }
   if (account.appSessionActive) {
     const emailHtml = account.appSessionEmail
       ? `<div class="settings-account-email">${escapeHtml(account.appSessionEmail)}</div>`

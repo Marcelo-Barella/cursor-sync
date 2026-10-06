@@ -183,6 +183,10 @@ export const scheduledSyncActionResolver = {
 export async function scheduledTick(
   context: vscode.ExtensionContext
 ): Promise<void> {
+  const { isLoggingOut } = await import("./app-session-coordination.js");
+  if (isLoggingOut()) {
+    return;
+  }
   const logger = getLogger();
 
   if (isPushLocked() || isPullLocked()) {

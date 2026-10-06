@@ -22,9 +22,17 @@ import {
 } from "./app-config-remote-state.js";
 import {
   AppConfigsSessionExpiredError,
+  isAbortLikeError,
   isAppConfigsSessionExpiredError,
 } from "./app-config-errors.js";
-import { resolveSyncRootsRealpaths } from "./app-config-sync-path-safety.js";
+import {
+  isHeldExternalSymlink,
+  resolveSyncRootsRealpaths,
+} from "./app-config-sync-path-safety.js";
+import {
+  reconcileRemoteDirtyOnPush,
+  tryClearRemoteDirtyWhenReconciled,
+} from "./app-config-reconcile.js";
 import { executeAppConfigPullWrites, type PullWriteTarget } from "./app-config-pull-files.js";
 import { collectJournalBackupDirs } from "./app-config-pull-journal.js";
 import {
@@ -32,6 +40,7 @@ import {
   beginAppConfigsRun,
   getSessionEpoch,
   isAppConfigsAbortedError,
+  isLoggingOut,
   throwIfAppConfigsAborted,
   wasAppConfigsLogoutAbort,
   type AppConfigsRunHandle,
@@ -62,6 +71,8 @@ const SESSION_EXPIRED_MESSAGE =
   "Your Cursor Sync session expired. Log in again to sync configs with the app.";
 const PUT_CONFIGS_TIMEOUT_MS = 15_000;
 const PARTIAL_COMMIT_RETRIES = 2;
+const REMOTE_DIRTY_WARNING =
+  "App configs need reconciliation. Push will re-upload any files whose remote storage does not match the manifest.";
 
 export async function hasAppSession(
   context: vscode.ExtensionContext
@@ -135,15 +146,27 @@ async function putAppConfigsWithSession(
   run?.signal.addEventListener("abort", onRunAbort);
 
   try {
-    const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
-      method: "PUT",
-      headers: {
-        ...authHeaders(session),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ payload }),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${appConfigsBaseUrl()}/configs`, {
+        method: "PUT",
+        headers: {
+          ...authHeaders(session),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ payload }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (
+        run &&
+        (run.signal.aborted || isAbortLikeError(err)) &&
+        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch())
+      ) {
+        throw new AppConfigsAbortedError("logout");
+      }
+      throw err;
+    }
 
     if (response.status === 401) {
       if (run?.signal.aborted) {
@@ -387,7 +410,7 @@ async function commitPartialAppConfigsPush(
   localPayload: AppConfigsPayloadV1,
   uploadedKeys: string[],
   session: string,
-  run: AppConfigsRunHandle
+  credentials: Awaited<ReturnType<typeof getR2StorageCredentials>>
 ): Promise<boolean> {
   if (uploadedKeys.length === 0) {
     return false;
@@ -402,7 +425,11 @@ async function commitPartialAppConfigsPush(
   for (let attempt = 0; attempt < PARTIAL_COMMIT_RETRIES; attempt += 1) {
     try {
       await putAppConfigsWithSession(session, payload);
-      await clearAppConfigRemoteDirty(context);
+      if (credentials) {
+        await tryClearRemoteDirtyWhenReconciled(context, credentials, payload);
+      } else {
+        await markAppConfigRemoteDirty(context, "partial_commit_unverified");
+      }
       return true;
     } catch (err) {
       if (isAppConfigsAbortedError(err)) {
@@ -415,6 +442,16 @@ async function commitPartialAppConfigsPush(
     }
   }
   return false;
+}
+
+async function markDirtyIfUploaded(
+  context: vscode.ExtensionContext,
+  uploadedKeys: string[],
+  reason: string
+): Promise<void> {
+  if (uploadedKeys.length > 0) {
+    await markAppConfigRemoteDirty(context, reason, uploadedKeys);
+  }
 }
 
 function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
@@ -437,11 +474,18 @@ export async function executePushAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
+  if (isLoggingOut()) {
+    vscode.window.showInformationMessage("Logging out…");
+    return false;
+  }
+
   const run = beginAppConfigsRun("push");
   let session: string | undefined;
   let localPayload: AppConfigsPayloadV1 | undefined;
   let remoteBaseline: AppConfigsPayloadV1 | undefined;
+  let remoteBaselineFetched = false;
   const uploadedKeys: string[] = [];
+  let credentials: Awaited<ReturnType<typeof getR2StorageCredentials>> | undefined;
 
   try {
     session = await requireAppSession(context);
@@ -449,31 +493,25 @@ export async function executePushAppConfigs(
       return false;
     }
 
-    if (readAppConfigRemoteDirty(context)) {
-      vscode.window.showWarningMessage(
-        "App configs remote state needs reconciliation. Pull app configs before pushing again."
-      );
+    const fetchedRemote = await fetchRemoteConfigsPayload(session);
+    if (fetchedRemote) {
+      remoteBaseline = fetchedRemote;
+      remoteBaselineFetched = true;
     }
 
-    remoteBaseline =
-      (await fetchRemoteConfigsPayload(session)) ??
-      ({
-        schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
-        manifest: {
-          schemaVersion: 1,
-          syncProfileName: "default",
-          createdAt: new Date().toISOString(),
-          sourceMachineId: "",
-          sourceOS: "linux",
-          files: {},
-        },
-        files: {},
-      } satisfies AppConfigsPayloadV1);
+    if (readAppConfigRemoteDirty(context)) {
+      vscode.window.showWarningMessage(REMOTE_DIRTY_WARNING);
+    }
+
     localPayload = await buildLocalAppConfigsPayload();
     throwIfAppConfigsAborted(run);
-    const credentials = await getR2StorageCredentials(context);
+    credentials = await getR2StorageCredentials(context);
     if (!credentials) {
       return false;
+    }
+
+    if (readAppConfigRemoteDirty(context) && remoteBaselineFetched && remoteBaseline) {
+      await reconcileRemoteDirtyOnPush(context, credentials, remoteBaseline, localPayload);
     }
 
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
@@ -500,7 +538,7 @@ export async function executePushAppConfigs(
       localPayload.files
     );
     await putAppConfigsWithSession(session, payload, { run });
-    await clearAppConfigRemoteDirty(context);
+    await tryClearRemoteDirtyWhenReconciled(context, credentials, payload);
 
     const fileCount = Object.keys(payload.files).length;
     vscode.window.showInformationMessage(
@@ -512,33 +550,44 @@ export async function executePushAppConfigs(
     return true;
   } catch (err) {
     if (isAppConfigsSessionExpiredError(err)) {
+      await markDirtyIfUploaded(context, uploadedKeys, "session_expired_after_upload");
       vscode.window.showErrorMessage(SESSION_EXPIRED_MESSAGE);
       return false;
     }
-    if (isAppConfigsAbortedError(err)) {
-      if (session && localPayload && remoteBaseline && uploadedKeys.length > 0) {
+    const logoutAbort =
+      isAppConfigsAbortedError(err) ||
+      (isAbortLikeError(err) &&
+        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch()));
+    if (logoutAbort) {
+      if (
+        session &&
+        localPayload &&
+        remoteBaselineFetched &&
+        remoteBaseline &&
+        uploadedKeys.length > 0
+      ) {
         const committed = await commitPartialAppConfigsPush(
           context,
           remoteBaseline,
           localPayload,
           uploadedKeys,
           session,
-          run
+          credentials
         );
         if (!committed) {
           logger.appendLine(
             `[${new Date().toISOString()}] Push app configs partial commit failed after abort`
           );
         }
+      } else if (uploadedKeys.length > 0) {
+        await markAppConfigRemoteDirty(context, "partial_commit_no_baseline", uploadedKeys);
       }
       logger.appendLine(
-        `[${new Date().toISOString()}] Push app configs aborted (${err.reason})`
+        `[${new Date().toISOString()}] Push app configs aborted (logout)`
       );
       return false;
     }
-    if (uploadedKeys.length > 0) {
-      await markAppConfigRemoteDirty(context, "push_failed_after_upload");
-    }
+    await markDirtyIfUploaded(context, uploadedKeys, "push_failed_after_upload");
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
@@ -556,7 +605,14 @@ export async function executePullAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
+  if (isLoggingOut()) {
+    vscode.window.showInformationMessage("Logging out…");
+    return false;
+  }
+
   const run = beginAppConfigsRun("pull");
+  let skippedChecksum = 0;
+  let skippedHeldSymlink = 0;
 
   try {
     throwIfAppConfigsAborted(run);
@@ -591,12 +647,21 @@ export async function executePullAppConfigs(
         continue;
       }
 
+      if (await isHeldExternalSymlink(absolutePath, syncKey, resolved)) {
+        skippedHeldSymlink += 1;
+        logger.appendLine(
+          `[${new Date().toISOString()}] Pull skipped held external symlink: ${syncKey}`
+        );
+        continue;
+      }
+
       const content = await resolveRemoteFileContent(context, syncKey, file, manifestEntry, {
         credentials,
         run,
         silentCredentials: true,
       });
       if (!content) {
+        skippedChecksum += 1;
         continue;
       }
 
@@ -633,8 +698,15 @@ export async function executePullAppConfigs(
       pullTargets.push(...filtered);
     }
 
+    const skippedTotal = skippedChecksum + skippedHeldSymlink;
     if (pullTargets.length === 0) {
-      vscode.window.showInformationMessage("Pull app configs complete: no files to update.");
+      if (skippedTotal > 0) {
+        vscode.window.showWarningMessage(
+          `${skippedTotal} file(s) skipped: remote checksum mismatch or held symlink.`
+        );
+      } else {
+        vscode.window.showInformationMessage("Pull app configs complete: no files to update.");
+      }
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
       );
@@ -646,9 +718,15 @@ export async function executePullAppConfigs(
     const protectedDirs = await collectJournalBackupDirs(context);
     await pruneOldBackups(context, { protectedBackupDirs: protectedDirs });
 
-    vscode.window.showInformationMessage(
-      `Pull app configs complete: ${pullTargets.length} file(s) updated.`
-    );
+    if (skippedTotal > 0) {
+      vscode.window.showWarningMessage(
+        `Pull app configs updated ${pullTargets.length} file(s); ${skippedTotal} file(s) skipped: remote checksum mismatch or held symlink.`
+      );
+    } else {
+      vscode.window.showInformationMessage(
+        `Pull app configs complete: ${pullTargets.length} file(s) updated.`
+      );
+    }
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${pullTargets.length} files`
     );

@@ -1,8 +1,12 @@
-const LOGOUT_ABORT_WAIT_MS = 5000;
-const LOGOUT_PULL_FINALIZE_WAIT_MS = 120_000;
+import * as vscode from "vscode";
+
+const LOGOUT_FORCE_PROMPT_MS = 120_000;
 const SERVER_LOGOUT_TIMEOUT_MS = 2000;
 
 let sessionEpoch = 0;
+let loggingOut = false;
+let logoutInProgress: Promise<void> | undefined;
+let logoutProgress: vscode.Progress<{ message?: string }> | undefined;
 
 type AppConfigsRunType = "push" | "pull";
 
@@ -37,11 +41,53 @@ export class AppConfigsAbortedError extends Error {
   }
 }
 
+export class LoggingOutError extends Error {
+  constructor() {
+    super("logging_out");
+    this.name = "LoggingOutError";
+  }
+}
+
 export function isAppConfigsAbortedError(error: unknown): error is AppConfigsAbortedError {
   return (
     error instanceof AppConfigsAbortedError ||
     (error instanceof Error && error.name === "AppConfigsAbortedError")
   );
+}
+
+export function isLoggingOut(): boolean {
+  return loggingOut;
+}
+
+export function getLogoutInProgressPromise(): Promise<void> | undefined {
+  return logoutInProgress;
+}
+
+export function setLogoutInProgress(promise: Promise<void> | undefined): void {
+  logoutInProgress = promise;
+}
+
+export function setLoggingOut(value: boolean): void {
+  loggingOut = value;
+}
+
+export function reportLogoutProgress(message: string): void {
+  logoutProgress?.report({ message });
+}
+
+export function bindLogoutProgress(progress: vscode.Progress<{ message?: string }>): void {
+  logoutProgress = progress;
+}
+
+export function clearLogoutProgress(): void {
+  logoutProgress = undefined;
+}
+
+export function assertSyncNotBlockedByLogout(): void {
+  if (loggingOut) {
+    vscode.window.showInformationMessage("Logging out…");
+    throw new LoggingOutError();
+  }
 }
 
 export interface AppConfigsRunHandle {
@@ -64,6 +110,7 @@ export function bumpSessionEpoch(): void {
 }
 
 export function beginAppConfigsRun(type: AppConfigsRunType): AppConfigsRunHandle {
+  assertSyncNotBlockedByLogout();
   const abortController = new AbortController();
   const epoch = sessionEpoch;
   let resolveDone!: () => void;
@@ -101,22 +148,74 @@ export function throwIfAppConfigsAborted(run: AppConfigsRunHandle): void {
   }
 }
 
-export async function abortAppConfigsForLogout(): Promise<void> {
+async function waitForActiveRunToFinish(): Promise<void> {
   if (!activeAppConfigsRun) {
     return;
   }
-  activeAppConfigsRun.logoutAbort = true;
-  activeAppConfigsRun.abortController.abort("logout");
-  await Promise.race([
-    activeAppConfigsRun.done,
-    new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_ABORT_WAIT_MS)),
-  ]);
-  if (pendingPullFinalize) {
-    await Promise.race([
-      pendingPullFinalize,
-      new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_PULL_FINALIZE_WAIT_MS)),
-    ]);
+  await activeAppConfigsRun.done;
+}
+
+async function waitForPullFinalize(): Promise<void> {
+  if (!pendingPullFinalize) {
+    return;
   }
+  await pendingPullFinalize;
+}
+
+export async function waitForAppConfigsLogoutDrain(
+  options?: { force?: boolean }
+): Promise<void> {
+  if (activeAppConfigsRun) {
+    activeAppConfigsRun.logoutAbort = true;
+    activeAppConfigsRun.abortController.abort("logout");
+  }
+  reportLogoutProgress("Stopping sync…");
+  await waitForActiveRunToFinish();
+  reportLogoutProgress("Restoring files…");
+  await waitForPullFinalize();
+  if (options?.force) {
+    return;
+  }
+}
+
+export async function abortAppConfigsForLogout(): Promise<void> {
+  const started = Date.now();
+  await waitForAppConfigsLogoutDrain();
+  while (Date.now() - started < LOGOUT_FORCE_PROMPT_MS) {
+    if (!activeAppConfigsRun && !pendingPullFinalize) {
+      return;
+    }
+    await waitForAppConfigsLogoutDrain();
+    if (!activeAppConfigsRun && !pendingPullFinalize) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  }
+  const choice = await vscode.window.showWarningMessage(
+    "Logout is still waiting for app config files to finish restoring. Logging out now may leave some files half-updated.",
+    { modal: true },
+    "Log out anyway",
+    "Keep waiting"
+  );
+  if (choice === "Log out anyway") {
+    await waitForAppConfigsLogoutDrain({ force: true });
+    return;
+  }
+  while (activeAppConfigsRun || pendingPullFinalize) {
+    reportLogoutProgress("Restoring files…");
+    await waitForAppConfigsLogoutDrain();
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+/** Test-only reset of module singletons (Vitest isolation). */
+export function __resetAppSessionCoordinationForTests(): void {
+  loggingOut = false;
+  logoutInProgress = undefined;
+  logoutProgress = undefined;
+  sessionEpoch = 0;
+  activeAppConfigsRun = undefined;
+  pendingPullFinalize = undefined;
 }
 
 export async function tryServerLogout(apiBase: string, sessionToken: string): Promise<void> {

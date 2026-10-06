@@ -295,10 +295,46 @@ describe("executeAppConfigPullWrites safety", () => {
           expectedChecksum: computeChecksum(Buffer.from("before", "utf-8")),
           kind: "file",
           wroteChecksum: computeChecksum(pulled),
+          renameCompleted: true,
         },
       ],
     });
     expect(await fs.readFile(target, "utf-8")).toBe("user-edited-during-pull");
+  });
+
+  it("journal entry exists before rename completes (crash-safe ordering)", async () => {
+    const { cursorUser, ctx, resolved, run } = await makePullFixture();
+    const target = path.join(cursorUser, "settings.json");
+    const content = Buffer.from("pulled", "utf-8");
+    const { executeAppConfigPullWrites } = await import("../src/app-config-pull-files.js");
+    const { listIncompletePullJournals } = await import("../src/app-config-pull-journal.js");
+    const journalMod = await import("../src/app-config-pull-journal.js");
+    const originalWrite = journalMod.writePullJournal;
+    let sawPendingBeforeRename = false;
+    vi.spyOn(journalMod, "writePullJournal").mockImplementation(async (ctx, journal) => {
+      const last = journal.entries[journal.entries.length - 1];
+      if (last && last.renameCompleted === false && last.tmpPath) {
+        sawPendingBeforeRename = true;
+      }
+      return originalWrite(ctx, journal);
+    });
+    await executeAppConfigPullWrites(
+      ctx,
+      run,
+      [
+        {
+          syncKey: "cursor-user/settings.json",
+          absolutePath: target,
+          content,
+          expectedChecksum: computeChecksum(content),
+        },
+      ],
+      resolved
+    );
+    run.end();
+    expect(sawPendingBeforeRename).toBe(true);
+    expect(await listIncompletePullJournals(ctx)).toHaveLength(0);
+    vi.restoreAllMocks();
   });
 
   it("removes only files created by the pull on abort rollback", async () => {

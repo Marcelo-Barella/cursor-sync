@@ -5,15 +5,18 @@ export const APP_CONFIG_REMOTE_DIRTY_KEY = "cursorSync.appConfigs.remoteDirty";
 export interface RemoteDirtyState {
   at: string;
   reason: string;
+  mismatchKeys?: string[];
 }
 
 export async function markAppConfigRemoteDirty(
   context: vscode.ExtensionContext,
-  reason: string
+  reason: string,
+  mismatchKeys?: string[]
 ): Promise<void> {
   await context.globalState.update(APP_CONFIG_REMOTE_DIRTY_KEY, {
     at: new Date().toISOString(),
     reason,
+    ...(mismatchKeys && mismatchKeys.length > 0 ? { mismatchKeys } : {}),
   } satisfies RemoteDirtyState);
 }
 

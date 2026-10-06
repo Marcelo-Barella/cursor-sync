@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.10-logout
+
+### Fixed
+- Logout coordination tests restored; push abort merges into remote baseline; logout gates sync, shows progress, and awaits SecretStorage without timeout races.
+- `remoteDirty` reconciliation on push, abort-signal logout on config PUT, no partial commit without baseline GET, dirty cleared only after object/manifest verify, session-expired marks dirty.
+- Pull journal ordering/fsync, corrupt journal handling, rollback/replay containment, held external symlinks skipped, file mode preserved, skip warnings.
+
 ## v0.8.4-staging.9-logout
 
 ### Fixed

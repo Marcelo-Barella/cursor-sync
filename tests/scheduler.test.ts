@@ -120,6 +120,10 @@ describe("scheduler", () => {
   });
 
   it("enforces minimum interval of 5 minutes", async () => {
+    const { __resetAppSessionCoordinationForTests } = await import(
+      "../src/app-session-coordination.js"
+    );
+    __resetAppSessionCoordinationForTests();
     const vscode = await import("vscode");
     vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({
       get: (key: string) => {

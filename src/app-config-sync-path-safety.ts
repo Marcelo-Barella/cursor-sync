@@ -92,3 +92,29 @@ export async function assertContainedSyncPath(
   }
   await resolvePathWithinSyncRoot(absolutePath, rootInfo.rootPath, rootInfo.rootReal);
 }
+
+/** Pre-existing symlink whose target resolves outside the sync root (user-held). */
+export async function isHeldExternalSymlink(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<boolean> {
+  try {
+    const st = await fs.lstat(absolutePath);
+    if (!st.isSymbolicLink()) {
+      return false;
+    }
+    const linkTarget = await fs.readlink(absolutePath);
+    const resolvedTarget = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(absolutePath), linkTarget);
+    const targetReal = await fs.realpath(resolvedTarget).catch(() => path.resolve(resolvedTarget));
+    const rootInfo = syncRootRealForKey(syncKey, resolved);
+    if (!rootInfo) {
+      return false;
+    }
+    return !isRealpathInsideRoot(targetReal, rootInfo.rootReal);
+  } catch {
+    return false;
+  }
+}

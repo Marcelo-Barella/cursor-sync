@@ -1,5 +1,11 @@
 import * as vscode from "vscode";
-import { clearAppSession, getAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
+import {
+  clearAppSession,
+  clearAppSessionForLogout,
+  getAppSession,
+  clearPersistedAuthHandoff,
+} from "./app-auth.js";
+import { isLoggingOut } from "./app-session-coordination.js";
 import { getAppApiUrl } from "./config/urls.js";
 import { resolveAppSessionEmail } from "./app-session-identity.js";
 
@@ -21,6 +27,9 @@ export async function persistAppSessionMetadata(
 export async function readCachedAppSessionEmail(
   context: vscode.ExtensionContext
 ): Promise<string | undefined> {
+  if (isLoggingOut()) {
+    return undefined;
+  }
   const cached = context.globalState.get<string>(APP_SESSION_USER_EMAIL_KEY);
   if (cached) {
     return cached;
@@ -30,6 +39,25 @@ export async function readCachedAppSessionEmail(
     return undefined;
   }
   return resolveAppSessionEmail(session);
+}
+
+export async function clearAppSessionArtifactsForLogout(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  const sessionCleared = await clearAppSessionForLogout(context);
+  if (!sessionCleared) {
+    return false;
+  }
+  await clearPersistedAuthHandoff(context);
+  await context.globalState.update(APP_SESSION_USER_EMAIL_KEY, undefined);
+  await context.globalState.update(APP_SESSION_EXPIRED_KEY, undefined);
+  await context.globalState.update(APP_LOGIN_API_BASE_OVERRIDE_KEY, undefined);
+  try {
+    await context.secrets.delete(APP_STORAGE_E2E_KEY_SECRET);
+  } catch {
+    // SecretStorage unavailable.
+  }
+  return true;
 }
 
 export async function clearAppSessionArtifacts(

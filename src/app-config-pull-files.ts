@@ -69,6 +69,8 @@ async function backupExisting(
     await fs.symlink(existing.linkTarget, backupPath);
   } else {
     await fs.copyFile(absolutePath, backupPath);
+    const mode = (await fs.stat(absolutePath)).mode & 0o777;
+    await fs.chmod(backupPath, mode);
   }
   return {
     syncKey,
@@ -86,7 +88,10 @@ async function writeUniqueTemp(dir: string): Promise<string> {
     const name = `.cursor-sync-pull-${randomBytes(6).toString("hex")}.tmp`;
     const tmpPath = path.join(dir, name);
     try {
-      const handle = await fs.open(tmpPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
+      const handle = await fs.open(
+        tmpPath,
+        fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY
+      );
       await handle.close();
       return tmpPath;
     } catch (err) {
@@ -99,13 +104,53 @@ async function writeUniqueTemp(dir: string): Promise<string> {
   throw new Error("Could not allocate unique temp file for pull write");
 }
 
+async function assertEntryContained(
+  entry: PullJournalEntry,
+  resolved?: ResolvedSyncRoots
+): Promise<void> {
+  if (!resolved) {
+    return;
+  }
+  await assertContainedSyncPath(entry.absolutePath, entry.syncKey, resolved);
+  if (entry.backupPath) {
+    const backupReal = await fs.realpath(entry.backupPath).catch(() => entry.backupPath!);
+    const backupDirReal = await fs.realpath(path.dirname(entry.backupPath));
+    if (!backupReal.startsWith(backupDirReal)) {
+      throw new Error(`Refusing backup path outside backup dir: ${entry.backupPath}`);
+    }
+  }
+}
+
+async function cleanupPullTempsAndEmptyDirs(entry: PullJournalEntry): Promise<void> {
+  if (entry.tmpPath && (await pathExists(entry.tmpPath))) {
+    await fs.rm(entry.tmpPath, { force: true });
+  }
+  if (entry.createdDirs) {
+    for (const dir of [...entry.createdDirs].reverse()) {
+      try {
+        const items = await fs.readdir(dir);
+        if (items.length === 0) {
+          await fs.rmdir(dir);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
 export async function rollbackPullJournal(
   context: vscode.ExtensionContext,
   journal: PullJournal
 ): Promise<void> {
   const logger = getLogger();
+  const resolved = journal.resolvedRoots;
   for (const entry of [...journal.entries].reverse()) {
     try {
+      await assertEntryContained(entry, resolved);
+      if (!entry.renameCompleted && entry.tmpPath) {
+        await cleanupPullTempsAndEmptyDirs(entry);
+      }
       if (entry.createdByPull) {
         if (await pathExists(entry.absolutePath)) {
           const current = await readLinkOrFileChecksum(entry.absolutePath);
@@ -113,13 +158,14 @@ export async function rollbackPullJournal(
             await fs.rm(entry.absolutePath, { force: true });
           }
         }
+        await cleanupPullTempsAndEmptyDirs(entry);
         continue;
       }
       if (!entry.backupPath) {
         continue;
       }
       const onDisk = await pathExists(entry.absolutePath);
-      if (onDisk && entry.wroteChecksum) {
+      if (onDisk && entry.wroteChecksum && entry.renameCompleted) {
         const current = await readLinkOrFileChecksum(entry.absolutePath);
         if (current.checksum !== entry.wroteChecksum) {
           logger.appendLine(
@@ -133,6 +179,9 @@ export async function rollbackPullJournal(
         await fs.symlink(entry.linkTarget, entry.absolutePath);
       } else if (entry.backupPath) {
         await fs.copyFile(entry.backupPath, entry.absolutePath);
+        if (entry.priorMode !== undefined) {
+          await fs.chmod(entry.absolutePath, entry.priorMode);
+        }
       }
     } catch (err) {
       logger.appendLine(
@@ -148,7 +197,6 @@ export async function executeAppConfigPullWrites(
   targets: PullWriteTarget[],
   resolved: ResolvedSyncRoots
 ): Promise<boolean> {
-  const logger = getLogger();
   if (targets.length === 0) {
     return true;
   }
@@ -167,6 +215,7 @@ export async function executeAppConfigPullWrites(
     backupDir,
     entries: [],
     phase: "writing",
+    resolvedRoots: resolved,
   };
   await writePullJournal(context, journal);
 
@@ -184,17 +233,29 @@ export async function executeAppConfigPullWrites(
       );
       index += 1;
 
-      const createdByPull = !(await pathExists(target.absolutePath));
+      const existedBefore = await pathExists(target.absolutePath);
+      const createdByPull = !existedBefore;
+      let priorMode: number | undefined;
+      if (existedBefore) {
+        const st = await fs.lstat(target.absolutePath);
+        if (st.isFile()) {
+          priorMode = st.mode & 0o777;
+        }
+      }
+
       const dir = path.dirname(target.absolutePath);
-      await fs.mkdir(dir, { recursive: true });
+      const createdDirs: string[] = [];
+      if (!(await pathExists(dir))) {
+        await fs.mkdir(dir, { recursive: true });
+        createdDirs.push(dir);
+      }
       await assertContainedSyncPath(target.absolutePath, target.syncKey, resolved);
 
       const tmpPath = await writeUniqueTemp(dir);
       await fs.writeFile(tmpPath, target.content);
-      await fs.rename(tmpPath, target.absolutePath);
-
       const wroteChecksum = computeChecksum(target.content);
-      const entry: PullJournalEntry = {
+
+      const pendingEntry: PullJournalEntry = {
         syncKey: target.syncKey,
         absolutePath: target.absolutePath,
         backupPath: backupEntry?.backupPath,
@@ -203,8 +264,21 @@ export async function executeAppConfigPullWrites(
         kind: backupEntry?.kind ?? "file",
         linkTarget: backupEntry?.linkTarget,
         wroteChecksum,
+        tmpPath,
+        renameCompleted: false,
+        priorMode,
+        createdDirs: createdDirs.length > 0 ? createdDirs : undefined,
       };
-      journal.entries.push(entry);
+      journal.entries.push(pendingEntry);
+      await writePullJournal(context, journal);
+
+      await assertContainedSyncPath(target.absolutePath, target.syncKey, resolved);
+      await fs.rename(tmpPath, target.absolutePath);
+      if (priorMode !== undefined) {
+        await fs.chmod(target.absolutePath, priorMode);
+      }
+      pendingEntry.renameCompleted = true;
+      pendingEntry.tmpPath = undefined;
       await writePullJournal(context, journal);
     }
 
