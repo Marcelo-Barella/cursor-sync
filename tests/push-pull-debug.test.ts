@@ -197,7 +197,7 @@ describe.sequential("push/pull debug wiring", () => {
     const { executePull } = await import("../src/pull.js");
     const result = await executePull(mockContext(), { trigger: "scheduled" });
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ status: "failure" });
     expect(showSyncFailureWithDebugMock).toHaveBeenCalledTimes(1);
 
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
@@ -322,7 +322,7 @@ describe.sequential("push/pull debug wiring", () => {
     const { executePull } = await import("../src/pull.js");
     const result = await executePull(mockContext(), { trigger: "scheduled" });
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ status: "failure" });
     expect(showSyncFailureWithDebugMock).toHaveBeenCalledTimes(1);
 
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;

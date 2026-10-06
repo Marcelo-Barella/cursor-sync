@@ -8,7 +8,7 @@ const showSyncFailureWithDebugMock = vi.hoisted(() =>
 );
 
 const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue({ status: "success" }));
 const isSyncOperationActiveMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
@@ -35,9 +35,13 @@ vi.mock("../src/push.js", () => ({
   executePush: executePushMock,
 }));
 
-vi.mock("../src/pull.js", () => ({
-  executePull: executePullMock,
-}));
+vi.mock("../src/pull.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/pull.js")>();
+  return {
+    ...actual,
+    executePull: executePullMock,
+  };
+});
 
 vi.mock("../src/sync-operation.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/sync-operation.js")>();
@@ -584,7 +588,7 @@ describe("scheduled sync debug wiring", () => {
     vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
     executePushMock.mockReset().mockResolvedValue(true);
-    executePullMock.mockReset().mockResolvedValue(true);
+    executePullMock.mockReset().mockResolvedValue({ status: "success" });
     isSyncOperationActiveMock.mockReset().mockReturnValue(false);
     getAppSessionMock.mockReset().mockResolvedValue(undefined);
 
@@ -697,7 +701,7 @@ describe("scheduled sync debug wiring", () => {
     vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
       action: "pull",
     });
-    executePullMock.mockResolvedValue(false);
+    executePullMock.mockResolvedValue({ status: "failure" });
 
     await scheduler.scheduledTick(mockContext());
 
@@ -724,7 +728,7 @@ describe("scheduled sync debug wiring", () => {
     vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
       action: "pull-push",
     });
-    executePullMock.mockResolvedValue(false);
+    executePullMock.mockResolvedValue({ status: "failure" });
 
     await scheduler.scheduledTick(mockContext());
 
@@ -737,7 +741,7 @@ describe("scheduled sync debug wiring", () => {
     vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
       action: "pull-push",
     });
-    executePullMock.mockResolvedValue(true);
+    executePullMock.mockResolvedValue({ status: "success" });
     executePushMock.mockResolvedValue(false);
 
     await scheduler.scheduledTick(mockContext());

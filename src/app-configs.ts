@@ -43,6 +43,7 @@ import {
   formatSyncRootDeleteHeldNotice,
   listPerFileHeldSyncKeys,
   perFileHeldReasonForKey,
+  type PullSkipReasonOverrides,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
@@ -80,9 +81,14 @@ import {
   filterScheduledAppStoragePullKeys,
   pullOverwriteShouldBePreselected,
   loadAppStorageBaseline,
+  needsPullAppConfigFile,
+  remoteChecksumChangedSinceBaseline,
   shouldPullAppConfigFile,
   updateAppStorageBaselineAfterSync,
 } from "./app-storage-baseline.js";
+
+/** Pull completed cleanly; held = scheduled root hold (not a failure); failure = error or partial. */
+export type AppStoragePullStatus = "success" | "held" | "failure";
 import {
   enumerateSyncFiles,
   listSymlinkSyncKeysUnderRoots,
@@ -645,7 +651,7 @@ function describePushSkipLabel(
 ): string {
   const reason = perFileHeldReasonForKey(syncKey, scan);
   if (reason === "symlink" && !trackedManifestKeys.has(syncKey)) {
-    return syncKey;
+    return `${syncKey} (never-synced symlink)`;
   }
   if (reason === "symlink") {
     return `${syncKey} (symlink)`;
@@ -1712,7 +1718,7 @@ export async function executePushAppConfigs(
 export async function executePullAppConfigs(
   context: vscode.ExtensionContext,
   options?: AppConfigsSyncOptions
-): Promise<boolean> {
+): Promise<AppStoragePullStatus> {
   const trigger = options?.trigger ?? "manual";
   const destination = "cursor-sync-storage" as const;
   const destinationLabel = syncDestinationLabel(destination);
@@ -1722,7 +1728,7 @@ export async function executePullAppConfigs(
   try {
     const response = await fetchAppConfigs(context, { trigger });
     if (!response) {
-      return false;
+      return "failure";
     }
 
     if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
@@ -1738,7 +1744,7 @@ export async function executePullAppConfigs(
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs: empty or invalid payload`
       );
-      return true;
+      return "success";
     }
 
     const { manifest } = response.payload;
@@ -1783,10 +1789,11 @@ export async function executePullAppConfigs(
       logger.appendLine(
         `[${new Date().toISOString()}] Scheduled pull held: sync root blocked (${fp})`
       );
-      return true;
+      return "held";
     }
 
     const heldRemoteUpdateKeys: string[] = [];
+    const pullSkipReasonOverrides = new Map<string, import("./app-storage-delete-guard.js").PerFileHeldReason>();
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
@@ -1817,9 +1824,16 @@ export async function executePullAppConfigs(
         localChecksum = undefined;
       }
 
-      const remoteWouldChange = shouldPullAppConfigFile(
+      const remoteChangedOnServer = remoteChecksumChangedSinceBaseline(
+        syncKey,
+        manifestEntry.checksum,
+        pullBaseline
+      );
+      const needsPull = needsPullAppConfigFile(
+        syncKey,
         localChecksum,
-        manifestEntry.checksum
+        manifestEntry.checksum,
+        pullBaseline
       );
 
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
@@ -1828,9 +1842,11 @@ export async function executePullAppConfigs(
           localChecksum === manifestEntry.checksum
         ) {
           reconciledKeys.push(syncKey);
-        } else if (remoteWouldChange) {
+        } else if (needsPull && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
+        } else if (!remoteChangedOnServer) {
+          reconciledKeys.push(syncKey);
         }
         continue;
       }
@@ -1838,14 +1854,16 @@ export async function executePullAppConfigs(
         localChecksum === undefined &&
         !isLocallyAbsentSafeToPull(syncKey, pullLocalScan)
       ) {
-        if (remoteWouldChange) {
+        if (needsPull && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
+        } else if (!remoteChangedOnServer) {
+          reconciledKeys.push(syncKey);
         }
         continue;
       }
 
-      if (!shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
+      if (!needsPull) {
         reconciledKeys.push(syncKey);
         continue;
       }
@@ -2026,7 +2044,7 @@ export async function executePullAppConfigs(
         `Pull from ${destinationLabel} cancelled. Nothing was changed.`
       );
       logger.appendLine(`[${new Date().toISOString()}] Pull app configs cancelled by user`);
-      return false;
+      return "failure";
     }
 
     if (
@@ -2047,7 +2065,7 @@ export async function executePullAppConfigs(
         error: message,
       });
       vscode.window.showErrorMessage(message);
-      return false;
+      return "failure";
     }
 
     if (filesToWrite.length === 0 && filesToDelete.length === 0) {
@@ -2059,13 +2077,28 @@ export async function executePullAppConfigs(
           pullLocalScan.deleteBlockedRootPrefixes.size > 0
             ? formatSyncRootDeleteHeldNotice(pullLocalScan)
             : trigger === "manual"
-              ? formatPullHeldRemoteUpdateNotice(pullLocalScan, heldRemoteUpdateKeys)
+              ? formatPullHeldRemoteUpdateNotice(
+                  pullLocalScan,
+                  heldRemoteUpdateKeys,
+                  pullSkipReasonOverrides
+                )
               : formatPerFileSyncHeldNotice(pullLocalScan, heldRemoteUpdateKeys);
+        if (trigger === "scheduled" && pullLocalScan.deleteBlockedRootPrefixes.size > 0) {
+          const fp = [...pullLocalScan.deleteBlockedRootPrefixes].sort().join(",");
+          await recordScheduledRootHeldPullOnce(
+            context,
+            trigger,
+            `root-held:${fp}`,
+            held
+          );
+          logger.appendLine(`[${new Date().toISOString()}] Scheduled pull held: ${held}`);
+          return "held";
+        }
         if (trigger !== "scheduled") {
           vscode.window.showWarningMessage(held);
         }
         logger.appendLine(`[${new Date().toISOString()}] Pull held: ${held}`);
-        return true;
+        return "success";
       }
       if (sessionForBaseline && reconciledKeys.length > 0) {
         const localChecksums = (await scanLocalAppConfigFiles(context)).checksums;
@@ -2103,7 +2136,7 @@ export async function executePullAppConfigs(
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
       );
-      return true;
+      return "success";
     }
 
     const pathsNeedingBackup = [
@@ -2125,7 +2158,7 @@ export async function executePullAppConfigs(
         error: message,
       });
       vscode.window.showErrorMessage(message);
-      return false;
+      return "failure";
     }
 
     const baselineLocalKeys = pullBaseline
@@ -2174,6 +2207,7 @@ export async function executePullAppConfigs(
           err.message.includes("changed during write")
         ) {
           pullWriteSkipped.push(file.syncKey);
+          pullSkipReasonOverrides.set(file.syncKey, "changed_during_write");
           logger.appendLine(
             `[${new Date().toISOString()}] Pull skipped changed during write ${file.syncKey}: ${err.message}`
           );
@@ -2248,7 +2282,7 @@ export async function executePullAppConfigs(
             error: deleteErrorMessage,
           });
           vscode.window.showErrorMessage(deleteErrorMessage);
-          return false;
+          return "failure";
         }
         deletedLocally.push(file.syncKey);
       }
@@ -2288,7 +2322,7 @@ export async function executePullAppConfigs(
       logger.appendLine(
         `[${new Date().toISOString()}] Scheduled pull held (root ensure failure); no UI toast`
       );
-      return true;
+      return "held";
     }
     const pullPartial =
       missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;
@@ -2344,11 +2378,27 @@ export async function executePullAppConfigs(
           ? { error: `Pulled ${totalPulled} file(s) from storage` }
           : {}),
     });
-    if (pullPartial && !suppressScheduledPartialUi) {
-      vscode.window.showWarningMessage(partialToast);
-      const skipNotice = formatPullSkippedFilesNotice(pullLocalScan, pullSkippedKeys);
-      if (skipNotice) {
-        vscode.window.showWarningMessage(skipNotice);
+    if (pullPartial) {
+      if (trigger === "scheduled" && totalPulled > 0) {
+        vscode.window.showInformationMessage(partialToast);
+        const skipNotice = formatPullSkippedFilesNotice(
+          pullLocalScan,
+          pullSkippedKeys,
+          pullSkipReasonOverrides
+        );
+        if (skipNotice) {
+          vscode.window.showInformationMessage(skipNotice);
+        }
+      } else if (!suppressScheduledPartialUi) {
+        vscode.window.showWarningMessage(partialToast);
+        const skipNotice = formatPullSkippedFilesNotice(
+          pullLocalScan,
+          pullSkippedKeys,
+          pullSkipReasonOverrides
+        );
+        if (skipNotice) {
+          vscode.window.showWarningMessage(skipNotice);
+        }
       }
     } else if (totalPulled > 0 && !pullPartial) {
       vscode.window.showInformationMessage(
@@ -2361,7 +2411,7 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs ${pullPartial ? "partial" : "succeeded"}: ${totalPulled} files`
     );
-    return !pullPartial;
+    return pullPartial ? "failure" : "success";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(
@@ -2379,7 +2429,7 @@ export async function executePullAppConfigs(
       });
     }
     vscode.window.showErrorMessage(`Pull from ${destinationLabel} failed: ${message}`);
-    return false;
+    return "failure";
   }
 }
 

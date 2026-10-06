@@ -158,8 +158,10 @@ describe("M6 scheduled pull root held", () => {
     const ctx = makeContext();
     const ok1 = await executePullAppConfigs(ctx, { trigger: "scheduled" });
     const ok2 = await executePullAppConfigs(ctx, { trigger: "scheduled" });
-    expect(ok1).toBe(true);
-    expect(ok2).toBe(true);
+    const ok3 = await executePullAppConfigs(ctx, { trigger: "scheduled" });
+    expect(ok1).toBe("held");
+    expect(ok2).toBe("held");
+    expect(ok3).toBe("held");
     expect(showWarningMessageMock).not.toHaveBeenCalled();
     const heldEntries = addSyncHistoryEntryMock.mock.calls.filter((c) =>
       String(c[1]?.error ?? "").startsWith("held:")

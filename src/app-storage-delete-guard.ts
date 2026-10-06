@@ -160,10 +160,17 @@ function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set
   return value instanceof Set ? value : new Set();
 }
 
+export type PullSkipReasonOverrides = ReadonlyMap<string, PerFileHeldReason>;
+
 export function perFileHeldReasonForKey(
   syncKey: string,
-  scan: LocalConfigFileScan
+  scan: LocalConfigFileScan,
+  overrides?: PullSkipReasonOverrides
 ): PerFileHeldReason {
+  const override = overrides?.get(syncKey);
+  if (override) {
+    return override;
+  }
   if (scanSet(scan, "excludedKeys").has(syncKey)) {
     return "excluded";
   }
@@ -200,16 +207,18 @@ function formatHeldGroup(label: string, keys: string[]): string {
 
 export function formatPerFileSyncHeldNotice(
   scan: LocalConfigFileScan,
-  heldKeys: string[]
+  heldKeys: string[],
+  overrides?: PullSkipReasonOverrides
 ): string {
   const unreadable: string[] = [];
   const excluded: string[] = [];
   const oversize: string[] = [];
   const symlink: string[] = [];
   const underSymlinkDir: string[] = [];
+  const changedDuringWrite: string[] = [];
   const unsafe: string[] = [];
   for (const key of heldKeys) {
-    const reason = perFileHeldReasonForKey(key, scan);
+    const reason = perFileHeldReasonForKey(key, scan, overrides);
     if (reason === "excluded") {
       excluded.push(key);
     } else if (reason === "oversize") {
@@ -220,6 +229,8 @@ export function formatPerFileSyncHeldNotice(
       underSymlinkDir.push(key);
     } else if (reason === "unreadable") {
       unreadable.push(key);
+    } else if (reason === "changed_during_write") {
+      changedDuringWrite.push(key);
     } else {
       unsafe.push(key);
     }
@@ -254,6 +265,9 @@ export function formatPerFileSyncHeldNotice(
       );
     }
   }
+  if (changedDuringWrite.length > 0) {
+    parts.push(formatHeldGroup("changed during write", changedDuringWrite));
+  }
   if (unsafe.length > 0) {
     parts.push(formatHeldGroup("unsafe path", unsafe));
   }
@@ -267,11 +281,12 @@ export function formatPerFileSyncHeldNotice(
 
 export function formatPullHeldRemoteUpdateNotice(
   scan: LocalConfigFileScan,
-  heldKeys: string[]
+  heldKeys: string[],
+  overrides?: PullSkipReasonOverrides
 ): string {
   if (heldKeys.length === 1) {
     const key = heldKeys[0]!;
-    const reason = perFileHeldReasonForKey(key, scan);
+    const reason = perFileHeldReasonForKey(key, scan, overrides);
     const folder = scan.symlinkedFolderLabels?.[key];
     const label =
       reason === "symlink"
@@ -284,7 +299,9 @@ export function formatPullHeldRemoteUpdateNotice(
               ? "is excluded"
               : reason === "oversize"
                 ? "is oversize"
-                : "cannot be overwritten safely";
+                : reason === "changed_during_write"
+                  ? "changed during write"
+                  : "cannot be overwritten safely";
     return `1 remote update not applied: ${key} ${label}.`;
   }
   return `${heldKeys.length} remote updates not applied (${formatPerFileSyncHeldNotice(scan, heldKeys).replace(/^Sync held: /, "")}).`;
@@ -292,14 +309,15 @@ export function formatPullHeldRemoteUpdateNotice(
 
 export function formatPullSkippedFilesNotice(
   scan: LocalConfigFileScan,
-  skippedKeys: string[]
+  skippedKeys: string[],
+  overrides?: PullSkipReasonOverrides
 ): string {
   if (skippedKeys.length === 0) {
     return "";
   }
   if (skippedKeys.length === 1) {
     const key = skippedKeys[0]!;
-    const reason = perFileHeldReasonForKey(key, scan);
+    const reason = perFileHeldReasonForKey(key, scan, overrides);
     const folder = scan.symlinkedFolderLabels?.[key];
     const label =
       reason === "symlink"
@@ -317,7 +335,10 @@ export function formatPullSkippedFilesNotice(
                   : "unsafe path";
     return `Pull skipped 1 file (${label}): ${key}`;
   }
-  const detail = formatPerFileSyncHeldNotice(scan, skippedKeys).replace(/^Sync held: /, "");
+  const detail = formatPerFileSyncHeldNotice(scan, skippedKeys, overrides).replace(
+    /^Sync held: /,
+    ""
+  );
   return `Pull skipped ${skippedKeys.length} file(s): ${detail}`;
 }
 

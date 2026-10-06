@@ -8,10 +8,8 @@ import {
   tokenizeSqlScript,
   UnsafeSqlScriptError,
 } from "../src/sqlite-script-safety.js";
-import {
-  runSqlitePythonExecutescriptUnchecked,
-  runSqliteScript,
-} from "../src/transcripts-sqlite.js";
+import { runSqliteScript } from "../src/transcripts-sqlite.js";
+import { runSqlitePythonExecutescriptUnchecked } from "./sqlite-unchecked-runner.js";
 
 const FUZZ_ESCAPE_FIXTURE = path.join(
   import.meta.dirname,

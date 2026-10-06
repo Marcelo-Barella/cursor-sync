@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue({ status: "success" }));
 const isSyncOperationActiveMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
@@ -12,9 +12,13 @@ vi.mock("../src/push.js", () => ({
   executePush: executePushMock,
 }));
 
-vi.mock("../src/pull.js", () => ({
-  executePull: executePullMock,
-}));
+vi.mock("../src/pull.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/pull.js")>();
+  return {
+    ...actual,
+    executePull: executePullMock,
+  };
+});
 
 vi.mock("../src/sync-operation.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/sync-operation.js")>();
@@ -90,7 +94,7 @@ describe("scheduler app session routing", () => {
 
   it("routes scheduled pull-push through executePull and executePush when app session is active", async () => {
     getAppSessionMock.mockResolvedValue("jwt-session");
-    executePullMock.mockResolvedValue(true);
+    executePullMock.mockResolvedValue({ status: "success" });
     const scheduler = await import("../src/scheduler.js");
     vi.spyOn(
       scheduler.scheduledAppStorageSyncActionResolver,

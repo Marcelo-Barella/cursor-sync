@@ -12,4 +12,14 @@ if (!fs.existsSync(metaPath)) {
 
 const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
 assertBundleRuntimeImports(meta, repoRoot);
+
+const bundlePath = path.join(repoRoot, "dist", "extension.js");
+const bundleText = fs.readFileSync(bundlePath, "utf8");
+if (bundleText.includes("runSqlitePythonExecutescriptUnchecked")) {
+  console.error(
+    "verify-bundle-meta: dist must not export runSqlitePythonExecutescriptUnchecked (test-only)"
+  );
+  process.exit(1);
+}
+
 console.log("verify-bundle-meta: OK");

@@ -15,6 +15,9 @@ import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger } from "./diagnostics.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import { refreshSidebar } from "./sidebar/index.js";
+import { executePullSucceeded } from "./pull.js";
 import { enumerateSyncFiles } from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { sendEvent } from "./analytics.js";
@@ -249,7 +252,7 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: remote changes detected, pulling`
         );
-        const pullOk = await executePull(context, {
+        const pullResult = await executePull(context, {
           trigger: "scheduled",
           keys: "keys" in result ? (result.keys as string[]) : undefined,
           remoteDeletions:
@@ -257,7 +260,7 @@ export async function scheduledTick(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
-        if (pullOk) {
+        if (executePullSucceeded(pullResult)) {
           await clearScheduledRootHeldMarkers(context);
         }
         break;
@@ -282,7 +285,7 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local and remote changes detected, pulling then pushing`
         );
-        const pullOk = await executePull(context, {
+        const pullResult = await executePull(context, {
           trigger: "scheduled",
           keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
           remoteDeletions:
@@ -290,7 +293,7 @@ export async function scheduledTick(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
-        if (!pullOk) {
+        if (!executePullSucceeded(pullResult) && pullResult.status === "failure") {
           break;
         }
         const pushOk = await executePush(context, {
@@ -299,7 +302,7 @@ export async function scheduledTick(
           deletions:
             "deletions" in result ? (result.deletions as string[]) : undefined,
         });
-        if (pullOk && pushOk) {
+        if (executePullSucceeded(pullResult) && pushOk) {
           await clearScheduledRootHeldMarkers(context);
         }
         break;
@@ -381,6 +384,8 @@ export async function scheduledTick(
           }),
           { title: errorMessage }
         );
+        await refreshSyncStatusBar(context, { failed: true });
+        refreshSidebar();
         break;
       }
     }
@@ -399,5 +404,7 @@ export async function scheduledTick(
         { title: errorMessage }
       );
     }
+    await refreshSyncStatusBar(context, { failed: true });
+    refreshSidebar();
   }
 }

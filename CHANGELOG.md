@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.33
+
+### Fixed
+- App storage UX: scheduled held pulls return `held` (not success) so root-held dedupe fingerprints are not cleared every tick; partial scheduled pulls with progress show an informational toast; manual pull skips unreadable/symlink files when remote matches baseline; push skip labels restore `(never-synced symlink)`; pull skip toasts show `changed during write`; scheduled tick failures refresh the status bar.
+- Tests: CF fuzz asserts filter statement count ≥ SQLite oracle; bundle guard rejects `runSqlitePythonExecutescriptUnchecked` in dist.
+
 ## v0.8.4-staging.32
 
 ### Fixed

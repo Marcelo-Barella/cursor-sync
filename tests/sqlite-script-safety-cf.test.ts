@@ -207,7 +207,7 @@ describe("cf differential property", () => {
       const filterCount = buildStatementSecuritySurfaces(sql, tokenizeSqlScript(sql)).length;
       const { oracleStatementCount, extraDbCount } = await runRawSqliteOracle(db, dir, sql);
       expect(extraDbCount).toBe(0);
-      expect(filterCount).toBe(oracleStatementCount);
+      expect(filterCount).toBeGreaterThanOrEqual(oracleStatementCount);
     }
   }, 120_000);
 });

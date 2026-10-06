@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { configureGithub, getToken } from "./auth.js";
 import { executePush } from "./push.js";
-import { executePull } from "./pull.js";
+import { executePull, executePullSucceeded } from "./pull.js";
 import { executeExport } from "./export.js";
 import { executeImport } from "./import.js";
 import { executeExportTranscripts, executeImportTranscripts } from "./transcripts.js";
@@ -395,20 +395,20 @@ export async function executeSyncNow(
         }
         break;
       }
-      case "pull":
-        if (
-          !(await executePull(context, {
-            ...lockedSyncOptions,
-            keys: "keys" in result ? (result.keys as string[]) : undefined,
-            remoteDeletions:
-              "remoteDeletions" in result
-                ? (result.remoteDeletions as string[])
-                : undefined,
-          }))
-        ) {
+      case "pull": {
+        const pullResult = await executePull(context, {
+          ...lockedSyncOptions,
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
+        if (!executePullSucceeded(pullResult) && pullResult.status === "failure") {
           syncFailed = true;
         }
         break;
+      }
       case "push":
         if (
           !(await executePush(context, {
@@ -421,7 +421,7 @@ export async function executeSyncNow(
         }
         break;
       case "pull-push": {
-        const pullOk = await executePull(context, {
+        const pullResult = await executePull(context, {
           ...lockedSyncOptions,
           keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
           remoteDeletions:
@@ -429,7 +429,7 @@ export async function executeSyncNow(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
-        if (!pullOk) {
+        if (!executePullSucceeded(pullResult) && pullResult.status === "failure") {
           syncFailed = true;
           break;
         }

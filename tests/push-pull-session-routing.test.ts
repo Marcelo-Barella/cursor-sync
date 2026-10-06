@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscode from "vscode";
 
 const executePushAppConfigsMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
-const executePullAppConfigsMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const executePullAppConfigsMock = vi.hoisted(() => vi.fn().mockResolvedValue("success"));
 const hasAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 
 vi.mock("../src/app-configs.js", () => ({
@@ -70,14 +70,14 @@ describe("executePull app session routing", () => {
   beforeEach(() => {
     vi.resetModules();
     hasAppSessionMock.mockReset().mockResolvedValue(false);
-    executePullAppConfigsMock.mockReset().mockResolvedValue(true);
+    executePullAppConfigsMock.mockReset().mockResolvedValue("success");
   });
 
   it("delegates to executePullAppConfigs when an app session exists", async () => {
     hasAppSessionMock.mockResolvedValue(true);
     const { executePull } = await import("../src/pull.js");
     const ok = await executePull(makeContext(), { trigger: "scheduled" });
-    expect(ok).toBe(true);
+    expect(ok).toEqual({ status: "success" });
     expect(executePullAppConfigsMock).toHaveBeenCalledWith(expect.anything(), {
       trigger: "scheduled",
     });

@@ -42,10 +42,19 @@ export type PullOptions = {
   remoteDeletions?: string[];
 };
 
+export type ExecutePullResult =
+  | { status: "success" }
+  | { status: "held" }
+  | { status: "failure" };
+
+export function executePullSucceeded(result: ExecutePullResult): boolean {
+  return result.status === "success";
+}
+
 export async function executePull(
   context: vscode.ExtensionContext,
   options?: PullOptions
-): Promise<boolean> {
+): Promise<ExecutePullResult> {
   const trigger = options?.trigger ?? "manual";
   const skipOperationLock = options?.skipOperationLock === true;
 
@@ -54,7 +63,7 @@ export async function executePull(
       await recoverSyncOperationLatch(context, { force: true });
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
-        return false;
+        return { status: "failure" };
       }
     }
     if (await hasAppSession(context)) {
@@ -64,24 +73,34 @@ export async function executePull(
     }
   }
 
+  let result: ExecutePullResult = { status: "success" };
   let failed = false;
   try {
     if (await hasAppSession(context)) {
-      const success = await executePullAppConfigs(context, {
+      const pullStatus = await executePullAppConfigs(context, {
         trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
         keys: options?.keys,
         remoteDeletions: options?.remoteDeletions,
       });
-      failed = !success;
-      return success;
+      if (pullStatus === "held") {
+        result = { status: "held" };
+      } else if (pullStatus === "failure") {
+        result = { status: "failure" };
+      } else {
+        result = { status: "success" };
+      }
+      failed = result.status === "failure";
+      return result;
     }
     const gistTrigger =
       trigger === "syncNow" || trigger === "startup" ? "manual" : trigger;
     const success = await doPull(context, gistTrigger);
+    result = success ? { status: "success" } : { status: "failure" };
     failed = !success;
-    return success;
+    return result;
   } catch (err) {
     failed = true;
+    result = { status: "failure" };
     throw err;
   } finally {
     if (!skipOperationLock) {

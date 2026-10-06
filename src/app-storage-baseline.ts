@@ -65,6 +65,34 @@ export function shouldPullAppConfigFile(
   return localChecksum !== remoteChecksum;
 }
 
+/** True when the remote manifest entry differs from the last synced remote baseline. */
+export function remoteChecksumChangedSinceBaseline(
+  syncKey: string,
+  remoteChecksum: string,
+  baseline: AppStorageBaseline | undefined
+): boolean {
+  if (!baseline) {
+    return true;
+  }
+  const priorRemote = baseline.remoteChecksums[syncKey];
+  if (priorRemote === undefined) {
+    return true;
+  }
+  return priorRemote !== remoteChecksum;
+}
+
+export function needsPullAppConfigFile(
+  syncKey: string,
+  localChecksum: string | undefined,
+  remoteChecksum: string,
+  baseline: AppStorageBaseline | undefined
+): boolean {
+  if (!remoteChecksumChangedSinceBaseline(syncKey, remoteChecksum, baseline)) {
+    return false;
+  }
+  return shouldPullAppConfigFile(localChecksum, remoteChecksum);
+}
+
 function baselinePath(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, "app-storage-baseline.json");
 }
