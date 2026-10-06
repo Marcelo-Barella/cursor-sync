@@ -16,22 +16,17 @@ import {
 const repoRoot = process.cwd();
 const probeDir = path.join(repoRoot, "tests", "fixtures", "ast-probes");
 
-const FORBIDDEN_SRC_SYMBOLS = ["runSqlitePythonExecutescriptUnchecked"];
+const FORBIDDEN_UNCHECKED_SQLITE_SYMBOL = "runSqlitePythonExecutescriptUnchecked";
 
 describe("sync path hardcoding guard (AST)", () => {
-  it("forbids test-only sqlite unchecked runner imports in src", () => {
+  it("forbids unchecked sqlite executescript helper anywhere under src", () => {
     const srcDir = path.join(repoRoot, "src");
     const offenders: string[] = [];
     for (const rel of collectSourceFiles(srcDir)) {
-      if (rel.endsWith(path.join("src", "transcripts-sqlite.ts"))) {
-        continue;
-      }
       const abs = path.join(repoRoot, rel);
       const text = fs.readFileSync(abs, "utf8");
-      for (const sym of FORBIDDEN_SRC_SYMBOLS) {
-        if (text.includes(sym)) {
-          offenders.push(`${rel}: references ${sym}`);
-        }
+      if (text.includes(FORBIDDEN_UNCHECKED_SQLITE_SYMBOL)) {
+        offenders.push(`${rel}: references ${FORBIDDEN_UNCHECKED_SQLITE_SYMBOL}`);
       }
     }
     expect(offenders).toEqual([]);

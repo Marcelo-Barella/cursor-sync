@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 let statusBarItem: vscode.StatusBarItem;
 
-export type SyncState = "ok" | "syncing" | "error" | "conflict" | "unconfigured";
+export type SyncState = "ok" | "syncing" | "error" | "conflict" | "warning" | "unconfigured";
 
 export type StatusBarDestination = "github-gist" | "cursor-sync-storage";
 
@@ -79,6 +79,12 @@ export function updateStatusBar(
       text =
         destination === "cursor-sync-storage" ? "Storage: Conflict" : "Sync: Conflict";
       tooltip = detail ?? "Storage sync conflict. Resolve manually.";
+      break;
+    case "warning":
+      icon = "$(warning)";
+      text =
+        destination === "cursor-sync-storage" ? "Storage: Warning" : "Sync: Warning";
+      tooltip = detail ?? "Storage sync completed with warnings.";
       break;
     case "unconfigured":
       icon = "$(gear)";

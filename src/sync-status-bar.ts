@@ -4,6 +4,7 @@ import { hasAppSession } from "./app-configs.js";
 import { formatStatusTimestamp, loadSyncHistory, loadSyncState } from "./diagnostics.js";
 import { updateStatusBar } from "./statusbar.js";
 import { isSyncOperationActive } from "./sync-operation.js";
+import type { SyncHistoryEntry } from "./types.js";
 
 function latestStorageHistoryEntry(
   history: Awaited<ReturnType<typeof loadSyncHistory>>
@@ -11,14 +12,16 @@ function latestStorageHistoryEntry(
   return history.find((entry) => entry.destination === "cursor-sync-storage");
 }
 
-function storageStatusDetail(
-  entry: NonNullable<ReturnType<typeof latestStorageHistoryEntry>>
-): string {
+function storageStatusDetail(entry: SyncHistoryEntry): string {
   const when = formatStatusTimestamp(entry.timestamp);
+  if (entry.held || entry.error?.startsWith("held:")) {
+    const msg = entry.error?.replace(/^held:\s*/, "") ?? "sync held";
+    return `pull held at ${when}: ${msg}`;
+  }
   if (entry.conflict) {
     return `conflict at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
   }
-  if (entry.success && entry.partial) {
+  if (entry.partial) {
     return `${entry.direction} partial at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
   }
   if (entry.success) {
@@ -29,7 +32,7 @@ function storageStatusDetail(
 
 export async function refreshSyncStatusBar(
   context: vscode.ExtensionContext,
-  options?: { failed?: boolean }
+  options?: { failed?: boolean; held?: boolean; warning?: boolean }
 ): Promise<void> {
   const appSessionActive = await hasAppSession(context);
 
@@ -48,6 +51,14 @@ export async function refreshSyncStatusBar(
       history = [];
     }
     const latest = latestStorageHistoryEntry(history);
+    if (options?.held || latest?.held || latest?.error?.startsWith("held:")) {
+      updateStatusBar("warning", {
+        destination: "cursor-sync-storage",
+        detail: latest ? storageStatusDetail(latest) : "Sync held",
+        lastSync: latest ? new Date(latest.timestamp) : undefined,
+      });
+      return;
+    }
     if (latest?.conflict) {
       updateStatusBar("conflict", {
         destination: "cursor-sync-storage",
@@ -56,10 +67,18 @@ export async function refreshSyncStatusBar(
       });
       return;
     }
-    if (options?.failed || (latest && !latest.success)) {
+    if (options?.failed || (latest && !latest.success && !latest.partial)) {
       updateStatusBar("error", {
         destination: "cursor-sync-storage",
         detail: latest ? storageStatusDetail(latest) : "Sync failed",
+        lastSync: latest ? new Date(latest.timestamp) : undefined,
+      });
+      return;
+    }
+    if (options?.warning || latest?.partial) {
+      updateStatusBar("warning", {
+        destination: "cursor-sync-storage",
+        detail: latest ? storageStatusDetail(latest) : "Sync completed with warnings",
         lastSync: latest ? new Date(latest.timestamp) : undefined,
       });
       return;
@@ -81,15 +100,15 @@ export async function refreshSyncStatusBar(
 
   const token = await getToken(context);
   if (!token) {
-    updateStatusBar("unconfigured", {
-      unconfiguredCommand: "cursorSync.loginToApp",
-    });
+    updateStatusBar("unconfigured");
     return;
   }
 
   const syncState = await loadSyncState(context);
   updateStatusBar("ok", {
+    lastSync: syncState?.lastSyncTimestamp
+      ? new Date(syncState.lastSyncTimestamp)
+      : undefined,
     destination: "github-gist",
-    lastSync: syncState ? new Date(syncState.lastSyncTimestamp) : undefined,
   });
 }

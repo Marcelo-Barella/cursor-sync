@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  needsPullAppConfigFile,
   remoteChecksumChangedSinceBaseline,
+  shouldPullAppConfigFile,
   type AppStorageBaseline,
 } from "../src/app-storage-baseline.js";
 import {
@@ -42,19 +42,18 @@ const baselineFixture: AppStorageBaseline = {
 };
 
 describe("staging.33 F3 baseline before local unreadable", () => {
-  it("does not need pull when remote matches baseline even if local is unreadable", () => {
-    expect(
-      needsPullAppConfigFile("dot-cursor/a.md", undefined, "remote-a", baselineFixture)
-    ).toBe(false);
+  it("remote unchanged on server even if local is unreadable", () => {
     expect(
       remoteChecksumChangedSinceBaseline("dot-cursor/a.md", "remote-a", baselineFixture)
     ).toBe(false);
+    expect(shouldPullAppConfigFile(undefined, "remote-a")).toBe(true);
   });
 
-  it("needs pull when remote changed since baseline", () => {
+  it("local differs from remote when remote changed since baseline", () => {
     expect(
-      needsPullAppConfigFile("dot-cursor/a.md", undefined, "remote-b", baselineFixture)
+      remoteChecksumChangedSinceBaseline("dot-cursor/a.md", "remote-b", baselineFixture)
     ).toBe(true);
+    expect(shouldPullAppConfigFile("local-a", "remote-b")).toBe(true);
   });
 });
 

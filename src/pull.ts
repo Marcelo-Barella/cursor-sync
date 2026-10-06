@@ -57,13 +57,15 @@ export async function executePull(
 ): Promise<ExecutePullResult> {
   const trigger = options?.trigger ?? "manual";
   const skipOperationLock = options?.skipOperationLock === true;
+  let result: ExecutePullResult = { status: "success" };
 
   if (!skipOperationLock) {
     if (!tryBeginSyncOperation()) {
       await recoverSyncOperationLatch(context, { force: true });
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
-        return { status: "failure" };
+        result = { status: "failure" };
+        return result;
       }
     }
     if (await hasAppSession(context)) {
@@ -73,7 +75,6 @@ export async function executePull(
     }
   }
 
-  let result: ExecutePullResult = { status: "success" };
   let failed = false;
   try {
     if (await hasAppSession(context)) {
@@ -105,7 +106,13 @@ export async function executePull(
   } finally {
     if (!skipOperationLock) {
       resetSyncOperation();
-      await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+      const barOpts =
+        result.status === "failure"
+          ? { failed: true }
+          : result.status === "held"
+            ? { held: true }
+            : undefined;
+      await refreshSyncStatusBar(context, barOpts);
       refreshSidebar();
     }
   }

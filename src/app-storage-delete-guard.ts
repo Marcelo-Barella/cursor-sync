@@ -153,7 +153,8 @@ export type PerFileHeldReason =
   | "symlink"
   | "under_symlinked_dir"
   | "unsafe_path"
-  | "changed_during_write";
+  | "changed_during_write"
+  | "root_unavailable";
 
 function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set<string> {
   const value = scan[key];
@@ -185,7 +186,7 @@ export function perFileHeldReasonForKey(
   }
   const prefix = syncKeyRootPrefix(syncKey);
   if (prefix && scan.deleteBlockedRootPrefixes.has(prefix)) {
-    return "unsafe_path";
+    return "root_unavailable";
   }
   if (
     scan.skippedUnknownKeys.has(syncKey) &&
@@ -216,6 +217,7 @@ export function formatPerFileSyncHeldNotice(
   const symlink: string[] = [];
   const underSymlinkDir: string[] = [];
   const changedDuringWrite: string[] = [];
+  const rootUnavailable: string[] = [];
   const unsafe: string[] = [];
   for (const key of heldKeys) {
     const reason = perFileHeldReasonForKey(key, scan, overrides);
@@ -231,6 +233,8 @@ export function formatPerFileSyncHeldNotice(
       unreadable.push(key);
     } else if (reason === "changed_during_write") {
       changedDuringWrite.push(key);
+    } else if (reason === "root_unavailable") {
+      rootUnavailable.push(key);
     } else {
       unsafe.push(key);
     }
@@ -268,6 +272,9 @@ export function formatPerFileSyncHeldNotice(
   if (changedDuringWrite.length > 0) {
     parts.push(formatHeldGroup("changed during write", changedDuringWrite));
   }
+  if (rootUnavailable.length > 0) {
+    parts.push(formatHeldGroup("sync root unavailable", rootUnavailable));
+  }
   if (unsafe.length > 0) {
     parts.push(formatHeldGroup("unsafe path", unsafe));
   }
@@ -301,7 +308,9 @@ export function formatPullHeldRemoteUpdateNotice(
                 ? "is oversize"
                 : reason === "changed_during_write"
                   ? "changed during write"
-                  : "cannot be overwritten safely";
+                  : reason === "root_unavailable"
+                    ? "sync root is unavailable"
+                    : "cannot be overwritten safely";
     return `1 remote update not applied: ${key} ${label}.`;
   }
   return `${heldKeys.length} remote updates not applied (${formatPerFileSyncHeldNotice(scan, heldKeys).replace(/^Sync held: /, "")}).`;
@@ -332,7 +341,9 @@ export function formatPullSkippedFilesNotice(
                 ? "unreadable"
                 : reason === "changed_during_write"
                   ? "changed during write"
-                  : "unsafe path";
+                  : reason === "root_unavailable"
+                    ? "sync root unavailable"
+                    : "unsafe path";
     return `Pull skipped 1 file (${label}): ${key}`;
   }
   const detail = formatPerFileSyncHeldNotice(scan, skippedKeys, overrides).replace(

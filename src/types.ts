@@ -94,4 +94,5 @@ export interface SyncHistoryEntry {
   error?: string;
   partial?: boolean;
   conflict?: boolean;
+  held?: boolean;
 }

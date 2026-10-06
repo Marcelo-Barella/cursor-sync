@@ -81,7 +81,6 @@ import {
   filterScheduledAppStoragePullKeys,
   pullOverwriteShouldBePreselected,
   loadAppStorageBaseline,
-  needsPullAppConfigFile,
   remoteChecksumChangedSinceBaseline,
   shouldPullAppConfigFile,
   updateAppStorageBaselineAfterSync,
@@ -508,6 +507,7 @@ export async function clearScheduledRootHeldMarkers(
 ): Promise<void> {
   await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, []);
   await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, undefined);
+  await context.globalState.update(SCHEDULED_ROOT_HELD_TOAST_KEY, undefined);
 }
 
 function collectPushDiskProbeKeys(input: {
@@ -555,6 +555,7 @@ const ROOT_ENSURE_WARN_STATE_KEY = "cursorSync.appStorage.rootEnsureFailuresWarn
 type RootEnsureWarnEntry = { rootPath: string; fingerprint: string };
 
 const SCHEDULED_ROOT_HELD_HISTORY_KEY = "cursorSync.appStorage.scheduledRootHeldHistory";
+const SCHEDULED_ROOT_HELD_TOAST_KEY = "cursorSync.appStorage.scheduledRootHeldToast";
 
 async function warnRootEnsureFailuresOnce(
   context: vscode.ExtensionContext,
@@ -608,7 +609,7 @@ function isScheduledRootOnlyPullSkip(
   }
   return skippedKeys.every((key) => {
     const reason = perFileHeldReasonForKey(key, scan);
-    if (reason !== "unsafe_path") {
+    if (reason !== "unsafe_path" && reason !== "root_unavailable") {
       return false;
     }
     const prefix = syncKeyRootPrefix(key);
@@ -617,6 +618,19 @@ function isScheduledRootOnlyPullSkip(
     }
     return syncKeyUnderFailedRoot(key, rootEnsureFailures) !== undefined;
   });
+}
+
+async function warnScheduledRootHeldOnce(
+  context: vscode.ExtensionContext,
+  fingerprint: string,
+  message: string
+): Promise<void> {
+  const prev = context.globalState.get<string>(SCHEDULED_ROOT_HELD_TOAST_KEY);
+  if (prev === fingerprint) {
+    return;
+  }
+  await context.globalState.update(SCHEDULED_ROOT_HELD_TOAST_KEY, fingerprint);
+  vscode.window.showWarningMessage(message);
 }
 
 async function recordScheduledRootHeldPullOnce(
@@ -629,19 +643,20 @@ async function recordScheduledRootHeldPullOnce(
     return;
   }
   const prev = context.globalState.get<string>(SCHEDULED_ROOT_HELD_HISTORY_KEY);
-  if (prev === fingerprint) {
-    return;
+  if (prev !== fingerprint) {
+    await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, fingerprint);
+    await addSyncHistoryEntry(context, {
+      timestamp: new Date().toISOString(),
+      direction: "pull",
+      trigger,
+      fileCount: 0,
+      success: false,
+      held: true,
+      destination: "cursor-sync-storage",
+      error: `held: ${message}`,
+    });
   }
-  await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, fingerprint);
-  await addSyncHistoryEntry(context, {
-    timestamp: new Date().toISOString(),
-    direction: "pull",
-    trigger,
-    fileCount: 0,
-    success: true,
-    destination: "cursor-sync-storage",
-    error: `held: ${message}`,
-  });
+  await warnScheduledRootHeldOnce(context, fingerprint, message);
 }
 
 function describePushSkipLabel(
@@ -697,8 +712,10 @@ function formatManualPushResultToast(
       (k) => (probedScan.symlinkKeys?.has(k) ?? false) && !trackedManifestKeys.has(k)
     );
     if (onlyNeverSyncedSymlinks) {
+      const keyPreview = skipLabels.slice(0, 3).join(", ");
+      const keySuffix = skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
       parts.push(
-        `skipped ${skipLabels.length} never-synced symlink(s): ${preview}${suffix}`
+        `skipped ${skipLabels.length} never-synced symlink(s): ${keyPreview}${keySuffix}`
       );
     } else {
       parts.push(`skipped ${skipLabels.length}: ${preview}${suffix}`);
@@ -1829,11 +1846,9 @@ export async function executePullAppConfigs(
         manifestEntry.checksum,
         pullBaseline
       );
-      const needsPull = needsPullAppConfigFile(
-        syncKey,
+      const localDiffersFromRemote = shouldPullAppConfigFile(
         localChecksum,
-        manifestEntry.checksum,
-        pullBaseline
+        manifestEntry.checksum
       );
 
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
@@ -1842,7 +1857,7 @@ export async function executePullAppConfigs(
           localChecksum === manifestEntry.checksum
         ) {
           reconciledKeys.push(syncKey);
-        } else if (needsPull && remoteChangedOnServer) {
+        } else if (localDiffersFromRemote && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
         } else if (!remoteChangedOnServer) {
@@ -1854,7 +1869,7 @@ export async function executePullAppConfigs(
         localChecksum === undefined &&
         !isLocallyAbsentSafeToPull(syncKey, pullLocalScan)
       ) {
-        if (needsPull && remoteChangedOnServer) {
+        if (localDiffersFromRemote && remoteChangedOnServer) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
         } else if (!remoteChangedOnServer) {
@@ -1863,7 +1878,7 @@ export async function executePullAppConfigs(
         continue;
       }
 
-      if (!needsPull) {
+      if (localChecksum !== undefined && localChecksum === manifestEntry.checksum) {
         reconciledKeys.push(syncKey);
         continue;
       }
@@ -2176,6 +2191,7 @@ export async function executePullAppConfigs(
       const failure = syncKeyUnderFailedRoot(file.syncKey, rootEnsureFailures);
       if (failure) {
         pullRootCreateSkipped.push(file.syncKey);
+        pullSkipReasonOverrides.set(file.syncKey, "root_unavailable");
         logger.appendLine(
           `[${new Date().toISOString()}] Pull skipped ${file.syncKey}: sync root could not be created (${failure.message})`
         );
@@ -2220,12 +2236,14 @@ export async function executePullAppConfigs(
             err.message.includes("outside sync root"))
         ) {
           pullWriteSkipped.push(file.syncKey);
+          pullSkipReasonOverrides.set(file.syncKey, "unsafe_path");
           logger.appendLine(
             `[${new Date().toISOString()}] Pull skipped unsafe path ${file.syncKey}: ${err.message}`
           );
           continue;
         }
         pullWriteSkipped.push(file.syncKey);
+        pullSkipReasonOverrides.set(file.syncKey, "unsafe_path");
         logger.appendLine(
           `[${new Date().toISOString()}] Pull skipped write for ${file.syncKey}: ${err instanceof Error ? err.message : String(err)}`
         );
@@ -2260,6 +2278,7 @@ export async function executePullAppConfigs(
             err.message.includes("outside sync root"))
         ) {
           pullDeleteSkipped.push(file.syncKey);
+          pullSkipReasonOverrides.set(file.syncKey, "unsafe_path");
           logger.appendLine(
             `[${new Date().toISOString()}] Pull skipped unsafe delete ${file.syncKey}: ${err.message}`
           );
@@ -2364,13 +2383,14 @@ export async function executePullAppConfigs(
       });
     }
 
+    const partialWithProgress = pullPartial && totalPulled > 0;
     await addSyncHistoryEntry(context, {
       timestamp: new Date().toISOString(),
       direction: "pull",
       trigger,
       fileCount: totalPulled,
-      success: !pullPartial,
-      partial: pullPartial,
+      success: !pullPartial || partialWithProgress,
+      partial: partialWithProgress,
       destination,
       ...(pullPartial
         ? { error: partialToast }
@@ -2380,14 +2400,14 @@ export async function executePullAppConfigs(
     });
     if (pullPartial) {
       if (trigger === "scheduled" && totalPulled > 0) {
-        vscode.window.showInformationMessage(partialToast);
+        vscode.window.showWarningMessage(partialToast);
         const skipNotice = formatPullSkippedFilesNotice(
           pullLocalScan,
           pullSkippedKeys,
           pullSkipReasonOverrides
         );
         if (skipNotice) {
-          vscode.window.showInformationMessage(skipNotice);
+          vscode.window.showWarningMessage(skipNotice);
         }
       } else if (!suppressScheduledPartialUi) {
         vscode.window.showWarningMessage(partialToast);
@@ -2411,7 +2431,7 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs ${pullPartial ? "partial" : "succeeded"}: ${totalPulled} files`
     );
-    return pullPartial ? "failure" : "success";
+    return pullPartial && totalPulled === 0 ? "failure" : "success";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(

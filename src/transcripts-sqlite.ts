@@ -79,7 +79,7 @@ async function probePythonInterpreter(): Promise<PythonSqliteInterpreter> {
   );
 }
 
-async function resolvePythonInterpreterForSqlite(): Promise<PythonSqliteInterpreter> {
+export async function resolvePythonInterpreterForSqlite(): Promise<PythonSqliteInterpreter> {
   if (!pythonInterpreterResolvePromise) {
     pythonInterpreterResolvePromise = probePythonInterpreter().catch((err) => {
       pythonInterpreterResolvePromise = null;
@@ -226,27 +226,6 @@ export function isSqlite3UnavailableError(error: unknown): boolean {
     return true;
   }
   return false;
-}
-
-/** Run Python executescript without TS safety checks (tests / defense-in-depth verification only). */
-export async function runSqlitePythonExecutescriptUnchecked(
-  dbPath: string,
-  script: string
-): Promise<void> {
-  const execOpts = {
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: SQLITE_SUBPROCESS_TIMEOUT_MS,
-  };
-  const py = await resolvePythonInterpreterForSqlite();
-  const timeoutSec = Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000);
-  const args = [
-    ...py.argvPrefix,
-    "-c",
-    SQLITE_PYTHON_EXECUTESCRIPT,
-    dbPath,
-    String(timeoutSec),
-  ];
-  await execFileWithStdinAsync(py.command, args, script, execOpts);
 }
 
 function sqlScriptPayloadForRunner(script: string): string {

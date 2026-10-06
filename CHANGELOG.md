@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.34
+
+### Fixed
+- App storage: manual pull no longer advances baseline on local-only edits when remote is unchanged; scheduled held pulls show deduped warnings and a dedicated held/warning status bar state; partial pulls use warning toasts aligned with the status bar; never-synced symlink labels no longer double; write-time skip reasons flow through pull notices; scheduled ticks refresh the status bar after success.
+- Tests: unchecked SQLite executescript runner lives under `tests/` only; src AST guard enforces no unchecked runner symbol in production sources.
+
 ## v0.8.4-staging.33
 
 ### Fixed

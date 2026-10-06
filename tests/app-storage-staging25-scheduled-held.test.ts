@@ -162,13 +162,16 @@ describe("M6 scheduled pull root held", () => {
     expect(ok1).toBe("held");
     expect(ok2).toBe("held");
     expect(ok3).toBe("held");
-    expect(showWarningMessageMock).not.toHaveBeenCalled();
+    expect(showWarningMessageMock).toHaveBeenCalledTimes(1);
     const heldEntries = addSyncHistoryEntryMock.mock.calls.filter((c) =>
       String(c[1]?.error ?? "").startsWith("held:")
     );
     expect(heldEntries.length).toBe(1);
-    expect(heldEntries[0]?.[1]?.success).toBe(true);
-    const failed = addSyncHistoryEntryMock.mock.calls.filter((c) => c[1]?.success === false);
+    expect(heldEntries[0]?.[1]?.success).toBe(false);
+    expect(heldEntries[0]?.[1]?.held).toBe(true);
+    const failed = addSyncHistoryEntryMock.mock.calls.filter(
+      (c) => c[1]?.success === false && !c[1]?.held
+    );
     expect(failed.length).toBe(0);
   });
 });

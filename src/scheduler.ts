@@ -406,5 +406,8 @@ export async function scheduledTick(
     }
     await refreshSyncStatusBar(context, { failed: true });
     refreshSidebar();
+    return;
   }
+  await refreshSyncStatusBar(context);
+  refreshSidebar();
 }
