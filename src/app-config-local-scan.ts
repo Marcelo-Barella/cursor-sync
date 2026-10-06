@@ -25,6 +25,11 @@ export async function scanLocalAppConfigFiles(
   for (const file of localFiles) {
     const key = file.relativeSyncKey;
     try {
+      const stat = await fs.stat(file.absolutePath);
+      if (!stat.isFile()) {
+        unreadableKeys.add(key);
+        continue;
+      }
       const buf = await fs.readFile(file.absolutePath);
       checksums[key] = computeChecksum(buf);
     } catch (err) {
@@ -46,8 +51,15 @@ export function localFileMissingFromBaseline(
   if (scan.checksums[key] !== undefined) {
     return false;
   }
-  if (scan.unreadableKeys.has(key)) {
-    return false;
-  }
-  return scan.enoentKeys.has(key);
+  return !scan.unreadableKeys.has(key);
+}
+
+export function baselineKeyTracked(
+  baseline: { localChecksums: Record<string, string>; remoteChecksums: Record<string, string> },
+  key: string
+): boolean {
+  return (
+    baseline.localChecksums[key] !== undefined ||
+    baseline.remoteChecksums[key] !== undefined
+  );
 }

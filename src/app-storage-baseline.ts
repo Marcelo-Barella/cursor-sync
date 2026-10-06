@@ -57,6 +57,20 @@ function baselinePath(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, "app-storage-baseline.json");
 }
 
+export function filterScheduledAppStoragePullKeys(
+  keys: string[],
+  baseline: AppStorageBaseline | undefined
+): string[] {
+  if (!baselineHasEntries(baseline)) {
+    return [];
+  }
+  return keys.filter(
+    (key) =>
+      baseline!.localChecksums[key] !== undefined ||
+      baseline!.remoteChecksums[key] !== undefined
+  );
+}
+
 export function baselineHasEntries(baseline: AppStorageBaseline | undefined): boolean {
   if (!baseline) {
     return false;
@@ -158,7 +172,6 @@ export function classifyAppStorageKeys(
   localScan?: LocalConfigFileScan
 ): ClassifiedAppStorageKeys {
   const unreadable = localScan?.unreadableKeys ?? new Set<string>();
-  const enoent = localScan?.enoentKeys ?? new Set<string>();
   const byKey: Record<string, AppStorageKeyClassification> = {};
   const pushKeys: string[] = [];
   const pullKeys: string[] = [];
@@ -187,11 +200,6 @@ export function classifyAppStorageKeys(
 
     if (hasBaseline && wasLocal !== undefined && curLocal === undefined) {
       if (unreadable.has(key)) {
-        byKey[key] = "unchanged";
-        unchangedKeys.push(key);
-        continue;
-      }
-      if (!enoent.has(key)) {
         byKey[key] = "unchanged";
         unchangedKeys.push(key);
         continue;
@@ -230,8 +238,8 @@ export function classifyAppStorageKeys(
           byKey[key] = "baseline_refresh";
           baselineRefreshKeys.push(key);
         } else {
-          byKey[key] = "pull";
-          pullKeys.push(key);
+          byKey[key] = "conflict";
+          conflictKeys.push(key);
         }
       } else if (remoteExists && !localExists) {
         byKey[key] = "pull";

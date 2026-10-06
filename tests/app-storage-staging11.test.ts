@@ -92,7 +92,7 @@ describe("app storage staging.11", () => {
     });
   });
 
-  it("fresh machine with empty extensions pulls remote settings only", () => {
+  it("fresh machine with empty extensions conflicts on remote settings change", () => {
     const remoteChecksums = {
       "cursor-user/settings.json": "remote-settings",
     };
@@ -113,9 +113,8 @@ describe("app storage staging.11", () => {
     );
     const action = appStorageSyncActionFromClassification(classified, remoteChecksums);
     expect(action).toEqual({
-      action: "pull",
+      action: "conflict",
       keys: ["cursor-user/settings.json"],
-      remoteDeletions: [],
     });
   });
 });

@@ -10,6 +10,8 @@ export interface StatusBarUpdateOptions {
   lastSync?: Date;
   destination?: StatusBarDestination;
   detail?: string;
+  /** Command when state is unconfigured (defaults to GitHub setup). */
+  unconfiguredCommand?: string;
 }
 
 export function initializeStatusBar(context: vscode.ExtensionContext): void {
@@ -82,7 +84,8 @@ export function updateStatusBar(
       icon = "$(gear)";
       text = "Sync: Setup";
       tooltip = "Cursor Sync is not configured. Click to set up.";
-      statusBarItem.command = "cursorSync.configureGithub";
+      statusBarItem.command =
+        options?.unconfiguredCommand ?? "cursorSync.configureGithub";
       break;
   }
 

@@ -22,8 +22,18 @@ export function formatPushSuccessToast(
 
 export function formatPullSuccessToast(
   fileCount: number,
-  destination: SyncDestinationId
+  destination: SyncDestinationId,
+  options?: { wroteFiles?: number; deletedLocally?: number }
 ): string {
+  const wrote = options?.wroteFiles ?? fileCount;
+  const deleted = options?.deletedLocally ?? 0;
+  if (deleted > 0 && wrote === 0) {
+    const noun = deleted === 1 ? "file" : "files";
+    if (destination === "cursor-sync-storage") {
+      return `Removed ${deleted} local ${noun} per Cursor Sync storage`;
+    }
+    return `Removed ${deleted} local ${noun} per GitHub Gist`;
+  }
   const noun = fileCount === 1 ? "file" : "files";
   if (destination === "cursor-sync-storage") {
     return `Pulled ${fileCount} ${noun} from Cursor Sync storage`;

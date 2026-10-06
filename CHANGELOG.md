@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.12
+
+### Fixed
+- No-baseline local≠remote is a **conflict** again (no silent first-sync overwrite); scheduled sync never auto-pulls keys without a baseline entry.
+- Safe-mode pull overwrite picker leaves keys without a baseline **unselected** (Enter does not overwrite).
+- Real local deletes propagate when a baseline key is missing from the scan and not unreadable (deleted files no longer require `enoentKeys` race).
+- Pull updates baseline for every reconciled manifest key, including identical files skipped on disk.
+- Mutual delete clears baseline without requiring `enoentKeys`; re-adding the same file is a push, not a remote delete.
+
+### Changed
+- Pull/delete toasts distinguish local removals from file pulls; push partial toast only when uploads were attempted.
+- `fetch` `/configs` 5xx records a storage history entry; path guard covers `node:os`, named `homedir` imports, and `os.userInfo().homedir`.
+- Status bar **Setup** (no Gist token) opens app login; symlinks/directories count as unreadable in local scan.
+
 ## v0.8.4-staging.11
 
 ### Fixed
