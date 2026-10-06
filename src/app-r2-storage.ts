@@ -142,11 +142,13 @@ export async function mintR2StorageCredentials(
 
 export async function getR2StorageCredentials(
   context: vscode.ExtensionContext,
-  options?: { ttlSeconds?: number }
+  options?: { ttlSeconds?: number; silent?: boolean }
 ): Promise<R2StorageCredentials | undefined> {
   const session = await getAppSession(context);
   if (!session) {
-    vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    if (!options?.silent) {
+      vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    }
     return undefined;
   }
 

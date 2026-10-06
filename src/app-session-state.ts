@@ -34,8 +34,11 @@ export async function readCachedAppSessionEmail(
 
 export async function clearAppSessionArtifacts(
   context: vscode.ExtensionContext
-): Promise<void> {
-  await clearAppSession(context);
+): Promise<boolean> {
+  const sessionCleared = await clearAppSession(context);
+  if (!sessionCleared) {
+    return false;
+  }
   await clearPersistedAuthHandoff(context);
   await context.globalState.update(APP_SESSION_USER_EMAIL_KEY, undefined);
   await context.globalState.update(APP_SESSION_EXPIRED_KEY, undefined);
@@ -45,4 +48,5 @@ export async function clearAppSessionArtifacts(
   } catch {
     // SecretStorage unavailable.
   }
+  return true;
 }

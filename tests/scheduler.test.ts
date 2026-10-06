@@ -11,7 +11,16 @@ const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const isPushLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const isPullLockedMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const getTokenMock = vi.hoisted(() => vi.fn().mockResolvedValue("ghp_test_token"));
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
+
+vi.mock("../src/auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/auth.js")>();
+  return {
+    ...actual,
+    getToken: (...args: unknown[]) => getTokenMock(...args),
+  };
+});
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from("content")),
@@ -76,6 +85,8 @@ describe("scheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetModules();
+    getTokenMock.mockResolvedValue("ghp_test_token");
+    getAppSessionMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -576,6 +587,8 @@ describe("determineSyncAction", () => {
 describe("scheduled sync debug wiring", () => {
   beforeEach(async () => {
     vi.resetModules();
+    getTokenMock.mockResolvedValue("ghp_test_token");
+    getAppSessionMock.mockResolvedValue(undefined);
     showSyncFailureWithDebugMock.mockClear();
     executePushMock.mockReset().mockResolvedValue(true);
     executePullMock.mockReset().mockResolvedValue(true);
@@ -592,11 +605,23 @@ describe("scheduled sync debug wiring", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls showSyncFailureWithDebug on determineSyncAction error", async () => {
+  it("skips debug toast when scheduled sync has no GitHub token", async () => {
     const scheduler = await import("../src/scheduler.js");
     vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
       action: "error",
       reason: "no_token",
+    });
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
+  });
+
+  it("calls showSyncFailureWithDebug on determineSyncAction error", async () => {
+    const scheduler = await import("../src/scheduler.js");
+    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
+      action: "error",
+      reason: "gist_unreachable",
     });
 
     await scheduler.scheduledTick(mockContext());
@@ -606,12 +631,12 @@ describe("scheduled sync debug wiring", () => {
     expect(failure).toMatchObject({
       operation: "scheduler",
       trigger: "scheduled",
-      message: "no_token",
-      category: "no_token",
+      message: "gist_unreachable",
+      category: "gist_unreachable",
       extensionVersion: extensionVersion(),
       platform: process.platform,
     });
-    expect(options).toMatchObject({ title: "Scheduled sync failed: no_token" });
+    expect(options).toMatchObject({ title: "Scheduled sync failed: gist_unreachable" });
   });
 
   it("calls showSyncFailureWithDebug on determineSyncAction conflict with warning", async () => {
@@ -783,6 +808,25 @@ describe("scheduled sync debug wiring", () => {
 
     expect(determineSpy).not.toHaveBeenCalled();
     expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
+  });
+
+  it("skips scheduled tick silently without app session or GitHub token", async () => {
+    getAppSessionMock.mockResolvedValue(undefined);
+    getTokenMock.mockResolvedValue(undefined);
+    const scheduler = await import("../src/scheduler.js");
+    const determineSpy = vi.spyOn(
+      scheduler.scheduledSyncActionResolver,
+      "determineSyncAction"
+    );
+    const vscode = await import("./__mocks__/vscode.js");
+    const warnSpy = vi.spyOn(vscode.window, "showWarningMessage");
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(determineSpy).not.toHaveBeenCalled();
+    expect(executePushMock).not.toHaveBeenCalled();
+    expect(executePullMock).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("skips scheduled Gist push when app session is active", async () => {

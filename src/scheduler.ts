@@ -4,7 +4,7 @@ import { getAppSession } from "./app-auth.js";
 import { executePush, isPushLocked } from "./push.js";
 import { executePull, isPullLocked } from "./pull.js";
 import { GistClient } from "./gist.js";
-import { requireToken } from "./auth.js";
+import { getToken, requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles } from "./paths.js";
@@ -74,15 +74,19 @@ export function stopScheduler(): void {
 }
 
 export async function determineSyncAction(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { allowAuthPrompt?: boolean }
 ): Promise<SyncAction> {
+  const allowAuthPrompt = options?.allowAuthPrompt !== false;
   const syncState = await loadSyncState(context);
 
   if (!syncState || !syncState.gistId) {
     return { action: "push" };
   }
 
-  const token = await requireToken(context);
+  const token = allowAuthPrompt
+    ? await requireToken(context)
+    : await getToken(context);
   if (!token) {
     return { action: "error", reason: "no_token" };
   }
@@ -189,12 +193,24 @@ export async function scheduledTick(
     return;
   }
 
+  const hasAppSession = !!(await getAppSession(context));
+  const hasGithubToken = !!(await getToken(context));
+  if (!hasAppSession && !hasGithubToken) {
+    logger.appendLine(
+      `[${new Date().toISOString()}] Scheduled sync skipped: no app session and no GitHub token`
+    );
+    sendEvent(context, "scheduled_sync_skipped", { reason: "no_credentials" });
+    return;
+  }
+
   logger.appendLine(
     `[${new Date().toISOString()}] Scheduled sync triggered`
   );
 
   try {
-    const result = await scheduledSyncActionResolver.determineSyncAction(context);
+    const result = await scheduledSyncActionResolver.determineSyncAction(context, {
+      allowAuthPrompt: false,
+    });
 
     switch (result.action) {
       case "none":
@@ -267,6 +283,13 @@ export async function scheduledTick(
       }
 
       case "error": {
+        if (result.reason === "no_token") {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync skipped: no GitHub token`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "no_token" });
+          break;
+        }
         const errorMessage = `Scheduled sync failed: ${result.reason}`;
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync skipped: ${result.reason}`

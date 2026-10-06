@@ -16,16 +16,13 @@ import type { SyncState } from "../src/types.js";
 
 const showWarningMessageMock = vi.fn();
 const showInformationMessageMock = vi.fn();
+const showErrorMessageMock = vi.fn();
 const refreshSidebarMock = vi.hoisted(() => vi.fn());
-const refreshSyncStatusBarMock = vi.hoisted(() => vi.fn());
 const clearR2CredentialsCacheMock = vi.hoisted(() => vi.fn());
+const fetchMock = vi.hoisted(() => vi.fn().mockResolvedValue({ status: 404 }));
 
 vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: refreshSidebarMock,
-}));
-
-vi.mock("../src/sync-status-bar.js", () => ({
-  refreshSyncStatusBar: refreshSyncStatusBarMock,
 }));
 
 vi.mock("../src/app-r2-storage.js", () => ({
@@ -61,6 +58,7 @@ vi.mock("vscode", () => ({
   window: {
     showWarningMessage: (...args: unknown[]) => showWarningMessageMock(...args),
     showInformationMessage: (...args: unknown[]) => showInformationMessageMock(...args),
+    showErrorMessage: (...args: unknown[]) => showErrorMessageMock(...args),
     createOutputChannel: () => ({
       appendLine: vi.fn(),
       show: vi.fn(),
@@ -110,11 +108,17 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 describe("executeLogoutAppSession", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubGlobal("fetch", fetchMock);
     showWarningMessageMock.mockReset();
     showInformationMessageMock.mockReset();
     refreshSidebarMock.mockReset();
-    refreshSyncStatusBarMock.mockReset();
     clearR2CredentialsCacheMock.mockReset();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ status: 404 });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   afterEach(() => {
@@ -164,11 +168,30 @@ describe("executeLogoutAppSession", () => {
     const { readAppearanceThemePreference } = await import("../src/sidebar/appearance-theme.js");
     expect(readAppearanceThemePreference()).toBe("dark");
 
-    expect(refreshSidebarMock).toHaveBeenCalled();
-    expect(refreshSyncStatusBarMock).toHaveBeenCalled();
+    expect(refreshSidebarMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
     expect(showInformationMessageMock).toHaveBeenCalledWith(
       "Logged out of Cursor Sync storage."
     );
+  });
+
+  it("stays signed in when SecretStorage delete fails", async () => {
+    const token = makeJwt({ email: "user@example.com" });
+    const ctx = makeContext();
+    await ctx.secrets.store(APP_SESSION_SECRET, token);
+    ctx.secrets.delete = async () => {
+      throw new Error("keychain locked");
+    };
+
+    showWarningMessageMock.mockResolvedValue("Log out");
+    const { getAppSession, executeLogoutAppSession } = await import("../src/app-auth.js");
+    await executeLogoutAppSession(ctx as never);
+
+    expect(await getAppSession(ctx as never)).toBe(token);
+    expect(showInformationMessageMock).not.toHaveBeenCalledWith(
+      "Logged out of Cursor Sync storage."
+    );
+    expect(showErrorMessageMock).toHaveBeenCalled();
   });
 
   it("does nothing when the user cancels the confirm dialog", async () => {
@@ -185,6 +208,24 @@ describe("executeLogoutAppSession", () => {
     expect(await getAppSession(ctx as never)).toBe(token);
     expect(clearR2CredentialsCacheMock).not.toHaveBeenCalled();
     expect(refreshSidebarMock).not.toHaveBeenCalled();
+  });
+
+  it("7c: does not release an in-flight gist sync latch", async () => {
+    const token = makeJwt({ email: "user@example.com" });
+    const ctx = makeContext();
+    await ctx.secrets.store(APP_SESSION_SECRET, token);
+    showWarningMessageMock.mockResolvedValue("Log out");
+
+    const { tryBeginSyncOperation, isPushLocked, endSyncOperation } = await import(
+      "../src/sync-operation.js"
+    );
+    const { executeLogoutAppSession } = await import("../src/app-auth.js");
+
+    tryBeginSyncOperation();
+    expect(isPushLocked()).toBe(true);
+    await executeLogoutAppSession(ctx as never);
+    expect(isPushLocked()).toBe(true);
+    endSyncOperation();
   });
 });
 

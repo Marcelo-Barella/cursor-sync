@@ -2,10 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.8-logout
+
+### Fixed
+- Scheduled Gist sync skips silently when there is no app session and no GitHub PAT (no configure toasts after logout).
+- Logout aborts in-flight app configs push/pull with bounded wait; partial pushes commit manifest entries only for uploaded R2 keys; aborted pulls roll back and show a single cancellation notice.
+- Logout no longer releases the Gist sync operation latch; failed SecretStorage delete keeps the signed-in UI.
+- Best-effort `POST /auth/logout` before local session clear (2s timeout; 404/network ignored).
+
 ## v0.8.4-staging.7
 
 ### Added
-- Settings tab **Account** section: shows signed-in email when available, **Log out** / **Log in** actions, and command `cursorSync.app.logout` (modal confirm; clears app session, R2 credential cache, and login metadata without touching Gist sync state or sidebar theme).
+- Settings tab **Account** section: shows signed-in email when available, **Log out** / **Log in** actions, and command `cursorSync.app.logout` (modal confirm; clears app session, R2 credential cache, and login metadata without touching Gist sync state).
 
 ## v0.8.4-staging.5
 

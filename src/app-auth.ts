@@ -393,13 +393,25 @@ export async function setAppSession(
 
 export async function clearAppSession(
   context: vscode.ExtensionContext
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
+    const stored = await withSecretStorageTimeout(
+      context.secrets.get(APP_SESSION_SECRET)
+    );
+    if (stored) {
+      await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
+      const stillStored = await withSecretStorageTimeout(
+        context.secrets.get(APP_SESSION_SECRET)
+      );
+      if (stillStored) {
+        return false;
+      }
+    }
+    inMemoryAppSession = undefined;
+    return true;
   } catch {
-    // Clear in-memory session even when SecretStorage is unavailable or hung.
+    return false;
   }
-  inMemoryAppSession = undefined;
 }
 
 async function completeLoginWithCode(
@@ -421,6 +433,8 @@ async function completeLoginWithCode(
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
     const { persistAppSessionMetadata } = await import("./app-session-state.js");
+    const { bumpSessionEpoch } = await import("./app-session-coordination.js");
+    bumpSessionEpoch();
     await persistAppSessionMetadata(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
@@ -542,15 +556,29 @@ export async function executeLogoutAppSession(
     return;
   }
 
+  const { APP_LOGIN_API_BASE_OVERRIDE_KEY } = await import("./app-session-state.js");
+  const apiBase =
+    context.globalState.get<string>(APP_LOGIN_API_BASE_OVERRIDE_KEY) ?? getAppApiUrl();
+
+  const { bumpSessionEpoch, abortAppConfigsForLogout, tryServerLogout } = await import(
+    "./app-session-coordination.js"
+  );
+  bumpSessionEpoch();
+  await abortAppConfigsForLogout();
+  await tryServerLogout(apiBase, session);
+
   const { clearAppSessionArtifacts } = await import("./app-session-state.js");
-  await clearAppSessionArtifacts(context);
+  const cleared = await clearAppSessionArtifacts(context);
+  if (!cleared) {
+    vscode.window.showErrorMessage(
+      "Could not log out: the session could not be removed from secure storage. Try again or reload the window."
+    );
+    return;
+  }
+
   const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
   clearR2CredentialsCache();
-  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
-  await releaseSyncLatchForAuthRetry(context);
-  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
   const { refreshSidebar } = await import("./sidebar/index.js");
-  await refreshSyncStatusBar(context);
   refreshSidebar();
   vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
 }
