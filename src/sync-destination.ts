@@ -48,3 +48,27 @@ export function formatPullEmptyToast(destination: SyncDestinationId): string {
   }
   return "Pulled from GitHub Gist: nothing to update";
 }
+
+export function formatPushPartialToast(
+  uploaded: number,
+  total: number,
+  unreadable: number,
+  destination: SyncDestinationId
+): string {
+  if (destination === "cursor-sync-storage") {
+    return `Pushed ${uploaded} of ${total} files to Cursor Sync storage, ${unreadable} unreadable`;
+  }
+  return `Pushed ${uploaded} of ${total} files to GitHub Gist, ${unreadable} unreadable`;
+}
+
+export function formatPullPartialToast(
+  pulled: number,
+  total: number,
+  missing: number,
+  destination: SyncDestinationId
+): string {
+  if (destination === "cursor-sync-storage") {
+    return `Pulled ${pulled} of ${total} from Cursor Sync storage, ${missing} missing`;
+  }
+  return `Pulled ${pulled} of ${total} from GitHub Gist, ${missing} missing`;
+}

@@ -496,30 +496,59 @@ export async function executeLoginToCursorSync(
     logger.appendLine(
       `[${new Date().toISOString()}] App login redirect_uri=${redirectUri}`
     );
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
+    let opened = false;
+    try {
+      opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
+    } catch (openErr) {
+      const message = openErr instanceof Error ? openErr.message : String(openErr);
+      logger.appendLine(
+        `[${new Date().toISOString()}] App login openExternal failed: ${message}`
+      );
+    }
     if (!opened) {
-      await vscode.env.clipboard.writeText(loginUrl);
+      try {
+        await vscode.env.clipboard.writeText(loginUrl);
+      } catch (clipErr) {
+        const message = clipErr instanceof Error ? clipErr.message : String(clipErr);
+        logger.appendLine(
+          `[${new Date().toISOString()}] App login clipboard failed: ${message}`
+        );
+      }
       const copyAction = "Copy URL";
-      void vscode.window.showWarningMessage(
-        "Could not open the system browser for login. The login URL was copied to your clipboard. Paste the one-time code below.",
-        copyAction
-      ).then((choice) => {
-        if (choice === copyAction) {
-          void vscode.env.clipboard.writeText(loginUrl);
-        }
-      });
+      void vscode.window
+        .showWarningMessage(
+          "Could not open the system browser for login. The login URL was copied to your clipboard when possible. Paste the one-time code below.",
+          copyAction
+        )
+        .then((choice) => {
+          if (choice === copyAction) {
+            void Promise.resolve(vscode.env.clipboard.writeText(loginUrl)).catch(
+              () => undefined
+            );
+          }
+        });
     } else {
       logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
       void vscode.window.showInformationMessage(
         "Browser opened for Cursor Sync login. Paste the one-time code if Cursor does not receive the callback automatically."
       );
     }
-    await executeEnterAppAuthCode(context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(`[${new Date().toISOString()}] App login start failed: ${message}`);
     vscode.window.showErrorMessage(`Could not start login: ${message}`);
+  } finally {
+    await executeEnterAppAuthCode(context);
   }
+}
+
+export async function executeLogoutAppSession(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await clearAppSession(context);
+  const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
+  clearR2CredentialsCache();
+  vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
 }
 
 export async function executeEnterAppAuthCode(

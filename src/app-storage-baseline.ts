@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type * as vscode from "vscode";
 import type { SyncDestinationId } from "./sync-destination.js";
+import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 import {
   accountKeyFromAppSession,
   appStorageAccountKey,
@@ -73,7 +74,8 @@ export function baselineHasEntries(baseline: AppStorageBaseline | undefined): bo
 
 async function readBaselineStore(
   context: vscode.ExtensionContext,
-  migrateToAccountKey: string
+  migrateToAccountKey: string,
+  session?: string
 ): Promise<AppStorageBaselineStoreV2> {
   const filePath = baselinePath(context);
   try {
@@ -95,6 +97,16 @@ async function readBaselineStore(
       typeof (parsed as AppStorageBaseline).accountKey === "string"
     ) {
       const legacy = parsed as AppStorageBaseline;
+      const legacySessionKey = session ? accountKeyFromAppSession(session) : undefined;
+      const attributable =
+        legacy.accountKey === migrateToAccountKey ||
+        (legacySessionKey !== undefined && legacy.accountKey === legacySessionKey);
+      if (!attributable) {
+        return {
+          schemaVersion: APP_STORAGE_BASELINE_STORE_SCHEMA_VERSION,
+          accounts: {},
+        };
+      }
       const migrated: AppStorageBaseline = {
         ...legacy,
         accountKey: migrateToAccountKey,
@@ -125,9 +137,10 @@ async function writeBaselineStore(
 export async function loadAppStorageBaseline(
   context: vscode.ExtensionContext,
   accountKey: string,
-  destination: SyncDestinationId = "cursor-sync-storage"
+  destination: SyncDestinationId = "cursor-sync-storage",
+  session?: string
 ): Promise<AppStorageBaseline | undefined> {
-  const store = await readBaselineStore(context, accountKey);
+  const store = await readBaselineStore(context, accountKey, session);
   const baseline = store.accounts[accountKey];
   if (!baseline || baseline.destination !== destination) {
     return undefined;
@@ -139,7 +152,7 @@ export async function saveAppStorageBaseline(
   context: vscode.ExtensionContext,
   baseline: AppStorageBaseline
 ): Promise<void> {
-  const store = await readBaselineStore(context, baseline.accountKey);
+  const store = await readBaselineStore(context, baseline.accountKey, undefined);
   store.accounts[baseline.accountKey] = baseline;
   await writeBaselineStore(context, store);
 }
@@ -147,8 +160,11 @@ export async function saveAppStorageBaseline(
 export function classifyAppStorageKeys(
   localChecksums: Record<string, string>,
   remoteChecksums: Record<string, string>,
-  baseline: AppStorageBaseline | undefined
+  baseline: AppStorageBaseline | undefined,
+  localScan?: LocalConfigFileScan
 ): ClassifiedAppStorageKeys {
+  const unreadable = localScan?.unreadableKeys ?? new Set<string>();
+  const enoent = localScan?.enoentKeys ?? new Set<string>();
   const byKey: Record<string, AppStorageKeyClassification> = {};
   const pushKeys: string[] = [];
   const pullKeys: string[] = [];
@@ -176,6 +192,21 @@ export function classifyAppStorageKeys(
     const wasRemote = baseRemote[key];
 
     if (hasBaseline && wasLocal !== undefined && curLocal === undefined) {
+      if (unreadable.has(key)) {
+        byKey[key] = "unchanged";
+        unchangedKeys.push(key);
+        continue;
+      }
+      if (!enoent.has(key)) {
+        byKey[key] = "unchanged";
+        unchangedKeys.push(key);
+        continue;
+      }
+      if (wasRemote !== undefined && curRemote === undefined) {
+        byKey[key] = "baseline_refresh";
+        baselineRefreshKeys.push(key);
+        continue;
+      }
       if (curRemote !== wasRemote) {
         byKey[key] = "conflict";
         conflictKeys.push(key);
@@ -205,8 +236,8 @@ export function classifyAppStorageKeys(
           byKey[key] = "baseline_refresh";
           baselineRefreshKeys.push(key);
         } else {
-          byKey[key] = "conflict";
-          conflictKeys.push(key);
+          byKey[key] = "pull";
+          pullKeys.push(key);
         }
       } else if (remoteExists && !localExists) {
         byKey[key] = "pull";

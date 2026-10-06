@@ -32,6 +32,7 @@ vi.mock("../src/diagnostics.js", () => ({
 vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({
+      get: () => undefined,
       update: async () => {},
     }),
   },

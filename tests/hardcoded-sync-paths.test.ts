@@ -8,6 +8,9 @@ const FORBIDDEN_PATTERNS = [
   /AppData\/Roaming\/Cursor\/User/,
   /os\.homedir\s*\(\s*\)/,
   /path\.join\s*\(\s*os\.homedir\s*\(\s*\)\s*,\s*["']\.cursor["']/,
+  /path\.join\s*\([^)]*["']\.config["']\s*,\s*["']Cursor["']\s*,\s*["']User["']\)/,
+  /process\.env\.HOME/,
+  /require\s*\(\s*["']os["']\s*\)\.homedir\s*\(\s*\)/,
 ];
 
 const ALLOWLIST = new Set([path.join("src", "paths.ts")]);
@@ -30,6 +33,19 @@ describe("sync path hardcoding guard", () => {
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  it("forbidden patterns match representative hardcoded path forms", () => {
+    const samples = [
+      'path.join(os.homedir(), ".cursor")',
+      'path.join(foo, ".config", "Cursor", "User")',
+      "const home = process.env.HOME;",
+      'const home = require("os").homedir();',
+    ];
+    for (const sample of samples) {
+      const matched = FORBIDDEN_PATTERNS.some((pattern) => pattern.test(sample));
+      expect(matched).toBe(true);
+    }
   });
 });
 

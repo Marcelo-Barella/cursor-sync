@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.11
+
+### Fixed
+- Unreadable or non-ENOENT missing files are never treated as local deletes; unreadable keys are excluded from push, delete, and baseline updates with partial push reporting.
+- Remote deletions apply on pull even when no file keys are pulled; mutual local+remote delete clears baseline without a permanent conflict.
+- Push order is uploads, manifest PUT, then R2 deletes; failed uploads skip deletes and manifest drops.
+- Pull reports partial success when manifest keys are missing from storage (404).
+- Generated-only empty `extensions.json` on a fresh machine no longer false-conflicts on remote-only settings changes.
+- v1 baseline migrates only when attributable to the current session account; foreign v1 baselines are discarded.
+- Sync Now / scheduled 401 records history with trigger and "Session expired, log in again"; conflicts record history and show status-bar conflict state.
+- Login always opens the paste-code input when openExternal or clipboard fails; **Log out** clears session and keeps per-account baselines; reset preserves `schedule.enabled`.
+
+### Changed
+- Hardcoded sync-path guard covers `.config/Cursor/User` joins, `process.env.HOME`, and `require("os").homedir()`.
+
 ## v0.8.4-staging.10
 
 ### Fixed

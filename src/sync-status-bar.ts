@@ -15,6 +15,12 @@ function storageStatusDetail(
   entry: NonNullable<ReturnType<typeof latestStorageHistoryEntry>>
 ): string {
   const when = formatStatusTimestamp(entry.timestamp);
+  if (entry.conflict) {
+    return `conflict at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
+  }
+  if (entry.success && entry.partial) {
+    return `${entry.direction} partial at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
+  }
   if (entry.success) {
     return `${entry.direction} succeeded at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
   }
@@ -42,6 +48,14 @@ export async function refreshSyncStatusBar(
       history = [];
     }
     const latest = latestStorageHistoryEntry(history);
+    if (latest?.conflict) {
+      updateStatusBar("conflict", {
+        destination: "cursor-sync-storage",
+        detail: storageStatusDetail(latest),
+        lastSync: new Date(latest.timestamp),
+      });
+      return;
+    }
     if (options?.failed || (latest && !latest.success)) {
       updateStatusBar("error", {
         destination: "cursor-sync-storage",

@@ -13,11 +13,18 @@ import { generateExtensionsJson } from "./extensions.js";
 import { addSyncHistoryEntry, getLogger } from "./diagnostics.js";
 import {
   formatPullEmptyToast,
+  formatPullPartialToast,
   formatPullSuccessToast,
+  formatPushPartialToast,
   formatPushRemovalToast,
   formatPushSuccessToast,
   syncDestinationLabel,
 } from "./sync-destination.js";
+import { scanLocalAppConfigFiles } from "./app-config-local-scan.js";
+import {
+  alignGeneratedOnlyLocalChecksums,
+  GENERATED_EXTENSIONS_SYNC_KEY,
+} from "./app-config-extensions-align.js";
 import {
   appStorageAccountKey,
   appStorageSyncActionFromClassification,
@@ -187,8 +194,6 @@ export async function putAppConfigs(
   return (await response.json()) as AppConfigsResponse;
 }
 
-const GENERATED_EXTENSIONS_SYNC_KEY = "cursor-user/extensions.json";
-
 export function countMeaningfulAppConfigKeys(
   payload: AppConfigsPayloadV1
 ): number {
@@ -226,28 +231,57 @@ async function localExtensionsJsonIsEmpty(
   }
 }
 
-function alignGeneratedOnlyLocalChecksums(
-  localChecksums: Record<string, string>,
-  remoteChecksums: Record<string, string>,
+export const APP_STORAGE_SESSION_EXPIRED_MESSAGE =
+  "Session expired, log in again.";
+
+export async function recordAppStorageSessionExpired(
+  context: vscode.ExtensionContext,
+  trigger: AppConfigsSyncTrigger
+): Promise<void> {
+  await recordAppStorageAuthFailure(
+    context,
+    "pull",
+    trigger,
+    APP_STORAGE_SESSION_EXPIRED_MESSAGE
+  );
+  vscode.window.showErrorMessage(APP_STORAGE_SESSION_EXPIRED_MESSAGE);
+}
+
+function filterPushKeysForRemoteDeletedUnchanged(
+  pushKeys: string[],
   baseline: Awaited<ReturnType<typeof loadAppStorageBaseline>>,
+  localChecksums: Record<string, string>,
+  remoteChecksums: Record<string, string>
+): string[] {
+  if (!baseline) {
+    return pushKeys;
+  }
+  return pushKeys.filter((key) => {
+    const wasRemote = baseline.remoteChecksums[key];
+    const curRemote = remoteChecksums[key];
+    const wasLocal = baseline.localChecksums[key];
+    const curLocal = localChecksums[key];
+    if (
+      wasRemote !== undefined &&
+      curRemote === undefined &&
+      wasLocal !== undefined &&
+      curLocal === wasLocal
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function filterGeneratedOnlyPushKeys(
+  pushKeys: string[],
+  localChecksums: Record<string, string>,
   extensionsEmpty: boolean
-): Record<string, string> {
+): string[] {
   if (!extensionsEmpty) {
-    return localChecksums;
+    return pushKeys;
   }
-  const key = GENERATED_EXTENSIONS_SYNC_KEY;
-  const aligned = { ...localChecksums };
-  const baselineRemote = baseline?.remoteChecksums[key];
-  const baselineLocal = baseline?.localChecksums[key];
-  const remote = remoteChecksums[key];
-  if (baselineRemote !== undefined) {
-    aligned[key] = baselineRemote;
-  } else if (baselineLocal !== undefined) {
-    aligned[key] = baselineLocal;
-  } else if (remote !== undefined) {
-    aligned[key] = remote;
-  }
-  return aligned;
+  return pushKeys.filter((key) => key !== GENERATED_EXTENSIONS_SYNC_KEY);
 }
 
 function isEmptyOrDefaultSettingsContent(content: string): boolean {
@@ -364,19 +398,27 @@ export async function determineAppStorageSyncAction(
     return { action: "error", reason: "app_storage_auth" };
   }
 
+  const trigger = options?.trigger ?? "manual";
   const response = await fetchAppConfigs(context, {
     ...options,
     recordAuthFailure: false,
   });
   if (!response) {
-    return { action: "error", reason: "app_storage_auth" };
+    await recordAppStorageSessionExpired(context, trigger);
+    return { action: "error", reason: "session_expired" };
   }
 
   const roots = resolveSyncRoots(process.platform, context);
   const extensionsEmpty = await localExtensionsJsonIsEmpty(roots);
-  let localChecksums = await computeLocalAppConfigChecksums(context);
+  const localScan = await scanLocalAppConfigFiles(context);
+  let localChecksums = { ...localScan.checksums };
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
-  const baseline = await loadAppStorageBaseline(context, accountKey);
+  const baseline = await loadAppStorageBaseline(
+    context,
+    accountKey,
+    "cursor-sync-storage",
+    session
+  );
 
   if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
     const build = await buildLocalAppConfigsPayload(context);
@@ -405,7 +447,8 @@ export async function determineAppStorageSyncAction(
   const classified = classifyAppStorageKeys(
     localChecksums,
     remoteChecksums,
-    baseline
+    baseline,
+    localScan
   );
   const derived = appStorageSyncActionFromClassification(
     classified,
@@ -414,13 +457,31 @@ export async function determineAppStorageSyncAction(
 
   if (derived.action === "push") {
     const build = await buildLocalAppConfigsPayload(context);
-    const pushKeys = derived.keys.filter(
+    let pushKeys = derived.keys.filter(
       (k) => !isGeneratedOnlyAppConfigKey(k, build.payload)
     );
-    if (pushKeys.length === 0 && derived.deletions.length === 0) {
+    pushKeys = filterGeneratedOnlyPushKeys(
+      pushKeys,
+      localChecksums,
+      extensionsEmpty
+    );
+    pushKeys = filterPushKeysForRemoteDeletedUnchanged(
+      pushKeys,
+      baseline,
+      localChecksums,
+      remoteChecksums
+    );
+    pushKeys = pushKeys.filter((k) => !localScan.unreadableKeys.has(k));
+    const deletions = derived.deletions.filter(
+      (k) => !localScan.unreadableKeys.has(k)
+    );
+    if (pushKeys.length === 0 && deletions.length === 0) {
+      if (localScan.unreadableKeys.size > 0) {
+        return { action: "none" };
+      }
       return { action: "none" };
     }
-    return { action: "push", keys: pushKeys, deletions: derived.deletions };
+    return { action: "push", keys: pushKeys, deletions };
   }
 
   if (derived.action === "baseline_refresh") {
@@ -452,7 +513,8 @@ export async function applyAppStorageBaselineRefresh(
     return;
   }
   const accountKey = appStorageAccountKey(session, getAppApiUrl());
-  const localChecksums = await computeLocalAppConfigChecksums(context);
+  const localScan = await scanLocalAppConfigFiles(context);
+  const localChecksums = localScan.checksums;
   const response = await fetchAppConfigs(context, { recordAuthFailure: false });
   const remoteChecksums: Record<string, string> = {};
   if (response?.payload && isAppConfigsPayloadV1(response.payload)) {
@@ -460,26 +522,43 @@ export async function applyAppStorageBaselineRefresh(
       remoteChecksums[key] = entry.checksum;
     }
   }
+  const deletedKeys = keys.filter(
+    (key) =>
+      localChecksums[key] === undefined && remoteChecksums[key] === undefined
+  );
+  const syncedKeys = keys.filter((key) => !deletedKeys.includes(key));
   await updateAppStorageBaselineAfterSync(context, {
     accountKey,
     destination: "cursor-sync-storage",
     remoteUpdatedAt,
-    syncedKeys: keys,
-    deletedKeys: [],
+    syncedKeys,
+    deletedKeys,
     localChecksums,
     remoteChecksums,
   });
 }
 
 export async function notifyAppStorageConflicts(
+  context: vscode.ExtensionContext,
   keys: string[],
-  options?: { scheduled?: boolean }
+  options?: { scheduled?: boolean; trigger?: AppConfigsSyncTrigger }
 ): Promise<void> {
   const preview = keys.slice(0, 5).join(", ");
   const suffix = keys.length > 5 ? ` (+${keys.length - 5} more)` : "";
   const message = options?.scheduled
     ? `Scheduled Cursor Sync storage sync skipped: ${keys.length} conflicting file(s) (${preview}${suffix}). Resolve manually.`
     : `Cursor Sync storage conflict on ${keys.length} file(s): ${preview}${suffix}. Nothing was overwritten.`;
+  const trigger = options?.trigger ?? (options?.scheduled ? "scheduled" : "syncNow");
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "pull",
+    trigger,
+    fileCount: keys.length,
+    success: false,
+    conflict: true,
+    destination: "cursor-sync-storage",
+    error: message,
+  });
   if (options?.scheduled) {
     await vscode.window.showWarningMessage(message);
   } else {
@@ -605,7 +684,12 @@ export async function executePushAppConfigs(
       ? appStorageAccountKey(sessionEarly, getAppApiUrl())
       : "";
     const baselineEarly = sessionEarly
-      ? await loadAppStorageBaseline(context, accountKeyEarly)
+      ? await loadAppStorageBaseline(
+          context,
+          accountKeyEarly,
+          "cursor-sync-storage",
+          sessionEarly
+        )
       : undefined;
 
     if (
@@ -671,23 +755,7 @@ export async function executePushAppConfigs(
     let deletedCount = 0;
     const uploadedKeys: string[] = [];
     const deletedKeys: string[] = [];
-
-    for (const syncKey of deletions) {
-      try {
-        const status = await deleteR2Object(credentials, syncKey);
-        deletedCount += 1;
-        deletedKeys.push(syncKey);
-        logger.appendLine(
-          `[${new Date().toISOString()}] Deleted remote object ${syncKey} status=${status}`
-        );
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        skipped.push({ syncKey, reason });
-        logger.appendLine(
-          `[${new Date().toISOString()}] Delete failed ${syncKey}: ${reason}`
-        );
-      }
-    }
+    const unreadableSkipCount = skippedReads.length;
 
     const uploadSet = new Set(keysToUpload);
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
@@ -731,13 +799,15 @@ export async function executePushAppConfigs(
     const uploadSkipped = skipped.filter((s) => uploadSet.has(s.syncKey));
     const uploadFailed =
       uploadAttempted && (uploadedCount === 0 || uploadSkipped.length > 0);
-    const deleteFailed = deletions.length > 0 && deletedCount !== deletions.length;
-    if (uploadFailed || deleteFailed || (uploadedCount === 0 && deletedCount === 0)) {
+    if (
+      uploadFailed ||
+      (uploadedCount === 0 && deletions.length === 0 && unreadableSkipCount === 0)
+    ) {
       const detail = skipped.map((s) => `${s.syncKey}: ${s.reason}`).join("; ");
       const message =
         uploadedCount === 0 && deletedCount === 0
           ? `Push to ${destinationLabel} failed: no files uploaded.${detail ? ` Skipped: ${detail}` : ""}`
-          : `Push to ${destinationLabel} failed: partial upload (${uploadedCount} uploaded, ${deletedCount} removed). Skipped: ${detail}. Remote /configs metadata was not updated.`;
+          : `Push to ${destinationLabel} failed: partial upload (${uploadedCount} uploaded). Skipped: ${detail}. Remote /configs metadata was not updated.`;
       logger.appendLine(`[${new Date().toISOString()}] Push app configs failed: ${message}`);
       await addSyncHistoryEntry(context, {
         timestamp: new Date().toISOString(),
@@ -756,7 +826,7 @@ export async function executePushAppConfigs(
     for (const key of uploadedKeys) {
       mergedManifestFiles[key] = localPayload.manifest.files[key]!;
     }
-    for (const key of deletedKeys) {
+    for (const key of deletions) {
       delete mergedManifestFiles[key];
     }
 
@@ -787,9 +857,44 @@ export async function executePushAppConfigs(
       return false;
     }
 
+    for (const syncKey of deletions) {
+      try {
+        const status = await deleteR2Object(credentials, syncKey);
+        deletedCount += 1;
+        deletedKeys.push(syncKey);
+        logger.appendLine(
+          `[${new Date().toISOString()}] Deleted remote object ${syncKey} status=${status}`
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        skipped.push({ syncKey, reason });
+        logger.appendLine(
+          `[${new Date().toISOString()}] Delete failed ${syncKey}: ${reason}`
+        );
+      }
+    }
+
+    if (deletions.length > 0 && deletedCount !== deletions.length) {
+      const detail = skipped.map((s) => `${s.syncKey}: ${s.reason}`).join("; ");
+      const message = `Push to ${destinationLabel} partial: manifest updated but remote delete failed (${deletedCount}/${deletions.length}). ${detail}`;
+      logger.appendLine(`[${new Date().toISOString()}] ${message}`);
+      await addSyncHistoryEntry(context, {
+        timestamp: new Date().toISOString(),
+        direction: "push",
+        trigger,
+        fileCount: uploadedCount + deletedCount,
+        success: true,
+        partial: true,
+        destination,
+        error: message,
+      });
+      vscode.window.showWarningMessage(message);
+      return false;
+    }
+
     const session = await getAppSession(context);
     if (session) {
-      const localChecksums = await computeLocalAppConfigChecksums(context);
+      const localChecksums = (await scanLocalAppConfigFiles(context)).checksums;
       const remoteChecksums: Record<string, string> = {};
       for (const [key, entry] of Object.entries(mergedManifestFiles)) {
         remoteChecksums[key] = entry.checksum;
@@ -806,15 +911,32 @@ export async function executePushAppConfigs(
     }
 
     const totalChanged = uploadedCount + deletedCount;
+    const pushPartial = unreadableSkipCount > 0;
+    const totalIntended = enumeratedCount;
     await addSyncHistoryEntry(context, {
       timestamp: new Date().toISOString(),
       direction: "push",
       trigger,
       fileCount: totalChanged,
       success: true,
+      partial: pushPartial,
       destination,
+      ...(pushPartial
+        ? {
+            error: `Pushed ${uploadedCount} of ${totalIntended}, ${unreadableSkipCount} unreadable`,
+          }
+        : {}),
     });
-    if (uploadedCount > 0) {
+    if (pushPartial) {
+      vscode.window.showWarningMessage(
+        formatPushPartialToast(
+          uploadedCount,
+          totalIntended,
+          unreadableSkipCount,
+          destination
+        )
+      );
+    } else if (uploadedCount > 0) {
       vscode.window.showInformationMessage(
         formatPushSuccessToast(uploadedCount, destination)
       );
@@ -875,6 +997,8 @@ export async function executePullAppConfigs(
     const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> =
       [];
     const keyFilter = options?.keys ? new Set(options.keys) : undefined;
+    const missingRemoteKeys: string[] = [];
+    let pullCandidates = 0;
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
@@ -903,6 +1027,8 @@ export async function executePullAppConfigs(
         continue;
       }
 
+      pullCandidates += 1;
+
       const content = await resolveRemoteFileContent(
         context,
         syncKey,
@@ -910,6 +1036,7 @@ export async function executePullAppConfigs(
         manifestEntry
       );
       if (!content) {
+        missingRemoteKeys.push(syncKey);
         continue;
       }
 
@@ -927,9 +1054,6 @@ export async function executePullAppConfigs(
     const remoteDeletions = options?.remoteDeletions ?? [];
     const filesToDelete: Array<{ absolutePath: string; syncKey: string }> = [];
     for (const syncKey of remoteDeletions) {
-      if (keyFilter && !keyFilter.has(syncKey)) {
-        continue;
-      }
       const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
       if (absolutePath) {
         filesToDelete.push({ absolutePath, syncKey });
@@ -1060,8 +1184,10 @@ export async function executePullAppConfigs(
 
     const session = await getAppSession(context);
     const totalPulled = filesToWrite.length + deletedLocally.length;
+    const pullPartial = missingRemoteKeys.length > 0;
+    const pullTotalExpected = pullCandidates + deletedLocally.length;
     if (session) {
-      const localChecksums = await computeLocalAppConfigChecksums(context);
+      const localChecksums = (await scanLocalAppConfigFiles(context)).checksums;
       const remoteChecksums: Record<string, string> = {};
       for (const [key, entry] of Object.entries(manifest.files)) {
         remoteChecksums[key] = entry.checksum;
@@ -1082,18 +1208,38 @@ export async function executePullAppConfigs(
       direction: "pull",
       trigger,
       fileCount: totalPulled,
-      success: true,
+      success: !pullPartial,
+      partial: pullPartial,
       destination,
+      ...(pullPartial
+        ? {
+            error: formatPullPartialToast(
+              totalPulled,
+              pullTotalExpected,
+              missingRemoteKeys.length,
+              destination
+            ),
+          }
+        : {}),
     });
-    if (totalPulled > 0) {
+    if (pullPartial) {
+      vscode.window.showWarningMessage(
+        formatPullPartialToast(
+          totalPulled,
+          pullTotalExpected,
+          missingRemoteKeys.length,
+          destination
+        )
+      );
+    } else if (totalPulled > 0) {
       vscode.window.showInformationMessage(
         formatPullSuccessToast(totalPulled, destination)
       );
     }
     logger.appendLine(
-      `[${new Date().toISOString()}] Pull app configs succeeded: ${totalPulled} files`
+      `[${new Date().toISOString()}] Pull app configs ${pullPartial ? "partial" : "succeeded"}: ${totalPulled} files`
     );
-    return true;
+    return !pullPartial;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(

@@ -27,6 +27,7 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   // Reset Configuration Settings
   const config = vscode.workspace.getConfiguration("cursorSync");
+  const scheduleEnabled = config.get<boolean>("schedule.enabled");
   const keys = [
     "enabledPaths",
     "excludeGlobs",
@@ -39,6 +40,14 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   for (const key of keys) {
     await config.update(key, undefined, vscode.ConfigurationTarget.Global);
+  }
+
+  if (scheduleEnabled !== undefined) {
+    await config.update(
+      "schedule.enabled",
+      scheduleEnabled,
+      vscode.ConfigurationTarget.Global
+    );
   }
 
   // Update UI Context

@@ -282,7 +282,10 @@ export async function scheduledTick(
           conflict_count: result.keys.length,
         });
         if (appSessionActive) {
-          void notifyAppStorageConflicts(result.keys, { scheduled: true });
+          void notifyAppStorageConflicts(context, result.keys, {
+            scheduled: true,
+            trigger: "scheduled",
+          });
         } else {
           void showSyncFailureWithDebug(
             context,
@@ -297,6 +300,13 @@ export async function scheduledTick(
       }
 
       case "error": {
+        if (result.reason === "session_expired") {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync skipped: session expired`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "session_expired" });
+          break;
+        }
         const errorMessage = `Scheduled sync failed: ${result.reason}`;
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync skipped: ${result.reason}`

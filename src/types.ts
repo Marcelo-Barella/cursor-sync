@@ -92,4 +92,6 @@ export interface SyncHistoryEntry {
   success: boolean;
   destination?: SyncDestinationId;
   error?: string;
+  partial?: boolean;
+  conflict?: boolean;
 }

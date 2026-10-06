@@ -24,6 +24,7 @@ import {
   consumePendingAuthCallback,
   executeEnterAppAuthCode,
   executeLoginToCursorSync,
+  executeLogoutAppSession,
   registerAppAuthUriHandler,
 } from "./app-auth.js";
 import {
@@ -121,6 +122,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.enterAppAuthCode", () =>
       executeEnterAppAuthCode(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.app.logout", () =>
+      executeLogoutAppSession(context)
     )
   );
 
@@ -423,7 +430,9 @@ export async function executeSyncNow(
       case "conflict": {
         syncFailed = true;
         if (appSessionActive) {
-          await notifyAppStorageConflicts(result.keys);
+          await notifyAppStorageConflicts(context, result.keys, {
+            trigger: "syncNow",
+          });
           break;
         }
         const conflictMessage = `${result.keys.length} conflict(s) detected. Resolve them first.`;
@@ -440,6 +449,9 @@ export async function executeSyncNow(
       }
       case "error": {
         syncFailed = true;
+        if (result.reason === "session_expired") {
+          break;
+        }
         const errorMessage = `Sync failed: ${result.reason}`;
         void showSyncFailureWithDebug(
           context,

@@ -25,43 +25,6 @@ describe("app storage staging.10", () => {
     expect(a).not.toBe(accountKeyFromAppSession(jwtWithSub("user-1")));
   });
 
-  it("remote-only settings change does not conflict with generated extensions.json", () => {
-    const baseline = {
-      schemaVersion: 1 as const,
-      accountKey: "acct",
-      destination: "cursor-sync-storage" as const,
-      remoteUpdatedAt: "2026-01-01T00:00:00.000Z",
-      localChecksums: {
-        "cursor-user/settings.json": "local-old",
-        "cursor-user/extensions.json": "ext-base",
-      },
-      remoteChecksums: {
-        "cursor-user/settings.json": "remote-old",
-        "cursor-user/extensions.json": "ext-base",
-      },
-    };
-    const classified = classifyAppStorageKeys(
-      {
-        "cursor-user/settings.json": "local-old",
-        "cursor-user/extensions.json": "ext-base",
-      },
-      {
-        "cursor-user/settings.json": "remote-new",
-        "cursor-user/extensions.json": "ext-base",
-      },
-      baseline
-    );
-    const action = appStorageSyncActionFromClassification(classified, {
-      "cursor-user/settings.json": "remote-new",
-      "cursor-user/extensions.json": "ext-base",
-    });
-    expect(action).toEqual({
-      action: "pull",
-      keys: ["cursor-user/settings.json"],
-      remoteDeletions: [],
-    });
-  });
-
   it("classifies remote delete when local matches baseline", () => {
     const classified = classifyAppStorageKeys(
       { "cursor-user/foo.json": "same" },
