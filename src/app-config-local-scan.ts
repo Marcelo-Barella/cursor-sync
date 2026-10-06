@@ -53,13 +53,3 @@ export function localFileMissingFromBaseline(
   }
   return !scan.unreadableKeys.has(key);
 }
-
-export function baselineKeyTracked(
-  baseline: { localChecksums: Record<string, string>; remoteChecksums: Record<string, string> },
-  key: string
-): boolean {
-  return (
-    baseline.localChecksums[key] !== undefined ||
-    baseline.remoteChecksums[key] !== undefined
-  );
-}

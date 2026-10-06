@@ -57,6 +57,13 @@ function baselinePath(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, "app-storage-baseline.json");
 }
 
+export function baselineKeyTracked(baseline: AppStorageBaseline, key: string): boolean {
+  return (
+    baseline.localChecksums[key] !== undefined ||
+    baseline.remoteChecksums[key] !== undefined
+  );
+}
+
 export function filterScheduledAppStoragePullKeys(
   keys: string[],
   baseline: AppStorageBaseline | undefined
@@ -64,11 +71,7 @@ export function filterScheduledAppStoragePullKeys(
   if (!baselineHasEntries(baseline)) {
     return [];
   }
-  return keys.filter(
-    (key) =>
-      baseline!.localChecksums[key] !== undefined ||
-      baseline!.remoteChecksums[key] !== undefined
-  );
+  return keys.filter((key) => baselineKeyTracked(baseline!, key));
 }
 
 export function baselineHasEntries(baseline: AppStorageBaseline | undefined): boolean {

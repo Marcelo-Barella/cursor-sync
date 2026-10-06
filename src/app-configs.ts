@@ -29,6 +29,7 @@ import {
 import {
   appStorageSyncActionFromClassification,
   baselineHasEntries,
+  baselineKeyTracked,
   classifyAppStorageKeys,
   filterScheduledAppStoragePullKeys,
   loadAppStorageBaseline,
@@ -1029,11 +1030,6 @@ export async function executePullAppConfigs(
         )
       : undefined;
 
-    const baselineTrackedKey = (syncKey: string): boolean =>
-      !!pullBaseline &&
-      (pullBaseline.localChecksums[syncKey] !== undefined ||
-        pullBaseline.remoteChecksums[syncKey] !== undefined);
-
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
         continue;
@@ -1102,7 +1098,7 @@ export async function executePullAppConfigs(
     if (safeMode && filesToWrite.length > 0) {
       const items = filesToWrite.map((f) => ({
         label: f.syncKey,
-        picked: baselineTrackedKey(f.syncKey),
+        picked: pullBaseline ? baselineKeyTracked(pullBaseline, f.syncKey) : false,
       }));
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
