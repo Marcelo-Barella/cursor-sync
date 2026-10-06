@@ -160,12 +160,10 @@ describe("manual push skip notice (F3)", () => {
               sourceOS: "linux",
               files: {
                 "cursor-user/settings.json": { checksum: "a", sizeBytes: 1 },
-                "dot-cursor/link.md": { checksum: "b", sizeBytes: 1 },
               },
             },
             files: {
               "cursor-user/settings.json": { checksum: "a", sizeBytes: 1 },
-              "dot-cursor/link.md": { checksum: "b", sizeBytes: 1 },
             },
           },
           updated_at: "2026-01-02T00:00:00.000Z",
@@ -188,15 +186,10 @@ describe("manual push skip notice (F3)", () => {
       );
     }
     expect(ok).toBe(true);
-    expect(
-      showInformationMessageMock.mock.calls.some((c) =>
-        String(c[0]).match(/Pushed 1 file\(s\), skipped 1/)
-      )
-    ).toBe(true);
-    expect(
-      showInformationMessageMock.mock.calls.some((c) =>
-        String(c[0]).includes("dot-cursor/link.md")
-      )
-    ).toBe(true);
+    expect(showInformationMessageMock.mock.calls.length).toBe(1);
+    const toast = String(showInformationMessageMock.mock.calls[0]?.[0]);
+    expect(toast).toMatch(/Pushed 1 file/i);
+    expect(toast).toMatch(/never-synced symlink/i);
+    expect(toast).toContain("dot-cursor/link.md");
   });
 });

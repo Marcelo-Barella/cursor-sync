@@ -42,7 +42,7 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | Symlink or non-directory anywhere below sync root on path to key | skipped_unknown | noop; no pull, no delete_remote, no writes outside root |
 | Symlinked ancestor (e.g. `rules` → empty dir) | skipped_unknown for all descendants | noop (S1) |
 | Symlink pointing outside root (e.g. `skills` → external dir) | skipped_unknown | noop; pull write blocked (S3) |
-| Sync root missing with baseline entries | skipped_unknown for all keys under root | noop; no deletes either direction |
+| Sync root missing with baseline entries | skipped_unknown for all keys under root | noop; deletes held; Sync Now shows root missing/empty notice (not per-file unsafe) |
 | Sync root missing without baseline (fresh device) | absent_eligible / provably_absent | pull allowed; create root only at write time (never during scan) |
 | Every tracked file under a root missing on disk (per-root hold) | skipped_unknown under that root | noop; deletes held both directions; Sync Now shows held-root notice |
 | Sync root cannot be created (dangling root symlink, b12) | keys under that root | pull skips those keys only; other roots still sync; warning names the root |
@@ -62,3 +62,18 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 - **Otherwise:** `skipped_unknown` (authoritative over scan listing).
 - Scan enumeration does not descend into symlink directories (`readdir` + `lstat`).
 - Pull: `mkdir` one component at a time with `lstat` checks; verify `realpath(parent)` under root; write via random tmp in the verified parent using `O_CREAT|O_EXCL|O_NOFOLLOW` (`wx` + `O_NOFOLLOW`), fsync, re-verify parent chain, then rename onto the target.
+- **Unreadable file** (exists but not readable): `skipped_unknown`; Sync Now held as unreadable, not “already in sync”.
+
+## Subprocess allowlist (`src/os-runtime.ts`)
+
+Only these command basenames may be spawned via `execFileAsync`, `spawnSyncCapture`, or `spawnPython3Capture`:
+
+`python3`, `python`, `py`, `sqlite3`, `chmod`
+
+Subprocess environment is scrubbed (no `HOME`, `USERPROFILE`, `APPDATA`, `XDG_*`, etc.). Any other executable is rejected at runtime.
+
+## AST / bundle guards
+
+- All `src/**` sources except `paths.ts` and `os-runtime.ts` are scanned for forbidden identifiers (`require`, `process`, `globalThis`, …), banned runtime imports, `/proc/` / `environ` string literals, and `systemTmpDir()` path traversal patterns.
+- `paths.ts` is allowlisted because it resolves Cursor user paths via `node:os` / `process.env` (platform-specific layout only).
+- `os-runtime.ts` is the sole gateway for `child_process` and host identity helpers.

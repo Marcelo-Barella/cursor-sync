@@ -52,12 +52,21 @@ export async function classifyLocalPath(
 
   let isFilePresent = false;
   let fileOversize = false;
+  let isUnreadable = false;
   try {
     const fs = await import("node:fs/promises");
+    const { constants } = await import("node:fs");
+    const { access } = fs;
     const st = await fs.lstat(absolutePath);
     if (st.isFile() && !st.isSymbolicLink()) {
-      isFilePresent = true;
       fileOversize = st.size > sizeLimit;
+      try {
+        await access(absolutePath, constants.R_OK);
+        isFilePresent = true;
+      } catch {
+        isUnreadable = true;
+        isFilePresent = false;
+      }
     }
   } catch {
     isFilePresent = false;
@@ -67,6 +76,7 @@ export async function classifyLocalPath(
     excluded,
     isFilePresent,
     fileOversize,
+    isUnreadable,
     baselineLocalKeys: options?.baselineLocalKeys,
   });
 }

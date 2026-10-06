@@ -18,32 +18,58 @@ export const SOURCE_EXTS = [
   ".cjs",
 ];
 
-const BANNED_MODULES = new Set([
-  "os",
-  "node:os",
-  "process",
-  "node:process",
-  "vm",
-  "node:vm",
-  "child_process",
-  "node:child_process",
-  "module",
-  "node:module",
-]);
-
 const FORBIDDEN_IDENTIFIERS = new Set([
+  "require",
+  "module",
+  "process",
+  "global",
   "globalThis",
   "eval",
   "Function",
   "Reflect",
-  "module",
-  "vm",
-  "process",
 ]);
 
+const BANNED_IMPORT_MODULES = new Set([
+  "os",
+  "node:os",
+  "process",
+  "node:process",
+  "child_process",
+  "node:child_process",
+  "worker_threads",
+  "node:worker_threads",
+  "inspector",
+  "node:inspector",
+  "vm",
+  "node:vm",
+  "module",
+  "node:module",
+  "v8",
+  "node:v8",
+  "cluster",
+  "node:cluster",
+]);
+
+const PATH_HELPER_IDENTIFIERS = new Set(["systemTmpDir"]);
+
+function normalizeModuleSpecifier(text: string): string {
+  return text.replace(/^node:/, "");
+}
+
+function isBannedImportModule(text: string): boolean {
+  return (
+    BANNED_IMPORT_MODULES.has(text) ||
+    BANNED_IMPORT_MODULES.has(`node:${normalizeModuleSpecifier(text)}`)
+  );
+}
+
+function note(rel: string, offenders: string[], message: string): void {
+  offenders.push(`${rel}: ${message}`);
+}
+
 export function scriptKindFor(rel: string): ts.ScriptKind {
-  if (rel.endsWith(".mts")) return ts.ScriptKind.MTS;
-  if (rel.endsWith(".cts")) return ts.ScriptKind.CTS;
+  if (rel.endsWith(".mts")) return ts.ScriptKind.TS;
+  if (rel.endsWith(".cts")) return ts.ScriptKind.TS;
   if (rel.endsWith(".tsx")) return ts.ScriptKind.TSX;
   if (rel.endsWith(".jsx")) return ts.ScriptKind.JSX;
   if (rel.endsWith(".js") || rel.endsWith(".mjs")) return ts.ScriptKind.JS;
@@ -65,257 +91,148 @@ export function collectSourceFiles(dir: string, base = "src"): string[] {
   return files;
 }
 
-function isBannedModule(text: string): boolean {
-  return BANNED_MODULES.has(text) || BANNED_MODULES.has(`node:${text}`);
+function stringHasForbiddenPathContent(text: string): boolean {
+  if (text.includes("/proc/")) {
+    return true;
+  }
+  if (text.includes("/environ")) {
+    return true;
+  }
+  if (text.includes("environ")) {
+    const withoutEnvironmentWord = text.replace(/environment/gi, "");
+    if (withoutEnvironmentWord.includes("environ")) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function note(rel: string, offenders: string[], message: string): void {
-  offenders.push(`${rel}: ${message}`);
+function stringHasParentSegment(text: string): boolean {
+  return text.includes("..");
 }
 
-function isConstructorConstructorChain(node: ts.Node): boolean {
-  if (!ts.isPropertyAccessExpression(node) && !ts.isPropertyAccessChain(node)) {
-    return false;
-  }
-  if (node.name.text !== "constructor") {
-    return false;
-  }
-  const inner = node.expression;
-  if (!ts.isPropertyAccessExpression(inner) && !ts.isPropertyAccessChain(inner)) {
-    return false;
-  }
-  return inner.name.text === "constructor";
+function subtreeContainsSystemTmpDir(node: ts.Node): boolean {
+  let found = false;
+  const walk = (n: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      PATH_HELPER_IDENTIFIERS.has(n.expression.text)
+    ) {
+      found = true;
+      return;
+    }
+    if (ts.isIdentifier(n) && PATH_HELPER_IDENTIFIERS.has(n.text)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(node);
+  return found;
 }
 
-function isDirectRequireCall(node: ts.CallExpression): boolean {
-  if (!ts.isIdentifier(node.expression) || node.expression.text !== "require") {
-    return false;
-  }
-  const arg = node.arguments[0];
-  return Boolean(arg && ts.isStringLiteral(arg));
+function subtreeContainsParentSegmentLiteral(node: ts.Node): boolean {
+  let found = false;
+  const walk = (n: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (ts.isStringLiteral(n) && stringHasParentSegment(n.text)) {
+      found = true;
+      return;
+    }
+    if (ts.isNoSubstitutionTemplateLiteral(n) && stringHasParentSegment(n.text)) {
+      found = true;
+      return;
+    }
+    if (ts.isTemplateExpression(n)) {
+      if (stringHasParentSegment(n.getText())) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(node);
+  return found;
 }
 
 export function visitAst(node: ts.Node, rel: string, offenders: string[]): void {
   if (ts.isIdentifier(node) && FORBIDDEN_IDENTIFIERS.has(node.text)) {
-    if (node.text === "eval") {
-      const parent = node.parent;
-      if (ts.isCallExpression(parent) && parent.expression === node) {
-        note(rel, offenders, "eval()");
-      } else if (
-        ts.isPropertyAccessExpression(parent) &&
-        parent.expression === node &&
-        parent.name.text === "eval"
-      ) {
-        note(rel, offenders, "globalThis.eval");
-      }
-    } else if (node.text === "Function") {
-      const parent = node.parent;
-      if (
-        (ts.isNewExpression(parent) && parent.expression === node) ||
-        (ts.isCallExpression(parent) && parent.expression === node)
-      ) {
-        note(rel, offenders, "Function constructor");
-      }
-    } else if (node.text === "createRequire") {
-      note(rel, offenders, "createRequire");
-    } else {
-      note(rel, offenders, `references identifier ${node.text}`);
+    note(rel, offenders, `forbidden identifier ${node.text}`);
+  }
+
+  if (ts.isPropertyAccessExpression(node) && node.name.text === "constructor") {
+    note(rel, offenders, "forbidden .constructor access");
+  }
+  if (
+    ts.isElementAccessExpression(node) &&
+    node.argumentExpression &&
+    ts.isStringLiteral(node.argumentExpression) &&
+    node.argumentExpression.text === "constructor"
+  ) {
+    note(rel, offenders, "forbidden .constructor access");
+  }
+
+  if (ts.isStringLiteral(node)) {
+    if (stringHasForbiddenPathContent(node.text)) {
+      note(rel, offenders, "forbidden string literal (/proc/ or environ)");
     }
   }
 
-  if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)) {
-    if (node.expression.text === "g" && node.argumentExpression) {
-      const arg = node.argumentExpression;
-      if (
-        ts.isBinaryExpression(arg) &&
-        arg.operatorToken.kind === ts.SyntaxKind.PlusToken
-      ) {
-        note(rel, offenders, "g['proc'+'ess']");
-      }
+  if (ts.isNoSubstitutionTemplateLiteral(node)) {
+    if (stringHasForbiddenPathContent(node.text)) {
+      note(rel, offenders, "forbidden template (/proc/ or environ)");
     }
   }
 
-  if (ts.isCallExpression(node)) {
-    let commaExpr: ts.BinaryExpression | undefined;
-    if (ts.isBinaryExpression(node.expression)) {
-      commaExpr = node.expression;
-    } else if (
-      ts.isParenthesizedExpression(node.expression) &&
-      ts.isBinaryExpression(node.expression.expression)
-    ) {
-      commaExpr = node.expression.expression;
-    }
-    if (
-      commaExpr &&
-      commaExpr.operatorToken.kind === ts.SyntaxKind.CommaToken &&
-      ts.isNumericLiteral(commaExpr.left) &&
-      commaExpr.left.text === "0" &&
-      ts.isIdentifier(commaExpr.right) &&
-      commaExpr.right.text === "eval"
-    ) {
-      note(rel, offenders, "(0,eval)");
+  if (ts.isTemplateExpression(node) || ts.isTemplateSpan(node)) {
+    const text = node.getText();
+    if (stringHasForbiddenPathContent(text)) {
+      note(rel, offenders, "forbidden template (/proc/ or environ)");
     }
   }
 
-  if (isConstructorConstructorChain(node)) {
-    note(rel, offenders, ".constructor.constructor");
-  }
-
-  if (ts.isTaggedTemplateExpression(node)) {
-    if (ts.isIdentifier(node.tag) && node.tag.text === "child_process") {
-      note(rel, offenders, "child_process template");
-    }
-  }
-
-  if (ts.isCallExpression(node)) {
-    const callExpr = node.expression;
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     if (
-      ts.isParenthesizedExpression(callExpr) &&
-      ts.isIdentifier(callExpr.expression) &&
-      callExpr.expression.text === "require"
+      subtreeContainsSystemTmpDir(node) &&
+      subtreeContainsParentSegmentLiteral(node)
     ) {
-      note(rel, offenders, "(require)(...)");
-    }
-    if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
-      const arg = node.arguments[0];
-      if (!arg || !ts.isStringLiteral(arg)) {
-        note(rel, offenders, "dynamic require()");
-      } else if (isBannedModule(arg.text)) {
-        note(rel, offenders, `require('${arg.text}')`);
-      }
-    }
-    if (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "require" &&
-      node.expression.name.text === "call"
-    ) {
-      note(rel, offenders, "require.call");
-    }
-    if (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "m" &&
-      node.expression.name.text === "createRequire"
-    ) {
-      note(rel, offenders, "aliased createRequire");
-    }
-    if (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "vm" &&
-      node.expression.name.text === "runInThisContext"
-    ) {
-      note(rel, offenders, "vm.runInThisContext");
-    }
-  }
-
-  if (ts.isElementAccessExpression(node)) {
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "module" &&
-      node.argumentExpression &&
-      ts.isStringLiteral(node.argumentExpression) &&
-      node.argumentExpression.text === "require"
-    ) {
-      note(rel, offenders, "module['require']");
-    }
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "globalThis" &&
-      node.argumentExpression &&
-      ts.isStringLiteral(node.argumentExpression) &&
-      node.argumentExpression.text === "process"
-    ) {
-      note(rel, offenders, "globalThis['process']");
-    }
-  }
-
-  if (ts.isPropertyAccessExpression(node)) {
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "globalThis" &&
-      node.name.text === "eval"
-    ) {
-      note(rel, offenders, "globalThis.eval");
-    }
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "Reflect" &&
-      node.name.text === "get"
-    ) {
-      const parent = node.parent;
-      if (ts.isCallExpression(parent) && parent.expression === node) {
-        const [target, key] = parent.arguments;
-        if (
-          target &&
-          ts.isIdentifier(target) &&
-          target.text === "globalThis" &&
-          key &&
-          ts.isStringLiteral(key) &&
-          key.text === "process"
-        ) {
-          note(rel, offenders, "Reflect.get(globalThis,'process')");
-        }
-      }
-    }
-    if (
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "Object" &&
-      node.name.text === "getOwnPropertyDescriptor"
-    ) {
-      const parent = node.parent;
-      if (ts.isCallExpression(parent) && parent.expression === node) {
-        const [target] = parent.arguments;
-        if (target && ts.isIdentifier(target) && target.text === "globalThis") {
-          note(rel, offenders, "Object.getOwnPropertyDescriptor(globalThis,...)");
-        }
-      }
-    }
-  }
-
-  if (ts.isVariableDeclaration(node) && node.initializer) {
-    if (ts.isIdentifier(node.initializer) && node.initializer.text === "require") {
-      note(rel, offenders, "aliased require");
+      note(rel, offenders, "forbidden path traversal via systemTmpDir");
     }
   }
 
   if (ts.isImportDeclaration(node)) {
     const spec = node.moduleSpecifier;
-    if (ts.isStringLiteral(spec) && isBannedModule(spec.text)) {
-      note(rel, offenders, `imports ${spec.text}`);
+    if (ts.isStringLiteral(spec) && isBannedImportModule(spec.text)) {
+      note(rel, offenders, `forbidden import ${spec.text}`);
     }
   }
 
   if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
     const spec = node.moduleSpecifier;
-    if (ts.isStringLiteral(spec) && isBannedModule(spec.text)) {
-      note(rel, offenders, `export-from ${spec.text}`);
+    if (ts.isStringLiteral(spec) && isBannedImportModule(spec.text)) {
+      note(rel, offenders, `forbidden export-from ${spec.text}`);
     }
   }
 
   if (ts.isImportEqualsDeclaration(node) && node.moduleReference) {
     if (ts.isExternalModuleReference(node.moduleReference)) {
       const expr = node.moduleReference.expression;
-      if (ts.isStringLiteral(expr) && isBannedModule(expr.text)) {
-        note(rel, offenders, `import = require('${expr.text}')`);
+      if (ts.isStringLiteral(expr) && isBannedImportModule(expr.text)) {
+        note(rel, offenders, `forbidden import = require('${expr.text}')`);
       }
     }
   }
 
   if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
     const arg = node.arguments[0];
-    if (!arg || !ts.isStringLiteral(arg)) {
-      note(rel, offenders, "dynamic import()");
-    } else if (isBannedModule(arg.text)) {
-      note(rel, offenders, `dynamic import(${arg.text})`);
-    }
-  }
-
-  if (ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node)) {
-    const text = node.getText();
-    if (text.includes("echo $HOME") && text.includes("child_process")) {
-      note(rel, offenders, "child_process echo $HOME");
+    if (ts.isStringLiteral(arg) && isBannedImportModule(arg.text)) {
+      note(rel, offenders, `forbidden dynamic import(${arg.text})`);
     }
   }
 

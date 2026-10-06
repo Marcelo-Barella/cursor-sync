@@ -448,12 +448,6 @@ function finalizeAppStorageSyncAction(
   if (action.action !== "none") {
     return action;
   }
-  if (perFileHeldKeys && perFileHeldKeys.length > 0) {
-    return {
-      action: "blocked",
-      message: formatPerFileSyncHeldNotice(perFileHeldKeys),
-    };
-  }
   if (
     !scan.deletesAllowed &&
     (scan.deleteBlockedRootPrefixes.size > 0 || scan.deleteBlockReason)
@@ -461,6 +455,12 @@ function finalizeAppStorageSyncAction(
     return {
       action: "blocked",
       message: formatSyncRootDeleteHeldNotice(scan),
+    };
+  }
+  if (perFileHeldKeys && perFileHeldKeys.length > 0) {
+    return {
+      action: "blocked",
+      message: formatPerFileSyncHeldNotice(scan, perFileHeldKeys),
     };
   }
   return action;
@@ -474,6 +474,7 @@ function collectPushDiskProbeKeys(input: {
   deletions: string[];
   explicitKeys?: string[];
   skippedReadKeys: string[];
+  localDiskKeys: string[];
 }): string[] {
   const set = new Set<string>();
   for (const k of input.keysToUpload) {
@@ -499,7 +500,81 @@ function collectPushDiskProbeKeys(input: {
   for (const k of input.skippedReadKeys) {
     set.add(k);
   }
+  for (const k of input.localDiskKeys) {
+    set.add(k);
+  }
   return [...set];
+}
+
+const ROOT_ENSURE_WARN_STATE_KEY = "cursorSync.appStorage.rootEnsureFailuresWarned";
+
+async function warnRootEnsureFailuresOnce(
+  context: vscode.ExtensionContext,
+  failures: Array<{ rootPath: string; message: string }>,
+  trigger: AppConfigsSyncTrigger,
+  logger: ReturnType<typeof getLogger>
+): Promise<void> {
+  if (failures.length === 0) {
+    return;
+  }
+  const warned =
+    context.globalState.get<string[]>(ROOT_ENSURE_WARN_STATE_KEY) ?? [];
+  const warnedSet = new Set(warned);
+  const fresh = failures.filter((f) => !warnedSet.has(f.rootPath));
+  if (fresh.length > 0) {
+    await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, [
+      ...warnedSet,
+      ...fresh.map((f) => f.rootPath),
+    ]);
+    const roots = fresh.map((f) => f.rootPath).join(", ");
+    const detail = fresh[0]?.message ?? "";
+    vscode.window.showWarningMessage(
+      `Pull skipped sync root(s): ${roots}. ${detail}`
+    );
+  }
+  for (const failure of failures) {
+    logger.appendLine(
+      `[${new Date().toISOString()}] Pull skipped sync root ${failure.rootPath}: ${failure.message}`
+    );
+  }
+}
+
+function formatManualPushResultToast(
+  uploadedCount: number,
+  deletedCount: number,
+  destination: "cursor-sync-storage",
+  skipLabels: string[],
+  probedScan: LocalConfigFileScan,
+  destinationLabel: string,
+  localManifestKeys: Set<string>
+): string | undefined {
+  const parts: string[] = [];
+  if (uploadedCount > 0) {
+    parts.push(`Pushed ${uploadedCount} file(s) to ${destinationLabel}`);
+  } else if (deletedCount > 0) {
+    parts.push(`Removed ${deletedCount} file(s) from ${destinationLabel}`);
+  }
+  if (skipLabels.length > 0) {
+    const neverSyncedSymlinks = skipLabels.filter(
+      (k) =>
+        !localManifestKeys.has(k) &&
+        probedScan.skippedUnknownKeys.has(k) &&
+        !probedScan.untrackedKeys.has(k)
+    );
+    const preview = skipLabels.slice(0, 3).join(", ");
+    const suffix = skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
+    if (neverSyncedSymlinks.length === skipLabels.length) {
+      parts.push(
+        `skipped ${skipLabels.length} never-synced symlink(s): ${preview}${suffix}`
+      );
+    } else {
+      parts.push(`skipped ${skipLabels.length}: ${preview}${suffix}`);
+    }
+  }
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return parts.join(", ");
 }
 
 export type AppStorageSyncAction =
@@ -1078,6 +1153,7 @@ export async function executePushAppConfigs(
     const baselineLocalKeysEarly = baselineEarly
       ? Object.keys(baselineEarly.localChecksums)
       : [];
+    const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
     const pushDiskProbeKeys = collectPushDiskProbeKeys({
       localManifestKeys: Object.keys(localPayload.manifest.files),
       baselineLocalKeys: baselineLocalKeysEarly,
@@ -1086,8 +1162,12 @@ export async function executePushAppConfigs(
       deletions,
       explicitKeys: options?.keys,
       skippedReadKeys: skippedReads.map((s) => s.relativeSyncKey),
+      localDiskKeys: [
+        ...pushScan.skippedUnknownKeys,
+        ...pushScan.unreadableKeys,
+        ...Object.keys(pushScan.checksums),
+      ],
     });
-    const pushScan = await scanLocalAppConfigFiles(context, baselineEarly);
     const probedPushScan = await scanWithDiskProbes(context, pushScan, pushDiskProbeKeys, {
       baselineLocalKeys: baselineLocalKeysEarly,
     });
@@ -1098,7 +1178,7 @@ export async function executePushAppConfigs(
     );
     for (let i = deletions.length - 1; i >= 0; i--) {
       const deletionKey = deletions[i]!;
-      if (explicitDeletionKeys.has(deletionKey)) {
+      if (explicitDeletionKeys.has(deletionKey) && trigger !== "syncNow") {
         continue;
       }
       if (!probedPushScan.provablyAbsentKeys.has(deletionKey)) {
@@ -1363,7 +1443,36 @@ export async function executePushAppConfigs(
           }
         : {}),
     });
-    if (pushPartial) {
+    const uploadedKeySet = new Set(uploadedKeys);
+    const classificationSkipped = pushDiskProbeKeys.filter(
+      (k) =>
+        !uploadedKeySet.has(k) &&
+        (probedPushScan.skippedUnknownKeys.has(k) ||
+          probedPushScan.untrackedKeys.has(k) ||
+          probedPushScan.unreadableKeys.has(k))
+    );
+    const skipLabels = [
+      ...new Set([
+        ...skippedReads
+          .map((s) => s.relativeSyncKey)
+          .filter((k) => !uploadedKeySet.has(k)),
+        ...classificationSkipped,
+      ]),
+    ];
+    if (trigger === "manual") {
+      const manualToast = formatManualPushResultToast(
+        uploadedCount,
+        deletedCount,
+        destination,
+        skipLabels,
+        probedPushScan,
+        destinationLabel,
+        new Set(Object.keys(localPayload.manifest.files))
+      );
+      if (manualToast) {
+        vscode.window.showInformationMessage(manualToast);
+      }
+    } else if (pushPartial) {
       vscode.window.showWarningMessage(
         formatPushPartialToast(
           uploadedCount,
@@ -1382,38 +1491,6 @@ export async function executePushAppConfigs(
       vscode.window.showInformationMessage(
         formatPushRemovalToast(deletedCount, destination)
       );
-    }
-    if (trigger === "manual") {
-      const uploadedKeySet = new Set(uploadedKeys);
-      const classificationSkipped = pushDiskProbeKeys.filter(
-        (k) =>
-          !uploadedKeySet.has(k) &&
-          (probedPushScan.skippedUnknownKeys.has(k) ||
-            probedPushScan.untrackedKeys.has(k))
-      );
-      const skipLabels = [
-        ...new Set([
-          ...skippedReads
-            .map((s) => s.relativeSyncKey)
-            .filter((k) => !uploadedKeySet.has(k)),
-          ...classificationSkipped,
-        ]),
-      ];
-      if (skipLabels.length > 0 && (uploadedCount > 0 || deletedCount > 0)) {
-        const preview = skipLabels.slice(0, 3).join(", ");
-        const suffix =
-          skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
-        vscode.window.showInformationMessage(
-          `Pushed ${uploadedCount} file(s), skipped ${skipLabels.length}: ${preview}${suffix}`
-        );
-      } else if (skipLabels.length > 0) {
-        const preview = skipLabels.slice(0, 3).join(", ");
-        const suffix =
-          skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
-        vscode.window.showInformationMessage(
-          `Push skipped ${skipLabels.length} file(s) (unreadable or symlink): ${preview}${suffix}`
-        );
-      }
     }
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${uploadedCount} files`
@@ -1761,7 +1838,9 @@ export async function executePullAppConfigs(
         const held =
           pullLocalScan.deleteBlockedRootPrefixes.size > 0
             ? formatSyncRootDeleteHeldNotice(pullLocalScan)
-            : `Pull skipped ${pullRefusedKeys.length} file(s); local paths are not safe to overwrite.`;
+            : trigger === "manual" && pullRefusedKeys.length > 0
+              ? formatPerFileSyncHeldNotice(pullLocalScan, pullRefusedKeys)
+              : `Pull skipped ${pullRefusedKeys.length} file(s); local paths are not safe to overwrite.`;
         vscode.window.showWarningMessage(held);
         logger.appendLine(`[${new Date().toISOString()}] Pull held: ${held}`);
         return true;
@@ -1953,13 +2032,7 @@ export async function executePullAppConfigs(
         ...pullRootCreateSkipped,
       ]),
     ];
-    if (rootEnsureFailures.length > 0 && trigger === "manual") {
-      for (const failure of rootEnsureFailures) {
-        vscode.window.showWarningMessage(
-          `Pull skipped sync root ${failure.rootPath}: ${failure.message}`
-        );
-      }
-    }
+    await warnRootEnsureFailuresOnce(context, rootEnsureFailures, trigger, logger);
     const totalPulled = wroteCount + deletedLocally.length;
     const pullPartial =
       missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;

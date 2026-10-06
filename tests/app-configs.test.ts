@@ -429,7 +429,7 @@ describe("app-configs R2 sync", () => {
     });
     expect(body.payload.files["cursor-user/settings.json"].content).toBeUndefined();
     expect(showInformationMessageMock).toHaveBeenCalledWith(
-      "Pushed 1 file to Cursor Sync storage"
+      "Pushed 1 file(s) to Cursor Sync storage"
     );
     expect(appendLineMock).toHaveBeenCalledWith(
       expect.stringContaining("Uploaded cursor-user/settings.json")

@@ -130,13 +130,57 @@ export function listPerFileHeldSyncKeys(
       held.push(key);
     }
   }
+  for (const key of scan.unreadableKeys) {
+    if (held.includes(key)) {
+      continue;
+    }
+    const remote = remoteChecksums[key];
+    const local = localChecksums[key];
+    if (remote !== undefined && local !== remote) {
+      held.push(key);
+    } else if (remote !== undefined && local === undefined) {
+      held.push(key);
+    }
+  }
   return held.sort();
 }
 
-export function formatPerFileSyncHeldNotice(heldKeys: string[]): string {
-  const preview = heldKeys.slice(0, 3).join(", ");
-  const suffix = heldKeys.length > 3 ? ` (+${heldKeys.length - 3} more)` : "";
-  return `Sync held: ${heldKeys.length} file(s) blocked by unsafe or unreadable paths: ${preview}${suffix}`;
+export function formatPerFileSyncHeldNotice(
+  scan: LocalConfigFileScan,
+  heldKeys: string[]
+): string {
+  const unreadable = heldKeys.filter(
+    (k) => scan.unreadableKeys.has(k) && !scan.untrackedKeys.has(k)
+  );
+  const excluded = heldKeys.filter((k) => scan.untrackedKeys.has(k));
+  const unsafe = heldKeys.filter(
+    (k) =>
+      scan.skippedUnknownKeys.has(k) &&
+      !scan.untrackedKeys.has(k) &&
+      !unreadable.includes(k)
+  );
+  const parts: string[] = [];
+  if (unreadable.length > 0) {
+    const preview = unreadable.slice(0, 2).join(", ");
+    const suffix = unreadable.length > 2 ? ` (+${unreadable.length - 2} more)` : "";
+    parts.push(`${unreadable.length} unreadable (${preview}${suffix})`);
+  }
+  if (excluded.length > 0) {
+    const preview = excluded.slice(0, 2).join(", ");
+    const suffix = excluded.length > 2 ? ` (+${excluded.length - 2} more)` : "";
+    parts.push(`${excluded.length} excluded or oversize (${preview}${suffix})`);
+  }
+  if (unsafe.length > 0) {
+    const preview = unsafe.slice(0, 2).join(", ");
+    const suffix = unsafe.length > 2 ? ` (+${unsafe.length - 2} more)` : "";
+    parts.push(`${unsafe.length} unsafe path (${preview}${suffix})`);
+  }
+  if (parts.length === 0) {
+    const preview = heldKeys.slice(0, 3).join(", ");
+    const suffix = heldKeys.length > 3 ? ` (+${heldKeys.length - 3} more)` : "";
+    return `Sync held: ${heldKeys.length} file(s): ${preview}${suffix}`;
+  }
+  return `Sync held: ${parts.join("; ")}`;
 }
 
 export function formatSyncRootDeleteHeldNotice(scan: LocalConfigFileScan): string {

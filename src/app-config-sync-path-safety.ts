@@ -447,6 +447,7 @@ export async function classifyPathUnderSyncRoot(
     excluded: boolean;
     isFilePresent: boolean;
     fileOversize: boolean;
+    isUnreadable?: boolean;
     baselineLocalKeys?: string[];
   }
 ): Promise<"present" | "proven_absent" | "skipped_unknown"> {
@@ -456,6 +457,10 @@ export async function classifyPathUnderSyncRoot(
     baselineHasKeysUnderPrefix(prefix, options.baselineLocalKeys);
   const rootInfo = syncRootRealForKey(syncKey, resolved);
   if (!rootInfo || options.excluded) {
+    return "skipped_unknown";
+  }
+
+  if (options.isUnreadable) {
     return "skipped_unknown";
   }
 

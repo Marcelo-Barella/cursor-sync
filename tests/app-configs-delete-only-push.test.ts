@@ -77,6 +77,15 @@ vi.mock("../src/rollback.js", () => ({
   pruneOldBackups: async () => {},
 }));
 
+vi.mock("../src/app-config-disk-probe.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-config-disk-probe.js")>();
+  return {
+    ...actual,
+    scanWithDiskProbes: async (_c: unknown, scan: { provablyAbsentKeys: Set<string> }) =>
+      scan,
+  };
+});
+
 vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/app-config-local-scan.js")>();
   return {

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.22
+
+### Fixed
+- AST guard: identifier ban (`require`, `process`, `global`, `globalThis`, `eval`, `Function`, `Reflect`, `module`), any `.constructor` access, expanded banned imports, `/proc/`/`environ` literals, `systemTmpDir()`+`..` traversal; scans all `src/**` sources; Tester probe fixtures.
+- Subprocess allowlist + scrubbed env in `os-runtime.ts` (`python3`, `python`, `py`, `sqlite3`, `chmod` only).
+- Esbuild writes bundle to a temp file and renames only after metafile guard passes; `ctx.dispose()` in `finally`.
+- Disk probe: unreadable files (e.g. chmod 000) are not “present”; root-held notice wins over per-file held; categorized held messages; manual pull held notice; manual push single toast with never-synced symlink labeling; local disk keys in push skip probe; Sync Now re-checks provably-absent for explicit deletions.
+- Root-creation pull warning once per session (including scheduled).
+
+### Changed
+- `npm test` typechecks `tests/` via `tsconfig.test.json`.
+- Decision table: root-held vs per-file messaging; subprocess allowlist documentation.
+
 ## v0.8.4-staging.21
 
 ### Fixed

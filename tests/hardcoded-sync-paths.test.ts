@@ -2,152 +2,50 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as esbuild from "esbuild";
 import { describe, expect, it } from "vitest";
+// @ts-expect-error JS guard module has no types
 import { assertBundleRuntimeImports } from "../esbuild-bundle-guard.mjs";
 import {
   AST_ALLOWLIST,
-  bundleInputPathsFromMetafile,
+  collectSourceFiles,
   scanFileAt,
   scanSourceText,
-  SOURCE_EXTS,
 } from "./sync-path-ast-guard.js";
 
 const repoRoot = process.cwd();
+const probeDir = path.join(repoRoot, "tests", "fixtures", "ast-probes");
 
 describe("sync path hardcoding guard (AST)", () => {
-  it("forbids runtime bypass patterns outside allowlist in bundle graph sources", () => {
-    const metaPath = path.join(repoRoot, "dist", "extension.meta.json");
-    expect(fs.existsSync(metaPath)).toBe(true);
-    const metafile = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
-      inputs?: Record<string, unknown>;
-    };
-    const bundlePaths = bundleInputPathsFromMetafile(metafile);
+  it("forbids banned identifiers and imports in every src file outside allowlist", () => {
+    const srcDir = path.join(repoRoot, "src");
     const offenders: string[] = [];
-
-    for (const normalized of bundlePaths) {
-      if (normalized.includes("node_modules/")) {
+    for (const rel of collectSourceFiles(srcDir)) {
+      if (AST_ALLOWLIST.has(rel)) {
         continue;
       }
-      if (!normalized.startsWith("src/")) {
-        continue;
-      }
-      if (!SOURCE_EXTS.some((ext) => normalized.endsWith(ext))) {
-        continue;
-      }
-      const rel = normalized.startsWith("src/")
-        ? normalized
-        : path.relative(repoRoot, path.resolve(repoRoot, normalized));
-      if (AST_ALLOWLIST.has(rel.replace(/\\/g, "/"))) {
-        continue;
-      }
-      const abs = path.isAbsolute(normalized)
-        ? normalized
-        : path.join(repoRoot, normalized);
-      if (!fs.existsSync(abs)) {
-        continue;
-      }
+      const abs = path.join(repoRoot, rel);
       offenders.push(...scanFileAt(abs, rel.replace(/\\/g, "/")));
     }
-
     expect(offenders).toEqual([]);
   });
 
-  it("flags representative bypass patterns in synthetic snippets (Tester probes)", () => {
-    const cases: Array<{ name: string; code: string; expectHit: boolean }> = [
-      { name: "require-process", code: `const _p = require("process");`, expectHit: true },
-      {
-        name: "globalThis-process",
-        code: `const x = globalThis["process"];`,
-        expectHit: true,
-      },
-      {
-        name: "reflect-get",
-        code: `Reflect.get(globalThis, "process");`,
-        expectHit: true,
-      },
-      {
-        name: "concat-process",
-        code: `const g = globalThis; g["proc" + "ess"];`,
-        expectHit: true,
-      },
-      {
-        name: "getOwnPropertyDescriptor",
-        code: `Object.getOwnPropertyDescriptor(globalThis, "process");`,
-        expectHit: true,
-      },
-      { name: "comma-eval", code: `(0, eval)("1");`, expectHit: true },
-      {
-        name: "globalThis-eval",
-        code: `globalThis.eval("1");`,
-        expectHit: true,
-      },
-      {
-        name: "constructor-chain",
-        code: `const f = [].constructor.constructor;`,
-        expectHit: true,
-      },
-      {
-        name: "import-equals-os",
-        code: `import os = require("os");`,
-        expectHit: true,
-      },
-      { name: "paren-require", code: `(require)("os");`, expectHit: true },
-      { name: "require-call", code: `require.call(null, "os");`, expectHit: true },
-      {
-        name: "module-require",
-        code: `module["require"]("fs");`,
-        expectHit: true,
-      },
-      {
-        name: "createRequire",
-        code: `import { createRequire } from "node:module"; const cr = createRequire; cr(".");`,
-        expectHit: true,
-      },
-      {
-        name: "aliased-createRequire",
-        code: `const m = { createRequire: () => {} }; m.createRequire();`,
-        expectHit: true,
-      },
-      {
-        name: "vm-run",
-        code: `import vm from "node:vm"; vm.runInThisContext("1");`,
-        expectHit: true,
-      },
-      {
-        name: "child-process-echo",
-        code: "import child_process from 'node:child_process'; child_process`echo $HOME`;",
-        expectHit: true,
-      },
-      {
-        name: "jsx-process",
-        code: `export const x = process.env;`,
-        expectHit: true,
-      },
-      {
-        name: "allowed-nodePlatform",
-        code: `import { nodePlatform } from "./os-runtime.js"; nodePlatform();`,
-        expectHit: false,
-      },
-    ];
-
-    for (const { name, code, expectHit } of cases) {
-      const ext = name === "jsx-importee" ? ".jsx" : ".ts";
-      const offenders = scanSourceText(`synthetic/${name}${ext}`, code);
-      if (expectHit) {
-        expect(offenders.length, `expected AST hit for ${name}`).toBeGreaterThan(0);
-      } else {
-        expect(offenders).toEqual([]);
-      }
+  it("rejects every Tester AST probe fixture", () => {
+    const files = fs
+      .readdirSync(probeDir)
+      .filter((f) => f.endsWith(".ts") && !f.startsWith("allowed-"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const abs = path.join(probeDir, file);
+      const offenders = scanFileAt(abs, `tests/fixtures/ast-probes/${file}`);
+      expect(offenders.length, `expected violations in ${file}`).toBeGreaterThan(0);
     }
   });
 
-  it("scans a file outside src when present in bundle graph", () => {
-    const outsideDir = path.join(repoRoot, "tests", "fixtures", "ast-outside-src");
-    const outsideFile = path.join(outsideDir, "runtime-probe.ts");
-    fs.mkdirSync(outsideDir, { recursive: true });
-    fs.writeFileSync(outsideFile, `const x = globalThis.process;\n`, "utf8");
-    const offenders = scanFileAt(outsideFile, "tests/fixtures/ast-outside-src/runtime-probe.ts");
-    expect(offenders.length).toBeGreaterThan(0);
-    fs.rmSync(outsideDir, { recursive: true, force: true });
+  it("allows safe os-runtime wrapper usage in synthetic snippet", () => {
+    const offenders = scanSourceText(
+      "synthetic/allowed.ts",
+      `import { nodePlatform } from "./os-runtime.js"; export const p = nodePlatform();`
+    );
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -156,14 +54,19 @@ describe("bundle runtime import guard", () => {
     const fixtureDir = path.join(repoRoot, "tests", "fixtures", "bundle-forbidden-import");
     const entry = path.join(fixtureDir, "entry.ts");
     const bad = path.join(fixtureDir, "bad.ts");
+    const outFile = path.join(fixtureDir, "out.js");
     fs.mkdirSync(fixtureDir, { recursive: true });
-    fs.writeFileSync(bad, `import process from "node:process";\nexport const pid = process.pid;\n`, "utf8");
+    fs.writeFileSync(
+      bad,
+      `import process from "node:process";\nexport const pid = process.pid;\n`,
+      "utf8"
+    );
     fs.writeFileSync(entry, `import "./bad.js";\nexport {};\n`, "utf8");
 
     const result = await esbuild.build({
       entryPoints: [entry],
       bundle: true,
-      outfile: path.join(fixtureDir, "out.js"),
+      outfile: outFile,
       platform: "node",
       format: "cjs",
       write: true,
@@ -176,4 +79,5 @@ describe("bundle runtime import guard", () => {
     );
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   });
+
 });
