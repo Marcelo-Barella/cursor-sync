@@ -27,7 +27,6 @@ export function shouldRecordSchedulerMassDeleteBlock(reason: string): boolean {
   return true;
 }
 
-/** True when deletes exceed policy: count > 3 OR count > 50% of tracked (strict >). */
 export function exceedsMassDeleteThreshold(
   deletionCount: number,
   trackedKeyCount: number
