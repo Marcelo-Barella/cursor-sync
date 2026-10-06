@@ -597,10 +597,16 @@ export async function executePushAppConfigs(
       }
     }
 
-    if (uploadedCount === 0 || skipped.length > 0) {
-      const detail = skipped.map((s) => `${s.syncKey}: ${s.reason}`).join("; ");
+    const skippedInUploadSet = skipped.filter((s) => uploadSet.has(s.syncKey));
+    if (
+      skippedInUploadSet.length > 0 ||
+      (uploadedCount === 0 && deletions.length === 0)
+    ) {
+      const detail = skippedInUploadSet
+        .map((s) => `${s.syncKey}: ${s.reason}`)
+        .join("; ");
       const message =
-        uploadedCount === 0
+        uploadedCount === 0 && deletions.length === 0
           ? `Push to ${destinationLabel} failed: no files uploaded.${detail ? ` Skipped: ${detail}` : ""}`
           : `Push to ${destinationLabel} failed: partial upload (${uploadedCount} succeeded). Skipped: ${detail}. Remote /configs metadata was not updated.`;
       logger.appendLine(`[${new Date().toISOString()}] Push app configs failed: ${message}`);
@@ -663,7 +669,7 @@ export async function executePushAppConfigs(
         accountKey: accountKeyFromAppSession(session),
         destination,
         remoteUpdatedAt: result.updated_at,
-        syncedKeys: [...uploadedKeys, ...deletions],
+        syncedKeys: [...new Set([...keysToUpload, ...deletions])],
         deletedKeys: deletions,
         localChecksums,
         remoteChecksums,
@@ -733,6 +739,7 @@ export async function executePullAppConfigs(
     const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> =
       [];
     const keyFilter = options?.keys ? new Set(options.keys) : undefined;
+    const pullScopeKeys = options?.keys ?? Object.keys(manifest.files);
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
       if (keyFilter && !keyFilter.has(syncKey)) {
@@ -807,7 +814,57 @@ export async function executePullAppConfigs(
       filesToWrite.push(...filtered);
     }
 
+    const remoteDeletedKeys: string[] = [];
+    for (const syncKey of pullScopeKeys) {
+      if (manifest.files[syncKey]) {
+        continue;
+      }
+      const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
+      if (!absolutePath) {
+        continue;
+      }
+      try {
+        await fs.unlink(absolutePath);
+        remoteDeletedKeys.push(syncKey);
+      } catch (err) {
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? (err as NodeJS.ErrnoException).code
+            : undefined;
+        if (code === "ENOENT") {
+          remoteDeletedKeys.push(syncKey);
+        } else {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Pull app configs delete failed for ${absolutePath}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    }
+
+    const persistPullBaseline = async (): Promise<void> => {
+      const session = await getAppSession(context);
+      if (!session) {
+        return;
+      }
+      const localChecksums = await computeLocalAppConfigChecksums(context);
+      const remoteChecksums: Record<string, string> = {};
+      for (const [key, entry] of Object.entries(manifest.files)) {
+        remoteChecksums[key] = entry.checksum;
+      }
+      const syncedKeys = pullScopeKeys.filter((k) => manifest.files[k] !== undefined);
+      await updateAppStorageBaselineAfterSync(context, {
+        accountKey: accountKeyFromAppSession(session),
+        destination,
+        remoteUpdatedAt: response.updated_at,
+        syncedKeys,
+        deletedKeys: remoteDeletedKeys,
+        localChecksums,
+        remoteChecksums,
+      });
+    };
+
     if (filesToWrite.length === 0) {
+      await persistPullBaseline();
       vscode.window.showInformationMessage(formatPullEmptyToast(destination));
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
@@ -854,23 +911,7 @@ export async function executePullAppConfigs(
 
     await pruneOldBackups(context);
 
-    const session = await getAppSession(context);
-    if (session) {
-      const localChecksums = await computeLocalAppConfigChecksums(context);
-      const remoteChecksums: Record<string, string> = {};
-      for (const [key, entry] of Object.entries(manifest.files)) {
-        remoteChecksums[key] = entry.checksum;
-      }
-      await updateAppStorageBaselineAfterSync(context, {
-        accountKey: accountKeyFromAppSession(session),
-        destination,
-        remoteUpdatedAt: response.updated_at,
-        syncedKeys: filesToWrite.map((f) => f.syncKey),
-        deletedKeys: [],
-        localChecksums,
-        remoteChecksums,
-      });
-    }
+    await persistPullBaseline();
 
     await addSyncHistoryEntry(context, {
       timestamp: new Date().toISOString(),
