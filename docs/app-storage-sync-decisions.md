@@ -31,8 +31,8 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | present | provably_absent | present_same | delete_remote | n/a |
 | present | provably_absent | present_changed | conflict | false |
 | present | skipped_unknown | * | noop | false |
-| present | untracked | * | noop | safe; excluded/out-of-scope keys prune via baseline_refresh when tracked |
-| present | untracked | local gone | baseline_refresh | prune baseline |
+| present | untracked | * | noop | safe; excluded/out-of-scope keys noop for sync actions |
+| present | untracked | local gone | baseline_refresh | noop (baseline may refresh separately) |
 
 ## Extensions
 
@@ -42,9 +42,11 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 | Symlink or non-directory anywhere below sync root on path to key | skipped_unknown | noop; no pull, no delete_remote, no writes outside root |
 | Symlinked ancestor (e.g. `rules` → empty dir) | skipped_unknown for all descendants | noop (S1) |
 | Symlink pointing outside root (e.g. `skills` → external dir) | skipped_unknown | noop; pull write blocked (S3) |
-| Enabled sync root missing on fresh device | — | create root (real parent dir), then pull |
+| Sync root missing with baseline entries | skipped_unknown for all keys under root | noop; no deletes either direction |
+| Sync root missing without baseline (fresh device) | — | create root only during pull when files will be written there (never during scan) |
+| Symlinked sync root (`realpath` once) | present under resolved target | enumerate/classify/write via resolved path; components below root must be real directories |
 | Remote-only baseline key, absent locally and remotely | provably_absent / absent_eligible | baseline_refresh prune (F6), not recurring pull |
-| Key excluded but still in baseline | untracked | baseline_refresh (prune); noop for sync actions on that key |
+| Key excluded but still in baseline | untracked | noop for sync actions on that key |
 | Declined pull overwrite (same remote checksum) | present | noop (all triggers) |
 | Declined keep-local (same local checksum) | present | noop for delete_local |
 | Independent edits on different keys | per key | `pull-push` aggregate |
@@ -56,4 +58,4 @@ Canonical reference for per-key sync classification (implementation: `decideSync
 - **Present file:** regular file, in size limit, `realpath` under root.
 - **Otherwise:** `skipped_unknown` (authoritative over scan listing).
 - Scan enumeration does not descend into symlink directories (`readdir` + `lstat`).
-- Pull: `mkdir` one component at a time with `lstat` checks; verify `realpath(parent)` under root; write without following symlinks.
+- Pull: `mkdir` one component at a time with `lstat` checks; verify `realpath(parent)` under root; write via random tmp in the verified parent using `O_CREAT|O_EXCL|O_NOFOLLOW` (`wx` + `O_NOFOLLOW`), fsync, re-verify parent chain, then rename onto the target.

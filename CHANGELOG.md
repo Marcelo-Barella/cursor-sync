@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.19
+
+### Fixed
+- **P0 / case g:** Scan no longer creates missing sync roots; baseline + missing/empty root marks all keys under that root `skipped_unknown` and blocks deletes (inclusive 50% threshold and per-root all-absent guard).
+- Safe pull writes use random `O_EXCL|O_NOFOLLOW` temp files; local deletes re-check `lstat` + `realpath` before each `unlink`/`rmdir`.
+- Symlinked sync roots enumerate via `realpath`; fresh-device pull creates roots only when baseline has no keys under that root.
+- Refused/skipped pull keys excluded from pulled counts and baseline updates; push skip notice uses classification skips (`Pushed N, skipped M`).
+- Scheduler mass-delete block set recomputed each action evaluation; cleared when deletes no longer blocked (F4).
+
+### Changed
+- Decision table and hardcoded-path guard updated (`docs/app-storage-sync-decisions.md`, AST check in `tests/hardcoded-sync-paths.test.ts`).
+
 ## v0.8.4-staging.18
 
 ### Fixed

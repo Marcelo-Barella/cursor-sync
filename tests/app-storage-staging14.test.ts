@@ -19,6 +19,7 @@ function scan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan
     enumeratedCount: 10,
     rootsHealthy: true,
     trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     ...overrides,
   };
 }
@@ -44,6 +45,7 @@ describe("app storage staging.14 mass-delete threshold (OR)", () => {
     { deletions: 3, tracked: 3, blocked: true },
     { deletions: 2, tracked: 2, blocked: true },
     { deletions: 1, tracked: 1, blocked: true },
+    { deletions: 3, tracked: 6, blocked: true },
     { deletions: 3, tracked: 10, blocked: false },
     { deletions: 1, tracked: 7, blocked: false },
   ];

@@ -31,6 +31,7 @@ function scan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan
     enumeratedCount: 6,
     rootsHealthy: true,
     trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     ...overrides,
   };
 }
@@ -153,7 +154,7 @@ describe("app storage staging.13 mass-delete safety", () => {
     expect(scheduled.schedulerBlocked).toBe(true);
     expect(
       evaluateRemoteDeleteBatch(
-        keys.slice(0, MASS_DELETE_MAX_WITHOUT_CONFIRM),
+        keys.slice(0, MASS_DELETE_MAX_WITHOUT_CONFIRM - 1),
         6,
         "scheduled",
         s

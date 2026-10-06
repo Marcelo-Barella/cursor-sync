@@ -27,6 +27,7 @@ const emptyScan: LocalConfigFileScan = {
   enumeratedCount: 5,
   rootsHealthy: true,
   trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
 };
 
 describe("app storage staging.12", () => {

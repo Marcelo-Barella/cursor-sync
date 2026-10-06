@@ -31,6 +31,7 @@ describe("app storage staging.11", () => {
       enumeratedCount: 5,
       rootsHealthy: true,
       trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     };
     const classified = classifyAppStorageKeys(
       {},
@@ -63,6 +64,7 @@ describe("app storage staging.11", () => {
       enumeratedCount: 5,
       rootsHealthy: true,
       trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     };
     const classified = classifyAppStorageKeys(
       {},
@@ -93,6 +95,7 @@ describe("app storage staging.11", () => {
       enumeratedCount: 5,
       rootsHealthy: true,
       trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     };
     const classified = classifyAppStorageKeys(
       {},

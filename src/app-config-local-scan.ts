@@ -14,7 +14,6 @@ import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { GENERATED_EXTENSIONS_SYNC_KEY } from "./app-config-extensions-align.js";
 import {
   classifyLocalPath,
-  ensureSyncRootDirectory,
   resolveSyncRootsRealpaths,
 } from "./app-config-disk-probe.js";
 import { pathHasUnsafeComponentBelowRoot } from "./app-config-sync-path-safety.js";
@@ -35,6 +34,8 @@ export interface LocalConfigFileScan {
   enumeratedCount: number;
   rootsHealthy: boolean;
   trackingScopeMismatch: boolean;
+  /** Sync root prefixes where deletes must not run (missing/empty root or all keys absent). */
+  deleteBlockedRootPrefixes: Set<string>;
 }
 
 function isEnoent(err: unknown): boolean {
@@ -67,13 +68,41 @@ export function buildTrackingScopeForBaseline(
   };
 }
 
-async function rootIsHealthy(rootPath: string): Promise<boolean> {
+type RootBaselineState = "missing" | "not_directory" | "empty" | "ok";
+
+async function assessSyncRootForBaseline(
+  rootPath: string
+): Promise<RootBaselineState> {
+  const resolved = path.resolve(rootPath);
   try {
-    const stat = await fs.stat(rootPath);
-    return stat.isDirectory();
-  } catch {
-    return false;
+    const st = await fs.lstat(resolved);
+    if (st.isSymbolicLink()) {
+      const real = await fs.realpath(resolved);
+      const realSt = await fs.stat(real);
+      if (!realSt.isDirectory()) {
+        return "not_directory";
+      }
+      const entries = await fs.readdir(real);
+      return entries.length === 0 ? "empty" : "ok";
+    }
+    if (!st.isDirectory()) {
+      return "not_directory";
+    }
+    const entries = await fs.readdir(resolved);
+    return entries.length === 0 ? "empty" : "ok";
+  } catch (err) {
+    if (isEnoent(err)) {
+      return "missing";
+    }
+    return "not_directory";
   }
+}
+
+function baselineKeysUnderPrefix(
+  baselineKeys: string[],
+  prefix: "cursor-user/" | "dot-cursor/"
+): string[] {
+  return baselineKeys.filter((k) => k.startsWith(prefix));
 }
 
 export async function scanLocalAppConfigFiles(
@@ -82,11 +111,6 @@ export async function scanLocalAppConfigFiles(
 ): Promise<LocalConfigFileScan> {
   const roots = resolveSyncRoots(process.platform, context);
   const resolvedRoots = await resolveSyncRootsRealpaths(roots);
-  try {
-    await ensureSyncRootDirectory(roots.cursorUser);
-    await ensureSyncRootDirectory(roots.dotCursor);
-  } catch {
-  }
   const enumConfig = getSyncEnumerationConfig(context);
   const localFiles = await enumerateSyncFiles(context, roots);
   const enumeratedKeys = new Set(localFiles.map((f) => f.relativeSyncKey));
@@ -195,9 +219,59 @@ export async function scanLocalAppConfigFiles(
     }
   }
 
-  const cursorUserOk = await rootIsHealthy(roots.cursorUser);
-  const dotCursorOk = await rootIsHealthy(roots.dotCursor);
-  const rootsHealthy = cursorUserOk && dotCursorOk;
+  const deleteBlockedRootPrefixes = new Set<string>();
+  const baselineLocalKeysForRoots = baseline ? Object.keys(baseline.localChecksums) : [];
+  const rootChecks: Array<{
+    prefix: "cursor-user/" | "dot-cursor/";
+    rootPath: string;
+    tracked: string[];
+  }> = [
+    {
+      prefix: "cursor-user/",
+      rootPath: roots.cursorUser,
+      tracked: baselineKeysUnderPrefix(baselineLocalKeysForRoots, "cursor-user/"),
+    },
+    {
+      prefix: "dot-cursor/",
+      rootPath: roots.dotCursor,
+      tracked: baselineKeysUnderPrefix(baselineLocalKeysForRoots, "dot-cursor/"),
+    },
+  ];
+
+  for (const { prefix, rootPath, tracked } of rootChecks) {
+    if (tracked.length === 0) {
+      continue;
+    }
+    const state = await assessSyncRootForBaseline(rootPath);
+    if (state === "missing" || state === "not_directory" || state === "empty") {
+      deleteBlockedRootPrefixes.add(prefix);
+      for (const key of tracked) {
+        skippedUnknownKeys.add(key);
+        unreadableKeys.add(key);
+        provablyAbsentKeys.delete(key);
+        absentEligibleKeys.delete(key);
+        enoentKeys.delete(key);
+        delete checksums[key];
+      }
+      continue;
+    }
+    const allTrackedAbsent = tracked.every((k) => provablyAbsentKeys.has(k));
+    if (allTrackedAbsent) {
+      deleteBlockedRootPrefixes.add(prefix);
+    }
+  }
+
+  const cursorUserState = await assessSyncRootForBaseline(roots.cursorUser);
+  const dotCursorState = await assessSyncRootForBaseline(roots.dotCursor);
+  const userTracked =
+    baselineKeysUnderPrefix(baselineLocalKeysForRoots, "cursor-user/").length > 0;
+  const dotTracked =
+    baselineKeysUnderPrefix(baselineLocalKeysForRoots, "dot-cursor/").length > 0;
+  const rootsHealthyCombined =
+    (!userTracked ||
+      (cursorUserState !== "missing" && cursorUserState !== "not_directory")) &&
+    (!dotTracked ||
+      (dotCursorState !== "missing" && dotCursorState !== "not_directory"));
 
   const trackingScopeMismatch =
     baseline !== undefined && !trackingScopeMatches(baseline, enumConfig);
@@ -205,9 +279,13 @@ export async function scanLocalAppConfigFiles(
   let deletesAllowed = true;
   let deleteBlockReason: string | undefined;
 
-  if (!rootsHealthy) {
+  if (!rootsHealthyCombined) {
     deletesAllowed = false;
     deleteBlockReason = "A sync root directory is missing or unreadable";
+  } else if (deleteBlockedRootPrefixes.size > 0) {
+    deletesAllowed = false;
+    deleteBlockReason =
+      "A sync root is missing, empty, or all tracked keys under it appear absent";
   } else {
     const baselineUserKeys = baselineLocalKeys.filter(
       (k) => k !== GENERATED_EXTENSIONS_SYNC_KEY
@@ -238,8 +316,9 @@ export async function scanLocalAppConfigFiles(
     deletesAllowed,
     deleteBlockReason,
     enumeratedCount: enumeratedKeys.size,
-    rootsHealthy,
+    rootsHealthy: rootsHealthyCombined,
     trackingScopeMismatch,
+    deleteBlockedRootPrefixes,
   };
 }
 

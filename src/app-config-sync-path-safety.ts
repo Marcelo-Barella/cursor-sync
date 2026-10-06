@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import type { SyncRoots } from "./paths.js";
 import { syncKeyToAbsolutePath } from "./paths.js";
@@ -58,7 +60,12 @@ export async function ensureSyncRootDirectory(rootPath: string): Promise<void> {
   try {
     const st = await fs.lstat(resolvedRoot);
     if (st.isSymbolicLink()) {
-      throw new Error(`Sync root is a symlink: ${resolvedRoot}`);
+      const real = await fs.realpath(resolvedRoot);
+      const realSt = await fs.stat(real);
+      if (!realSt.isDirectory()) {
+        throw new Error(`Sync root symlink does not resolve to a directory: ${resolvedRoot}`);
+      }
+      return;
     }
     if (!st.isDirectory()) {
       throw new Error(`Sync root is not a directory: ${resolvedRoot}`);
@@ -75,6 +82,36 @@ export async function ensureSyncRootDirectory(rootPath: string): Promise<void> {
     throw new Error(`Cannot create sync root; parent is not a real directory: ${parent}`);
   }
   await fs.mkdir(resolvedRoot, { recursive: false });
+}
+
+export function syncKeyRootPrefix(
+  syncKey: string
+): "cursor-user/" | "dot-cursor/" | undefined {
+  if (syncKey.startsWith("cursor-user/")) {
+    return "cursor-user/";
+  }
+  if (syncKey.startsWith("dot-cursor/")) {
+    return "dot-cursor/";
+  }
+  return undefined;
+}
+
+/** Create missing sync roots only when the baseline has no keys under that root. */
+export async function ensureSyncRootsForFreshPull(
+  roots: SyncRoots,
+  syncKeysToWrite: string[],
+  baselineLocalKeys: string[]
+): Promise<void> {
+  const needsUser = syncKeysToWrite.some((k) => k.startsWith("cursor-user/"));
+  const needsDot = syncKeysToWrite.some((k) => k.startsWith("dot-cursor/"));
+  const hasUserBaseline = baselineLocalKeys.some((k) => k.startsWith("cursor-user/"));
+  const hasDotBaseline = baselineLocalKeys.some((k) => k.startsWith("dot-cursor/"));
+  if (needsUser && !hasUserBaseline) {
+    await ensureSyncRootDirectory(roots.cursorUser);
+  }
+  if (needsDot && !hasDotBaseline) {
+    await ensureSyncRootDirectory(roots.dotCursor);
+  }
 }
 
 export async function pathHasUnsafeComponentBelowRoot(
@@ -200,21 +237,101 @@ export async function mkdirParentsForSafePull(
 
 export async function writeFileWithoutFollow(
   absolutePath: string,
-  content: Buffer
+  content: Buffer,
+  options?: { syncKey: string; resolved: ResolvedSyncRoots }
 ): Promise<void> {
-  const tmpPath = absolutePath + ".tmp";
-  const handle = await fs.open(tmpPath, "w");
+  const target = path.resolve(absolutePath);
+  const parent = path.dirname(target);
+  const tmpName = `.${path.basename(target)}.${randomBytes(8).toString("hex")}.tmp`;
+  const tmpPath = path.join(parent, tmpName);
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
+    if (options) {
+      await assertSafePullTarget(target, options.syncKey, options.resolved);
+    }
+    handle = await fs.open(
+      tmpPath,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW
+    );
     await handle.writeFile(content);
-  } finally {
+    await handle.sync();
     await handle.close();
-  }
-  const st = await fs.lstat(tmpPath);
-  if (st.isSymbolicLink()) {
+    handle = undefined;
+    if (options) {
+      await assertSafePullTarget(target, options.syncKey, options.resolved);
+    }
+    await fs.rename(tmpPath, target);
+  } catch (err) {
+    await handle?.close().catch(() => {});
     await fs.unlink(tmpPath).catch(() => {});
-    throw new Error("Refusing to install pull through symlink");
+    throw err;
   }
-  await fs.rename(tmpPath, absolutePath);
+}
+
+export async function assertSafeLocalDeleteTarget(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<void> {
+  const rootInfo = syncRootRealForKey(syncKey, resolved);
+  if (!rootInfo) {
+    throw new Error(`Unknown sync key root: ${syncKey}`);
+  }
+  if (
+    await pathHasUnsafeComponentBelowRoot(
+      absolutePath,
+      rootInfo.rootPath,
+      rootInfo.rootReal
+    )
+  ) {
+    throw new Error(`Unsafe delete path: ${syncKey}`);
+  }
+  const st = await fs.lstat(absolutePath);
+  if (st.isSymbolicLink()) {
+    throw new Error(`Refusing to delete through symlink: ${syncKey}`);
+  }
+  const fileReal = await fs.realpath(absolutePath);
+  if (!isRealpathInsideRoot(fileReal, rootInfo.rootReal)) {
+    throw new Error(`Delete path resolves outside sync root: ${syncKey}`);
+  }
+}
+
+export async function removeEmptyParentDirsWithinRoot(
+  filePath: string,
+  rootPath: string,
+  rootReal: string
+): Promise<void> {
+  const root = path.resolve(rootPath);
+  let dir = path.dirname(path.resolve(filePath));
+  while (dir.length >= root.length && (dir === root || dir.startsWith(root + path.sep))) {
+    if (dir === root) {
+      break;
+    }
+    try {
+      const st = await fs.lstat(dir);
+      if (st.isSymbolicLink()) {
+        break;
+      }
+      if (!st.isDirectory()) {
+        break;
+      }
+      const entries = await fs.readdir(dir);
+      if (entries.length > 0) {
+        break;
+      }
+      const dirReal = await fs.realpath(dir);
+      if (!isRealpathInsideRoot(dirReal, rootReal)) {
+        break;
+      }
+      await fs.rmdir(dir);
+      dir = path.dirname(dir);
+    } catch {
+      break;
+    }
+  }
 }
 
 export async function classifyPathUnderSyncRoot(

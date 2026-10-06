@@ -24,6 +24,7 @@ function scan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFileScan
     enumeratedCount: 2,
     rootsHealthy: true,
     trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     ...overrides,
   };
 }

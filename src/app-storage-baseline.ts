@@ -198,6 +198,7 @@ export function classifyAppStorageKeys(
       deletesAllowed: true,
       enumeratedCount: Object.keys(localChecksums).length,
       rootsHealthy: true,
+      deleteBlockedRootPrefixes: new Set(),
       trackingScopeMismatch: false,
     };
 

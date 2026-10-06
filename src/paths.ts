@@ -256,18 +256,26 @@ async function collectFiles(
     return;
   }
 
+  let walkRoot = rootDir;
   try {
     const rootStat = await fs.lstat(rootDir);
     if (rootStat.isSymbolicLink()) {
+      walkRoot = await fs.realpath(rootDir);
+      const targetStat = await fs.stat(walkRoot);
+      if (!targetStat.isDirectory()) {
+        return;
+      }
+    } else if (!rootStat.isDirectory()) {
       return;
     }
   } catch {
     return;
   }
 
-  const allFiles = await walkDirectory(rootDir);
+  const allFiles = await walkDirectory(walkRoot);
   for (const absPath of allFiles) {
-    const rel = path.relative(rootDir, absPath).split(path.sep).join("/");
+    const rel = path.relative(walkRoot, absPath).split(path.sep).join("/");
+    const logicalAbs = path.join(rootDir, ...rel.split("/"));
 
     if (isDenylisted(rel)) {
       continue;
@@ -288,7 +296,10 @@ async function collectFiles(
     }
 
     try {
-      const stat = await fs.stat(absPath);
+      const stat = await fs.lstat(logicalAbs);
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        continue;
+      }
       const sizeLimit = rel.toLowerCase().endsWith(".vsix")
         ? MAX_SYNC_VSIX_BYTES
         : maxBytes;
@@ -300,7 +311,7 @@ async function collectFiles(
     }
 
     result.push({
-      absolutePath: absPath,
+      absolutePath: logicalAbs,
       relativeSyncKey: `${prefix}/${rel}`,
     });
   }

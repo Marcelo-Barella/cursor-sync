@@ -7,3 +7,7 @@ export function systemTmpDir(): string {
 export function deviceIdentitySalt(): string {
   return `${os.hostname()}:${os.userInfo().username}`;
 }
+
+export function childProcessEnv(): NodeJS.ProcessEnv {
+  return process.env;
+}

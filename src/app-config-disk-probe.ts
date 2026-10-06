@@ -15,10 +15,14 @@ import type { LocalConfigFileScan } from "./app-config-local-scan.js";
 export type LocalPathClassification = "present" | "proven_absent" | "skipped_unknown";
 
 export {
+  assertSafeLocalDeleteTarget,
   assertSafePullTarget,
   ensureSyncRootDirectory,
+  ensureSyncRootsForFreshPull,
   mkdirParentsForSafePull,
+  removeEmptyParentDirsWithinRoot,
   resolveSyncRootsRealpaths,
+  syncRootRealForKey,
   writeFileWithoutFollow,
 } from "./app-config-sync-path-safety.js";
 
@@ -108,6 +112,7 @@ export async function scanWithDiskProbes(
     skippedUnknownKeys: new Set(scan.skippedUnknownKeys),
     untrackedKeys: new Set(scan.untrackedKeys),
     absentEligibleKeys: new Set(scan.absentEligibleKeys),
+    deleteBlockedRootPrefixes: new Set(scan.deleteBlockedRootPrefixes),
     checksums: { ...scan.checksums },
   };
   for (const key of syncKeys) {

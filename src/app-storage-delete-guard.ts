@@ -96,11 +96,35 @@ export function exceedsMassDeleteThreshold(
   }
   if (
     trackedKeyCount > 0 &&
-    deletionCount > trackedKeyCount * MASS_DELETE_FRACTION_WITHOUT_CONFIRM
+    deletionCount >= trackedKeyCount * MASS_DELETE_FRACTION_WITHOUT_CONFIRM
   ) {
     return true;
   }
   return false;
+}
+
+export function syncKeyRootPrefix(syncKey: string): "cursor-user/" | "dot-cursor/" | undefined {
+  if (syncKey.startsWith("cursor-user/")) {
+    return "cursor-user/";
+  }
+  if (syncKey.startsWith("dot-cursor/")) {
+    return "dot-cursor/";
+  }
+  return undefined;
+}
+
+export function filterDeletionsRespectingRootBlocks(
+  deletions: string[],
+  scan: LocalConfigFileScan
+): string[] {
+  const blocked = scan.deleteBlockedRootPrefixes;
+  if (!blocked || blocked.size === 0) {
+    return deletions;
+  }
+  return deletions.filter((key) => {
+    const prefix = syncKeyRootPrefix(key);
+    return !prefix || !blocked.has(prefix);
+  });
 }
 
 export function evaluateRemoteDeleteBatch(
@@ -109,7 +133,8 @@ export function evaluateRemoteDeleteBatch(
   trigger: DeleteGuardTrigger,
   scan: LocalConfigFileScan
 ): MassDeleteDecision {
-  if (deletions.length === 0) {
+  const filtered = filterDeletionsRespectingRootBlocks(deletions, scan);
+  if (filtered.length === 0) {
     return { proceed: true, needsModalConfirm: false, schedulerBlocked: false };
   }
 
@@ -123,11 +148,11 @@ export function evaluateRemoteDeleteBatch(
     };
   }
 
-  if (!exceedsMassDeleteThreshold(deletions.length, trackedKeyCount)) {
+  if (!exceedsMassDeleteThreshold(filtered.length, trackedKeyCount)) {
     return { proceed: true, needsModalConfirm: false, schedulerBlocked: false };
   }
 
-  const reason = `Refusing to delete ${deletions.length} of ${trackedKeyCount} tracked files without confirmation`;
+  const reason = `Refusing to delete ${filtered.length} of ${trackedKeyCount} tracked files without confirmation`;
   if (trigger === "scheduled") {
     return {
       proceed: false,
@@ -154,19 +179,20 @@ export async function resolveMassDeleteBatch(
     modalConfirm: (reason: string) => Promise<boolean>;
   }
 ): Promise<string[]> {
-  if (deletions.length === 0) {
+  const filtered = filterDeletionsRespectingRootBlocks(deletions, scan);
+  if (filtered.length === 0) {
     return [];
   }
 
   const decision = evaluateRemoteDeleteBatch(
-    deletions,
+    filtered,
     trackedKeyCount,
     trigger,
     scan
   );
 
   if (decision.proceed) {
-    return [...deletions];
+    return [...filtered];
   }
 
   if (decision.schedulerBlocked) {
@@ -178,10 +204,32 @@ export async function resolveMassDeleteBatch(
       decision.reason ??
         `Delete ${deletions.length} ${options.direction === "push" ? "remote" : "local"} file(s)?`
     );
-    return ok ? [...deletions] : [];
+    return ok ? [...filtered] : [];
   }
 
   return [];
+}
+
+/** Keep scheduler mass-delete dedupe aligned with the current blocked deletion set. */
+export function syncEvaluatedMassDeleteBlockState(
+  candidateDeletions: string[],
+  trackedKeyCount: number,
+  scan: LocalConfigFileScan
+): void {
+  const filtered = filterDeletionsRespectingRootBlocks(candidateDeletions, scan);
+  const decision = evaluateRemoteDeleteBatch(
+    filtered,
+    trackedKeyCount,
+    "scheduled",
+    scan
+  );
+  if (decision.schedulerBlocked && filtered.length > 0) {
+    setLastEvaluatedMassDeleteBlockDeletions(filtered);
+  } else {
+    setLastEvaluatedMassDeleteBlockDeletions([]);
+    clearMassDeleteBlockedDeletionKey();
+    clearSchedulerMassDeleteBlockIfResolved([]);
+  }
 }
 
 export function evaluateEmptyRemoteManifestLocalDeletes(

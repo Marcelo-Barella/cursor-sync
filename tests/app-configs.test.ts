@@ -124,6 +124,7 @@ const scanLocalAppConfigFilesMock = vi.hoisted(() =>
     enumeratedCount: 1,
     rootsHealthy: true,
     trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
   })
 );
 

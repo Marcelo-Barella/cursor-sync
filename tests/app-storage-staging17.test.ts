@@ -76,6 +76,7 @@ function emptyScan(overrides: Partial<LocalConfigFileScan> = {}): LocalConfigFil
     enumeratedCount: 0,
     rootsHealthy: true,
     trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     ...overrides,
   };
 }

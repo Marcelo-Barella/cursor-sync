@@ -28,19 +28,22 @@ import {
 import { AppConfigsFetchError, isAppConfigsFetchError } from "./app-config-fetch-errors.js";
 import {
   clearSchedulerMassDeleteBlockIfResolved,
-  getLastEvaluatedMassDeleteBlockDeletions,
   resetSchedulerMassDeleteBlockDedupe,
   evaluateEmptyRemoteManifestLocalDeletes,
   evaluateRemoteDeleteBatch,
   recordSchedulerMassDeleteBlock,
   resolveMassDeleteBatch,
-  setLastEvaluatedMassDeleteBlockDeletions,
+  syncEvaluatedMassDeleteBlockState,
 } from "./app-storage-delete-guard.js";
 import { shouldRecordConflictWarning } from "./app-storage-conflict-dedupe.js";
 import {
+  assertSafeLocalDeleteTarget,
   assertSafePullTarget,
+  ensureSyncRootsForFreshPull,
+  removeEmptyParentDirsWithinRoot,
   resolveSyncRootsRealpaths,
   scanWithDiskProbes,
+  syncRootRealForKey,
   writeFileWithoutFollow,
 } from "./app-config-disk-probe.js";
 import {
@@ -333,27 +336,6 @@ function filterGeneratedOnlyPushKeys(
   return pushKeys.filter((key) => key !== GENERATED_EXTENSIONS_SYNC_KEY);
 }
 
-async function removeEmptyParentDirs(
-  filePath: string,
-  rootPrefix: string
-): Promise<void> {
-  let dir = path.dirname(filePath);
-  while (dir.length >= rootPrefix.length && dir.startsWith(rootPrefix)) {
-    if (dir === rootPrefix) {
-      break;
-    }
-    try {
-      const entries = await fs.readdir(dir);
-      if (entries.length > 0) {
-        break;
-      }
-      await fs.rmdir(dir);
-      dir = path.dirname(dir);
-    } catch {
-      break;
-    }
-  }
-}
 
 function isEmptyOrDefaultSettingsContent(content: string): boolean {
   const trimmed = content.trim();
@@ -546,6 +528,19 @@ export async function determineAppStorageSyncAction(
     remoteChecksums
   );
 
+  const trackedCountForBlock = baseline
+    ? Object.keys(baseline.localChecksums).length
+    : 0;
+  const blockPushDeletes = classified.deleteKeys.filter((k) =>
+    probedScan.provablyAbsentKeys.has(k)
+  );
+  const blockPullDeletes = classified.remoteDeleteKeys;
+  syncEvaluatedMassDeleteBlockState(
+    blockPushDeletes.length > 0 ? blockPushDeletes : blockPullDeletes,
+    trackedCountForBlock,
+    probedScan
+  );
+
   if (derived.action === "pull-push") {
     let pullKeys = derived.pullKeys;
     if (trigger === "scheduled") {
@@ -627,7 +622,6 @@ export async function determineAppStorageSyncAction(
       probedScan
     );
     if (deleteDecision.schedulerBlocked && deletions.length > 0) {
-      setLastEvaluatedMassDeleteBlockDeletions(deletions);
       const reason = deleteDecision.reason ?? "Scheduled delete blocked";
       const recorded = await recordSchedulerMassDeleteBlock(
         context,
@@ -713,7 +707,6 @@ export async function determineAppStorageSyncAction(
       probedScan
     );
     if (pullDeleteDecision.schedulerBlocked && remoteDeletions.length > 0) {
-      setLastEvaluatedMassDeleteBlockDeletions(remoteDeletions);
       const reason =
         pullDeleteDecision.reason ?? "Scheduled local delete blocked";
       const recorded = await recordSchedulerMassDeleteBlock(
@@ -1287,14 +1280,29 @@ export async function executePushAppConfigs(
       );
     }
     if (trigger === "manual") {
-      const scanSkipped = Object.keys(localPayload.files).filter((k) =>
-        pushScan.skippedUnknownKeys.has(k)
+      const pushCandidateKeys = new Set([
+        ...keysToUpload,
+        ...deletions,
+        ...(options?.keys ?? Object.keys(localPayload.manifest.files)),
+      ]);
+      const classificationSkipped = [...pushCandidateKeys].filter(
+        (k) =>
+          pushScan.skippedUnknownKeys.has(k) || pushScan.untrackedKeys.has(k)
       );
       const skipLabels = [
-        ...skippedReads.map((s) => s.relativeSyncKey),
-        ...scanSkipped,
+        ...new Set([
+          ...skippedReads.map((s) => s.relativeSyncKey),
+          ...classificationSkipped,
+        ]),
       ];
-      if (skipLabels.length > 0) {
+      if (skipLabels.length > 0 && (uploadedCount > 0 || deletedCount > 0)) {
+        const preview = skipLabels.slice(0, 3).join(", ");
+        const suffix =
+          skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
+        vscode.window.showInformationMessage(
+          `Pushed ${uploadedCount} file(s), skipped ${skipLabels.length}: ${preview}${suffix}`
+        );
+      } else if (skipLabels.length > 0) {
         const preview = skipLabels.slice(0, 3).join(", ");
         const suffix =
           skipLabels.length > 3 ? ` (+${skipLabels.length - 3} more)` : "";
@@ -1363,6 +1371,7 @@ export async function executePullAppConfigs(
     const keyFilter = options?.keys ? new Set(options.keys) : undefined;
     const missingRemoteKeys: string[] = [];
     const reconciledKeys: string[] = [];
+    const pullRefusedKeys: string[] = [];
     let pullCandidates = 0;
 
     const sessionForBaseline = await getAppSession(context);
@@ -1408,12 +1417,18 @@ export async function executePullAppConfigs(
       }
 
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
+        if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
+          pullRefusedKeys.push(syncKey);
+        }
         continue;
       }
       if (
         localChecksum === undefined &&
         !isLocallyAbsentSafeToPull(syncKey, pullLocalScan)
       ) {
+        if (shouldPullAppConfigFile(localChecksum, manifestEntry.checksum)) {
+          pullRefusedKeys.push(syncKey);
+        }
         continue;
       }
 
@@ -1670,12 +1685,26 @@ export async function executePullAppConfigs(
     }
 
     const pullResolvedRoots = await resolveSyncRootsRealpaths(roots);
+    const baselineLocalKeys = pullBaseline
+      ? Object.keys(pullBaseline.localChecksums)
+      : [];
+    await ensureSyncRootsForFreshPull(
+      roots,
+      filesToWrite.map((f) => f.syncKey),
+      baselineLocalKeys
+    );
+
     const writtenBackups: typeof backupEntries = [];
     const pullWriteSkipped: string[] = [];
+    let wroteCount = 0;
     for (const file of filesToWrite) {
       try {
         await assertSafePullTarget(file.absolutePath, file.syncKey, pullResolvedRoots);
-        await writeFileWithoutFollow(file.absolutePath, file.content);
+        await writeFileWithoutFollow(file.absolutePath, file.content, {
+          syncKey: file.syncKey,
+          resolved: pullResolvedRoots,
+        });
+        wroteCount += 1;
         const backup = backupEntries.find((b) => b.absolutePath === file.absolutePath);
         if (backup) {
           writtenBackups.push(backup);
@@ -1713,19 +1742,37 @@ export async function executePullAppConfigs(
     }
 
     const deletedLocally: string[] = [];
+    const pullDeleteSkipped: string[] = [];
     for (const file of filesToDelete) {
       try {
+        await assertSafeLocalDeleteTarget(
+          file.absolutePath,
+          file.syncKey,
+          pullResolvedRoots
+        );
         await fs.unlink(file.absolutePath);
         deletedLocally.push(file.syncKey);
-        const rootPrefix = file.syncKey.startsWith("dot-cursor/")
-          ? roots.dotCursor
-          : file.syncKey.startsWith("cursor-user/")
-            ? roots.cursorUser
-            : "";
-        if (rootPrefix) {
-          await removeEmptyParentDirs(file.absolutePath, rootPrefix);
+        const rootInfo = syncRootRealForKey(file.syncKey, pullResolvedRoots);
+        if (rootInfo) {
+          await removeEmptyParentDirsWithinRoot(
+            file.absolutePath,
+            rootInfo.rootPath,
+            rootInfo.rootReal
+          );
         }
       } catch (err) {
+        if (
+          err instanceof Error &&
+          (err.message.includes("Unsafe delete") ||
+            err.message.includes("symlink") ||
+            err.message.includes("outside sync root"))
+        ) {
+          pullDeleteSkipped.push(file.syncKey);
+          logger.appendLine(
+            `[${new Date().toISOString()}] Pull skipped unsafe delete ${file.syncKey}: ${err.message}`
+          );
+          continue;
+        }
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== "ENOENT") {
           logger.appendLine(
@@ -1758,15 +1805,18 @@ export async function executePullAppConfigs(
     resetSchedulerMassDeleteBlockDedupe();
 
     const session = await getAppSession(context);
-    const wroteCount = filesToWrite.length;
+    const pullSkippedKeys = [
+      ...new Set([...pullRefusedKeys, ...pullWriteSkipped, ...pullDeleteSkipped]),
+    ];
     const totalPulled = wroteCount + deletedLocally.length;
-    const pullPartial = missingRemoteKeys.length > 0;
+    const pullPartial =
+      missingRemoteKeys.length > 0 || pullSkippedKeys.length > 0;
     const pullTotalExpected = pullCandidates + deletedLocally.length;
+    const successfulWriteKeys = filesToWrite
+      .map((f) => f.syncKey)
+      .filter((k) => !pullWriteSkipped.includes(k));
     const baselineSyncedKeys = [
-      ...new Set([
-        ...reconciledKeys,
-        ...filesToWrite.map((f) => f.syncKey),
-      ]),
+      ...new Set([...reconciledKeys, ...successfulWriteKeys]),
     ];
     if (session) {
       const localChecksums = (await scanLocalAppConfigFiles(context)).checksums;
@@ -1821,6 +1871,14 @@ export async function executePullAppConfigs(
           wroteFiles: wroteCount,
           deletedLocally: deletedLocally.length,
         })
+      );
+    }
+    if (pullSkippedKeys.length > 0) {
+      const preview = pullSkippedKeys.slice(0, 3).join(", ");
+      const suffix =
+        pullSkippedKeys.length > 3 ? ` (+${pullSkippedKeys.length - 3} more)` : "";
+      vscode.window.showWarningMessage(
+        `Pull skipped ${pullSkippedKeys.length} file(s) (unsafe path or refused): ${preview}${suffix}`
       );
     }
     logger.appendLine(

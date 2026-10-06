@@ -93,6 +93,7 @@ vi.mock("../src/app-config-local-scan.js", async (importOriginal) => {
       enumeratedCount: 0,
       rootsHealthy: true,
       trackingScopeMismatch: false,
+    deleteBlockedRootPrefixes: new Set(),
     }),
   };
 });
