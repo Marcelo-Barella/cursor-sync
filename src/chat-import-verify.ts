@@ -4,7 +4,7 @@ import * as os from "node:os";
 import type { ChatBundle } from "./chat-persistence.js";
 import type { WorkspaceContext } from "./chat-workspace-context.js";
 import { sidebarSnapshotHasComposerData } from "./chat-partial-state.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 
 const { querySqliteRows, resolveChatsRoot } = __chatPersistenceInternals;
@@ -46,7 +46,7 @@ function defaultDeps(): VerifyIoDeps {
     readTextFile: (filePath: string) => fs.readFile(filePath, "utf8"),
     querySqliteRows,
     globalStateDbPath: () => {
-      const { cursorUser } = resolveSyncRoots();
+      const { cursorUser } = resolveExtensionSyncRoots();
       return path.join(cursorUser, "globalStorage", "state.vscdb");
     },
     chatsRoot: resolveChatsRoot,
@@ -335,7 +335,7 @@ export async function verifyImportVisibility(
   }
 
   if (workspaceContext) {
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const wsDb = path.join(
       cursorUser,
       "workspaceStorage",

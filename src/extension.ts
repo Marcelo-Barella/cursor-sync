@@ -27,11 +27,15 @@ import {
   registerAppAuthUriHandler,
 } from "./app-auth.js";
 import {
+  applyAppStorageBaselineRefresh,
   determineAppStorageSyncAction,
   executePullAppConfigs,
   executePushAppConfigs,
+  fetchAppConfigs,
   hasAppSession,
+  notifyAppStorageConflicts,
 } from "./app-configs.js";
+import { setActiveExtensionContext } from "./extension-host-context.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
@@ -72,6 +76,7 @@ let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = getLogger();
+  setActiveExtensionContext(context);
 
   context.subscriptions.push(registerAppAuthUriHandler(context));
   consumePendingAuthCallback(context);
@@ -350,26 +355,54 @@ export async function executeSyncNow(
     }
   }
 
-  updateStatusBar("syncing");
+  const appSessionActive = await hasAppSession(context);
+  updateStatusBar("syncing", {
+    destination: appSessionActive ? "cursor-sync-storage" : "github-gist",
+  });
   refreshSidebar();
 
-  const lockedSyncOptions = { skipOperationLock: true as const, trigger: "manual" as const };
+  const lockedSyncOptions = {
+    skipOperationLock: true as const,
+    trigger: "syncNow" as const,
+  };
   let syncFailed = false;
   try {
-    const result = (await hasAppSession(context))
-      ? await determineAppStorageSyncAction(context)
+    const result = appSessionActive
+      ? await determineAppStorageSyncAction(context, { trigger: "syncNow" })
       : await determineSyncAction(context);
     switch (result.action) {
       case "none":
         vscode.window.showInformationMessage("Already in sync, nothing to do.");
         break;
+      case "baseline_refresh": {
+        const remote = await fetchAppConfigs(context, { trigger: "syncNow" });
+        if (remote) {
+          await applyAppStorageBaselineRefresh(
+            context,
+            result.keys,
+            remote.updated_at
+          );
+        }
+        break;
+      }
       case "pull":
-        if (!(await executePull(context, lockedSyncOptions))) {
+        if (
+          !(await executePull(context, {
+            ...lockedSyncOptions,
+            keys: "keys" in result ? (result.keys as string[]) : undefined,
+          }))
+        ) {
           syncFailed = true;
         }
         break;
       case "push":
-        if (!(await executePush(context, lockedSyncOptions))) {
+        if (
+          !(await executePush(context, {
+            ...lockedSyncOptions,
+            keys: "keys" in result ? (result.keys as string[]) : undefined,
+            deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
+          }))
+        ) {
           syncFailed = true;
         }
         break;
@@ -386,10 +419,14 @@ export async function executeSyncNow(
       }
       case "conflict": {
         syncFailed = true;
+        if (appSessionActive) {
+          await notifyAppStorageConflicts(result.keys);
+          break;
+        }
         const conflictMessage = `${result.keys.length} conflict(s) detected. Resolve them first.`;
         void showSyncFailureWithDebug(
           context,
-          buildSyncDebugFailure("syncNow", "manual", conflictMessage, {
+          buildSyncDebugFailure("syncNow", "syncNow", conflictMessage, {
             category: "CONFLICT",
             conflictCount: result.keys.length,
           }),
@@ -403,7 +440,7 @@ export async function executeSyncNow(
         const errorMessage = `Sync failed: ${result.reason}`;
         void showSyncFailureWithDebug(
           context,
-          buildSyncDebugFailure("syncNow", "manual", result.reason, {
+          buildSyncDebugFailure("syncNow", "syncNow", result.reason, {
             category: result.reason,
           }),
           { title: errorMessage }
@@ -420,7 +457,7 @@ export async function executeSyncNow(
     const errorMessage = `Sync failed: ${errMessage}`;
     void showSyncFailureWithDebug(
       context,
-      buildSyncDebugFailure("syncNow", "manual", errMessage),
+      buildSyncDebugFailure("syncNow", "syncNow", errMessage),
       { title: errorMessage }
     );
   } finally {

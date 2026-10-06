@@ -92,6 +92,13 @@ vi.mock("../src/rollback.js", () => ({
   pruneOldBackups: async () => {},
 }));
 
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockRejectedValue(new Error("ENOENT")),
+  rename: vi.fn().mockResolvedValue(undefined),
+}));
+
 const getAppSessionMock = vi.hoisted(() => vi.fn());
 const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
 const putR2ObjectMock = vi.hoisted(() => vi.fn());
@@ -113,6 +120,7 @@ vi.mock("../src/app-r2-storage.js", () => ({
 
 function makeContext(): vscode.ExtensionContext {
   return {
+    globalStorageUri: { fsPath: "/tmp/cursor-sync-app-configs-test" },
     secrets: {
       get: async () => undefined,
       store: async () => {},
@@ -354,6 +362,17 @@ describe("app-configs R2 sync", () => {
   it("fails when R2 upload errors and reports zero successful uploads", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
     putR2ObjectMock.mockRejectedValue(new Error("403 forbidden"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
+          updated_at: "2026-01-02T00:00:00.000Z",
+        }),
+      })
+    );
 
     const { executePushAppConfigs } = await import("../src/app-configs.js");
     const ok = await executePushAppConfigs(makeContext());
@@ -371,6 +390,7 @@ describe("app-configs R2 sync", () => {
   it("pull prefers R2 bytes and falls back to legacy payload content", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
     getR2ObjectMock.mockResolvedValue(undefined);
+    showQuickPickMock.mockImplementation(async (items: { label: string }[]) => items);
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -403,10 +423,20 @@ describe("app-configs R2 sync", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const { executePullAppConfigs } = await import("../src/app-configs.js");
-    const ok = await executePullAppConfigs(makeContext());
+    const fsPromises = await import("node:fs/promises");
+    vi.mocked(fsPromises.readFile).mockImplementation(async (filePath) => {
+      if (String(filePath).endsWith("settings.json")) {
+        return Buffer.from('{"old":true}');
+      }
+      throw new Error("ENOENT");
+    });
 
-    expect(ok).toBe(true);
+    const { executePullAppConfigs } = await import("../src/app-configs.js");
+    const baseline = await import("../src/app-storage-baseline.js");
+    vi.spyOn(baseline, "updateAppStorageBaselineAfterSync").mockResolvedValue(undefined);
+    await executePullAppConfigs(makeContext());
+
     expect(getR2ObjectMock).toHaveBeenCalled();
+    expect(vi.mocked(fsPromises.writeFile)).toHaveBeenCalled();
   });
 });

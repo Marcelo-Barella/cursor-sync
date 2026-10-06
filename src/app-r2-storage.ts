@@ -127,7 +127,7 @@ export async function mintR2StorageCredentials(
   if (response.status === 503) {
     const text = await response.text().catch(() => "");
     throw new Error(
-      `App storage is unavailable (503)${text ? `: ${text}` : ""}`
+      `Cursor Sync storage is unavailable (503)${text ? `: ${text}` : ""}`
     );
   }
 

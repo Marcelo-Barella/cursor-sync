@@ -122,8 +122,8 @@ export function renderSyncPane(state: SyncTabState): string {
     : "";
   const directionIcon = state.lastSyncDirection === "push" ? "arrow-up" : state.lastSyncDirection === "pull" ? "arrow-down" : "";
   const directionLabel = state.lastSyncDirection === "push" ? "Push" : state.lastSyncDirection === "pull" ? "Pull" : "";
-  const actionsHeader = state.appSessionActive
-    ? "Actions (Cursor Sync storage)"
+  const storageActionsHeader = state.appSessionActive
+    ? "Cursor Sync storage"
     : "Actions";
 
   const cursorLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.78 746.78">
@@ -164,10 +164,16 @@ export function renderSyncPane(state: SyncTabState): string {
   </button>
 
   <div class="section">
-    <div class="section-header">${actionsHeader}</div>
+    <div class="section-header">${storageActionsHeader}</div>
     <div class="action-grid">
       <button class="action-btn" data-command="push"><span class="codicon codicon-cloud-upload"></span> Push</button>
       <button class="action-btn" data-command="pull"><span class="codicon codicon-cloud-download"></span> Pull</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">GitHub Gist</div>
+    <div class="action-grid">
       <button class="action-btn" data-command="export"><span class="codicon codicon-export"></span> Export</button>
       <button class="action-btn" data-command="import"><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>

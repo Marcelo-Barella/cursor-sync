@@ -400,6 +400,8 @@ export async function clearAppSession(
     // Clear in-memory session even when SecretStorage is unavailable or hung.
   }
   inMemoryAppSession = undefined;
+  const { refreshSyncCommandContextsAndStatusBar } = await import("./sync-context.js");
+  void refreshSyncCommandContextsAndStatusBar(context);
 }
 
 async function completeLoginWithCode(
@@ -423,9 +425,9 @@ async function completeLoginWithCode(
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
-    const { refreshSyncCommandContexts } = await import("./sync-context.js");
+    const { refreshSyncCommandContextsAndStatusBar } = await import("./sync-context.js");
     refreshSidebar();
-    void refreshSyncCommandContexts(context);
+    void refreshSyncCommandContextsAndStatusBar(context);
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     return true;
   } catch (err) {
@@ -514,16 +516,10 @@ export async function executeLoginToCursorSync(
       return;
     }
     logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
-    void vscode.window
-      .showInformationMessage(
-        "Browser opened for Cursor Sync login. If Cursor does not receive the callback, paste the one-time code from the login page.",
-        "Paste code"
-      )
-      .then((action) => {
-        if (action === "Paste code") {
-          void executeEnterAppAuthCode(context);
-        }
-      });
+    void vscode.window.showInformationMessage(
+      "Browser opened for Cursor Sync login. Paste the one-time code if Cursor does not receive the callback automatically."
+    );
+    void executeEnterAppAuthCode(context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(`[${new Date().toISOString()}] App login start failed: ${message}`);

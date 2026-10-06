@@ -178,7 +178,7 @@ describe("app-r2-storage", () => {
     const { mintR2StorageCredentials } = await import("../src/app-r2-storage.js");
 
     await expect(mintR2StorageCredentials(makeContext())).rejects.toThrow(
-      "App storage is unavailable (503)"
+      "Cursor Sync storage is unavailable (503)"
     );
   });
 

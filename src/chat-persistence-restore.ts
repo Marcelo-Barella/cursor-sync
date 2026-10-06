@@ -19,7 +19,7 @@ import {
   buildChatsKeyToFolderMap,
 } from "./chat-workspace-context.js";
 import { emitChatImportProgress } from "./chat-progress-events.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import {
   pingServerProbe,
   runPostImportActivation,
@@ -353,7 +353,7 @@ export async function restoreChatBundle(
       : folderToProjectKey(wsCtx.folderFsPath);
 
   const workspaceStateDb = path.join(
-    resolveSyncRoots().cursorUser,
+    resolveExtensionSyncRoots().cursorUser,
     "workspaceStorage",
     wsCtx.workspaceStorageId,
     "state.vscdb"
@@ -692,7 +692,7 @@ async function promptForTargetProject(sourceProjectKeys: string[]): Promise<Map<
     return null;
   }
 
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
 
   const mapping = new Map<string, string>();

@@ -3,10 +3,10 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 
 export function stateDbPathForWorkspaceStorageId(workspaceStorageId: string): string {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   return path.join(cursorUser, "workspaceStorage", workspaceStorageId, "state.vscdb");
 }
 
@@ -115,7 +115,7 @@ export async function buildChatsKeyToFolderMap(
 export async function scanWorkspaceStorageForFolder(
   folderFsPath: string
 ): Promise<string | undefined> {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const wsRoot = path.join(cursorUser, "workspaceStorage");
   return scanWorkspaceStorageForId(wsRoot, path.resolve(folderFsPath));
 }
@@ -201,7 +201,7 @@ export async function resolveWorkspaceContext(
   const chatsKey = md5FolderKey(folderFsPath);
 
   if (!workspaceStorageId) {
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const wsRoot = path.join(cursorUser, "workspaceStorage");
     workspaceStorageId = await scanWorkspaceStorageForId(wsRoot, folderFsPath);
   }

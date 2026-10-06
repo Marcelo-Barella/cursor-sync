@@ -31,11 +31,12 @@ import {
   SYNC_DESTINATION_GIST_LABEL,
 } from "./sync-destination.js";
 
-export type PullTrigger = "manual" | "scheduled";
+export type PullTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
 export type PullOptions = {
-  trigger?: PullTrigger;
+  trigger?: PullTrigger | import("./app-configs.js").AppConfigsSyncTrigger;
   skipOperationLock?: boolean;
+  keys?: string[];
 };
 
 export { isPullLocked } from "./sync-operation.js";
@@ -56,17 +57,26 @@ export async function executePull(
         return false;
       }
     }
-    updateStatusBar("syncing");
+    if (await hasAppSession(context)) {
+      updateStatusBar("syncing", { destination: "cursor-sync-storage" });
+    } else {
+      updateStatusBar("syncing", { destination: "github-gist" });
+    }
   }
 
   let failed = false;
   try {
     if (await hasAppSession(context)) {
-      const success = await executePullAppConfigs(context, { trigger });
+      const success = await executePullAppConfigs(context, {
+        trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
+        keys: options?.keys,
+      });
       failed = !success;
       return success;
     }
-    const success = await doPull(context, trigger);
+    const gistTrigger =
+      trigger === "syncNow" || trigger === "startup" ? "manual" : trigger;
+    const success = await doPull(context, gistTrigger);
     failed = !success;
     return success;
   } catch (err) {

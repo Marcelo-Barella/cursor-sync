@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { getToken } from "./auth.js";
 import { hasAppSession } from "./app-configs.js";
-import { loadSyncState } from "./diagnostics.js";
-import { updateStatusBar } from "./statusbar.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
 
 export async function refreshSyncCommandContexts(
   context: vscode.ExtensionContext
@@ -27,14 +26,5 @@ export async function refreshSyncCommandContextsAndStatusBar(
   context: vscode.ExtensionContext
 ): Promise<void> {
   await refreshSyncCommandContexts(context);
-  const token = await getToken(context);
-  if (token !== undefined) {
-    const syncState = await loadSyncState(context);
-    const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
-    updateStatusBar("ok", lastSync);
-  } else if (await hasAppSession(context)) {
-    updateStatusBar("ok");
-  } else {
-    updateStatusBar("unconfigured");
-  }
+  await refreshSyncStatusBar(context);
 }

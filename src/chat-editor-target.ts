@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { md5FolderKey } from "./chat-workspace-context.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { findWorkspaceKeysForConversation } from "./transcripts-cursor-paths.js";
 
 const CHAT_ID_RE =
@@ -83,7 +83,7 @@ function currentWorkspaceKey(): string | undefined {
 }
 
 async function conversationHasTranscriptDir(conversationId: string): Promise<boolean> {
-  const { dotCursor } = resolveSyncRoots();
+  const { dotCursor } = resolveExtensionSyncRoots();
   const projectsRoot = path.join(dotCursor, "projects");
   let projectDirs: import("node:fs").Dirent[];
   try {

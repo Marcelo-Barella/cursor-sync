@@ -18,7 +18,7 @@ import {
 } from "./chat-import-merge.js";
 import type { WorkspaceContext } from "./chat-workspace-context.js";
 import { stateDbPathForWorkspaceStorageId } from "./chat-workspace-context.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { resolveComposerBridgeScript } from "./chat-transport-scripts.js";
 
 export const CREATE_NEW_COMPOSER_COMMAND_ID = "composer.createNew";
@@ -353,7 +353,7 @@ export async function enrichManifestPartialStateFromDisk(
   if (partialStateHasConversationContent(partial)) {
     return false;
   }
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const dbPaths = [
     stateDbPathForWorkspaceStorageId(workspaceStorageId),
     path.join(cursorUser, "globalStorage", "state.vscdb"),
@@ -831,7 +831,7 @@ export async function runPostImportActivation(
     const partial = manifest.partialState as Record<string, unknown>;
     const dbPath = stateDbPathForWorkspaceStorageId(workspaceCtx.workspaceStorageId);
     await repairComposerDataAfterActivation(dbPath, conversationId, partial);
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const globalDb = path.join(cursorUser, "globalStorage", "state.vscdb");
     await repairComposerDataAfterActivation(globalDb, conversationId, partial);
     return activationOutcome;

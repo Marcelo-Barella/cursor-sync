@@ -1,20 +1,62 @@
 import type * as vscode from "vscode";
 import { getToken } from "./auth.js";
-import { loadSyncState } from "./diagnostics.js";
+import { hasAppSession } from "./app-configs.js";
+import { formatStatusTimestamp, loadSyncHistory, loadSyncState } from "./diagnostics.js";
 import { updateStatusBar } from "./statusbar.js";
 import { isSyncOperationActive } from "./sync-operation.js";
+
+function latestStorageHistoryEntry(
+  history: Awaited<ReturnType<typeof loadSyncHistory>>
+) {
+  return history.find((entry) => entry.destination === "cursor-sync-storage");
+}
+
+function storageStatusDetail(
+  entry: NonNullable<ReturnType<typeof latestStorageHistoryEntry>>
+): string {
+  const when = formatStatusTimestamp(entry.timestamp);
+  if (entry.success) {
+    return `${entry.direction} succeeded at ${when} (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
+  }
+  return `${entry.direction} failed at ${when}${entry.error ? `: ${entry.error}` : ""}`;
+}
 
 export async function refreshSyncStatusBar(
   context: vscode.ExtensionContext,
   options?: { failed?: boolean }
 ): Promise<void> {
+  const appSessionActive = await hasAppSession(context);
+
   if (isSyncOperationActive()) {
-    updateStatusBar("syncing");
+    updateStatusBar("syncing", {
+      destination: appSessionActive ? "cursor-sync-storage" : "github-gist",
+    });
+    return;
+  }
+
+  if (appSessionActive) {
+    const history = await loadSyncHistory(context);
+    const latest = latestStorageHistoryEntry(history);
+    if (options?.failed) {
+      updateStatusBar("error", {
+        destination: "cursor-sync-storage",
+        detail: latest ? storageStatusDetail(latest) : "Sync failed",
+        lastSync: latest ? new Date(latest.timestamp) : undefined,
+      });
+      return;
+    }
+    updateStatusBar("ok", {
+      destination: "cursor-sync-storage",
+      lastSync: latest ? new Date(latest.timestamp) : undefined,
+      detail: latest
+        ? storageStatusDetail(latest)
+        : "Logged in — no storage sync yet",
+    });
     return;
   }
 
   if (options?.failed) {
-    updateStatusBar("error", new Date());
+    updateStatusBar("error", { lastSync: new Date(), destination: "github-gist" });
     return;
   }
 
@@ -25,8 +67,8 @@ export async function refreshSyncStatusBar(
   }
 
   const syncState = await loadSyncState(context);
-  updateStatusBar(
-    "ok",
-    syncState ? new Date(syncState.lastSyncTimestamp) : undefined
-  );
+  updateStatusBar("ok", {
+    destination: "github-gist",
+    lastSync: syncState ? new Date(syncState.lastSyncTimestamp) : undefined,
+  });
 }

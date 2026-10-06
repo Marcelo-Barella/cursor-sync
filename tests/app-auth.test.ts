@@ -43,7 +43,7 @@ vi.mock("vscode", () => ({
   window: {
     showInformationMessage: vi.fn(),
     showErrorMessage: (...args: unknown[]) => showErrorMessageMock(...args),
-    showInputBox: vi.fn(),
+    showInputBox: vi.fn().mockResolvedValue(undefined),
     registerUriHandler: (...args: unknown[]) => registerUriHandlerMock(...args),
   },
   Uri: {

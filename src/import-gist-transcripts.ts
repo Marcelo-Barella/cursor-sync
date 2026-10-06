@@ -26,7 +26,7 @@ import {
   workspaceQuickPickLabel,
 } from "./chat-workspace-label.js";
 import { listChatsWorkspaceDirs, type WorkspaceDir } from "./chat-export-ux.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 
 const {
   runSqliteScript,
@@ -471,7 +471,7 @@ async function readExistingComposerState(
 async function promptForTargetWorkspace(
   localWorkspaces: WorkspaceDir[]
 ): Promise<string | null> {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
   const picks: vscode.QuickPickItem[] = localWorkspaces.map((w) => {
     const row = workspaceQuickPickLabel(w.name, folderMap);
@@ -515,7 +515,7 @@ async function promptForProjectMapping(
     return null;
   }
 
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
   const mapping = new Map<string, string>();
 

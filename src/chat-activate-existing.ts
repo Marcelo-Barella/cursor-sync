@@ -16,7 +16,7 @@ import {
 } from "./chat-import-merge.js";
 import { buildChatBundle, type ChatBundle } from "./chat-persistence.js";
 import { runPythonDiskImport } from "./chat-transport-scripts.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import {
   decodeStoreDbIndex,
   sidebarSnapshotHasComposerData,
@@ -51,7 +51,7 @@ const noopProgress: vscode.Progress<{ message?: string; increment?: number }> = 
 };
 
 async function globalCursorDiskKvHasComposer(conversationId: string): Promise<boolean> {
-  const globalDb = path.join(resolveSyncRoots().cursorUser, "globalStorage", "state.vscdb");
+  const globalDb = path.join(resolveExtensionSyncRoots().cursorUser, "globalStorage", "state.vscdb");
   try {
     const keyLit = escapeSqlLiteral(`composerData:${conversationId}`);
     const rows = await querySqliteRows(

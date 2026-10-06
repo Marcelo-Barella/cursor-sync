@@ -342,6 +342,16 @@ describe("push/pull debug wiring", () => {
   });
 });
 
+const hasAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(false));
+
+vi.mock("../src/app-configs.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-configs.js")>();
+  return {
+    ...actual,
+    hasAppSession: hasAppSessionMock,
+  };
+});
+
 describe("sync now debug wiring", () => {
   const originalFetch = globalThis.fetch;
 
@@ -349,6 +359,7 @@ describe("sync now debug wiring", () => {
     vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
     determineSyncActionMock.mockReset();
+    hasAppSessionMock.mockReset().mockResolvedValue(false);
 
     const vscode = await import("vscode");
     vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({
@@ -386,7 +397,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       message: "no_token",
       category: "no_token",
       extensionVersion: extensionVersion(),
@@ -413,7 +424,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       category: "CONFLICT",
       conflictCount: 2,
       message: "2 conflict(s) detected. Resolve them first.",
@@ -437,7 +448,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       message: "scheduler blew up",
       extensionVersion: extensionVersion(),
       platform: process.platform,

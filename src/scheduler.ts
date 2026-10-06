@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
-import { determineAppStorageSyncAction } from "./app-configs.js";
+import {
+  applyAppStorageBaselineRefresh,
+  determineAppStorageSyncAction,
+  fetchAppConfigs,
+  notifyAppStorageConflicts,
+} from "./app-configs.js";
 import { executePush, isPushLocked } from "./push.js";
 import { executePull, isPullLocked } from "./pull.js";
 import { GistClient } from "./gist.js";
@@ -199,9 +204,11 @@ export async function scheduledTick(
   );
 
   try {
-    const result = (await getAppSession(context))
+    const appSessionActive = !!(await getAppSession(context));
+    const result = appSessionActive
       ? await scheduledAppStorageSyncActionResolver.determineAppStorageSyncAction(
-          context
+          context,
+          { trigger: "scheduled" }
         )
       : await scheduledSyncActionResolver.determineSyncAction(context);
 
@@ -213,11 +220,26 @@ export async function scheduledTick(
         sendEvent(context, "scheduled_sync_skipped", { reason: "already_in_sync" });
         break;
 
+      case "baseline_refresh": {
+        const remote = await fetchAppConfigs(context, { trigger: "scheduled" });
+        if (remote) {
+          await applyAppStorageBaselineRefresh(
+            context,
+            result.keys,
+            remote.updated_at
+          );
+        }
+        break;
+      }
+
       case "pull": {
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: remote changes detected, pulling`
         );
-        await executePull(context, { trigger: "scheduled" });
+        await executePull(context, {
+          trigger: "scheduled",
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+        });
         break;
       }
 
@@ -225,7 +247,11 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local changes detected, pushing`
         );
-        await executePush(context, { trigger: "scheduled" });
+        await executePush(context, {
+          trigger: "scheduled",
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+          deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
+        });
         break;
       }
 
@@ -250,14 +276,18 @@ export async function scheduledTick(
           reason: "conflict",
           conflict_count: result.keys.length,
         });
-        void showSyncFailureWithDebug(
-          context,
-          buildSyncDebugFailure("scheduler", "scheduled", conflictMessage, {
-            category: "CONFLICT",
-            conflictCount: result.keys.length,
-          }),
-          { level: "warning", title: conflictMessage }
-        );
+        if (appSessionActive) {
+          void notifyAppStorageConflicts(result.keys, { scheduled: true });
+        } else {
+          void showSyncFailureWithDebug(
+            context,
+            buildSyncDebugFailure("scheduler", "scheduled", conflictMessage, {
+              category: "CONFLICT",
+              conflictCount: result.keys.length,
+            }),
+            { level: "warning", title: conflictMessage }
+          );
+        }
         break;
       }
 

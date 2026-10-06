@@ -27,11 +27,13 @@ import {
   SYNC_DESTINATION_GIST_LABEL,
 } from "./sync-destination.js";
 
-export type PushTrigger = "manual" | "scheduled";
+export type PushTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
 export type PushOptions = {
-  trigger?: PushTrigger;
+  trigger?: PushTrigger | import("./app-configs.js").AppConfigsSyncTrigger;
   skipOperationLock?: boolean;
+  keys?: string[];
+  deletions?: string[];
 };
 
 export { isPushLocked } from "./sync-operation.js";
@@ -52,17 +54,27 @@ export async function executePush(
         return false;
       }
     }
-    updateStatusBar("syncing");
+    if (await hasAppSession(context)) {
+      updateStatusBar("syncing", { destination: "cursor-sync-storage" });
+    } else {
+      updateStatusBar("syncing", { destination: "github-gist" });
+    }
   }
 
   let failed = false;
   try {
     if (await hasAppSession(context)) {
-      const success = await executePushAppConfigs(context, { trigger });
+      const success = await executePushAppConfigs(context, {
+        trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
+        keys: options?.keys,
+        deletions: options?.deletions,
+      });
       failed = !success;
       return success;
     }
-    const success = await doPush(context, trigger);
+    const gistTrigger =
+      trigger === "syncNow" || trigger === "startup" ? "manual" : trigger;
+    const success = await doPush(context, gistTrigger);
     failed = !success;
     return success;
   } catch (err) {

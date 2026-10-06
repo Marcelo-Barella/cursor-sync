@@ -14,7 +14,7 @@ import { getLogger } from "./diagnostics.js";
 
 export type SyncDebugOperation = "syncNow" | "push" | "pull" | "scheduler";
 export type SyncDebugDirection = "push" | "pull";
-export type SyncDebugTrigger = "manual" | "scheduled";
+export type SyncDebugTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
 export type SyncDebugFailure = {
   operation: SyncDebugOperation;
@@ -87,6 +87,12 @@ export function sanitizeSyncDebugMessage(message: string): string {
 function triggerDescription(trigger: SyncDebugTrigger): string {
   if (trigger === "scheduled") {
     return "This failure occurred during a scheduled background sync.";
+  }
+  if (trigger === "syncNow") {
+    return "This failure occurred during Sync Now.";
+  }
+  if (trigger === "startup") {
+    return "This failure occurred during startup sync.";
   }
   return "This failure occurred during a manual sync initiated by the user.";
 }

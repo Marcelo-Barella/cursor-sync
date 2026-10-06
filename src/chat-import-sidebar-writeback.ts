@@ -17,7 +17,7 @@ import {
   runComposerActivation,
 } from "./chat-import-activate.js";
 import { getLogger } from "./diagnostics.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { requireWorkspaceContext } from "./chat-workspace-context.js";
 
 const STORAGE_KEY = "cursorSync.pendingSidebarWriteback";
@@ -49,7 +49,7 @@ interface PendingSidebarWriteback {
 }
 
 function globalStateDbPath(): string {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   return path.join(cursorUser, "globalStorage", "state.vscdb");
 }
 

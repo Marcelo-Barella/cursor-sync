@@ -48,7 +48,7 @@ export async function configureGithub(
 
   const syncState = await loadSyncState(context);
   const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
-  updateStatusBar("ok", lastSync);
+  updateStatusBar("ok", { lastSync, destination: "github-gist" });
   
   vscode.window.showInformationMessage("GitHub token configured successfully.");
   logger.appendLine(`[${new Date().toISOString()}] GitHub token configured`);
@@ -71,7 +71,10 @@ export async function configureGithub(
         vscode.window.showInformationMessage("Found existing Cursor Sync Gist. You can now pull your settings.");
         
         const newSyncState = await loadSyncState(context);
-        updateStatusBar("ok", newSyncState ? new Date(newSyncState.lastSyncTimestamp) : undefined);
+        updateStatusBar("ok", {
+          lastSync: newSyncState ? new Date(newSyncState.lastSyncTimestamp) : undefined,
+          destination: "github-gist",
+        });
         refreshSidebar();
       }
     } else {

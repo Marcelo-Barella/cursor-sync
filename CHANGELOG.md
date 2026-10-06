@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.9
+
+### Fixed
+- App storage sync uses a persisted per-account baseline (`globalStorage/app-storage-baseline.json`) so **Sync Now** / scheduler push local edits instead of pull-then-push overwrites; conflicts are surfaced, never auto-resolved on schedule.
+- Storage **Pull** skips files whose local checksum already matches the remote manifest; safe-mode picker lists only differing files.
+- Storage push merges `/configs` with the remote manifest (no wiping remote keys); generated-only `extensions.json` (`[]`) counts as zero files for empty-profile guard.
+- Status bar shows **Sync: Storage** with last storage sync detail when logged in; refreshes on login, logout, and sync.
+- Login opens the paste-code input automatically after launching the browser.
+- 401 history entries record the real trigger (`manual`, `syncNow`, `scheduled`, `startup`); 503 text uses **Cursor Sync storage** naming.
+- Sidebar **Export** / **Import** moved under a **GitHub Gist** section separate from storage Push/Pull.
+
+### Changed
+- Chat/transcript path resolution uses extension `globalStorageUri` (and `CURSOR_DOT_DIR`) via `resolveExtensionSyncRoots`; workspace storage roots derive from the same User dir.
+
 ## v0.8.4-staging.8
 
 ### Fixed
