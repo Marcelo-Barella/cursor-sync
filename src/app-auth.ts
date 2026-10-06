@@ -301,8 +301,6 @@ export async function buildAuthRedirectUri(
   return formatOAuthRedirectUri(externalUri, context.extension.id);
 }
 
-export { decodeJwtPayload } from "./app-session-identity.js";
-
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string,
@@ -355,7 +353,6 @@ export async function getAppSession(
       return secret;
     }
   } catch {
-    // SecretStorage unavailable, hung, or empty; use in-memory session for this window.
   }
   return inMemoryAppSession;
 }
@@ -391,7 +388,6 @@ export async function clearAppSession(
   try {
     await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
   } catch {
-    // Clear in-memory session even when SecretStorage is unavailable or hung.
   }
   inMemoryAppSession = undefined;
   void refreshSyncCommandContextsAndStatusBar(context);
