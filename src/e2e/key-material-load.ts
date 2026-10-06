@@ -33,7 +33,6 @@ export type KeyMaterialLoadResult =
     }
   | { ok: false; message: string };
 
-/** Force GET /v1/keys for crypto ops; fall back to disk cache only on rate limit / network failure. */
 export async function loadKeyMaterialForCryptoOps(
   context: vscode.ExtensionContext
 ): Promise<KeyMaterialLoadResult> {

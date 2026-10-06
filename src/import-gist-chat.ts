@@ -185,7 +185,7 @@ async function fetchAndResolveGistBundles(
   if (gist.files && tryReadGistE2eMarker(gist.files)) {
     const access = await assertCanReadE2eGist(context, gist.files);
     if (!access.ok) {
-      throw new Error(access.message === GIST_LOCKED_MESSAGE ? GIST_LOCKED_MESSAGE : access.message);
+      throw new Error(access.message);
     }
   }
 
