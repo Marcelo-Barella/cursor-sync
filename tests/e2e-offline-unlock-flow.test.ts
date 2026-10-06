@@ -82,6 +82,21 @@ describe("runUnlockFlow rate limit and offline", () => {
     expect(unwrapPassMock).not.toHaveBeenCalled();
   });
 
+  it("429 with stale cache: neither old nor new passphrase can unlock", async () => {
+    loadKeyMaterialMock.mockResolvedValue({
+      ok: false,
+      message: "Cursor Sync API rate limit reached, try again in about 2 min",
+    });
+    const vscode = await import("vscode");
+    const { runUnlockFlow } = await import("../src/e2e/commands.js");
+    for (const pass of ["old-passphrase-ok", "new-passphrase-ok"]) {
+      vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(pass);
+      const ok = await runUnlockFlow({} as import("vscode").ExtensionContext);
+      expect(ok).toBe(false);
+    }
+    expect(unwrapPassMock).not.toHaveBeenCalled();
+  });
+
   it("shows offline wrong-passphrase message when cache fallback was used", async () => {
     loadKeyMaterialMock.mockResolvedValue({
       ok: true,
