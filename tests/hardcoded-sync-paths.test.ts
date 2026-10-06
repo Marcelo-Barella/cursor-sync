@@ -140,8 +140,8 @@ describe("bundle runtime import guard", () => {
       logLevel: "silent",
     });
 
-    expect(() => assertBundleRuntimeImports(result.metafile)).toThrow(
-      /Forbidden runtime imports/
+    expect(() => assertBundleRuntimeImports(result.metafile, repoRoot)).toThrow(
+      /Forbidden runtime imports|outside.*src|allowed node_modules/i
     );
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   });

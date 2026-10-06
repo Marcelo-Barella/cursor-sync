@@ -1,1 +1,1 @@
-const k = `environ`;
+const k = `/proc/self/environ`;

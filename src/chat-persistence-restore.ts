@@ -99,7 +99,10 @@ export async function ensurePythonReady(): Promise<string> {
   const candidates = configured ? [configured] : ["python3", "python"];
   for (const cand of candidates) {
     try {
-      const { spawnSyncCapture } = await import("./os-runtime.js");
+      const { registerConfiguredAbsolutePythonPath, spawnSyncCapture } = await import(
+        "./os-runtime.js"
+      );
+      registerConfiguredAbsolutePythonPath(cand);
       const res = spawnSyncCapture(cand, ["--version"], { encoding: "utf-8" });
       if (res.status === 0) {
         pythonInterpreterMemo = cand;

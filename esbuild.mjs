@@ -43,7 +43,7 @@ const buildOptions = {
             return;
           }
           try {
-            assertBundleRuntimeImports(result.metafile);
+            assertBundleRuntimeImports(result.metafile, path.resolve(process.cwd()));
             await fs.promises.mkdir(path.dirname(metaPath), { recursive: true });
             await fs.promises.writeFile(
               metaPath,

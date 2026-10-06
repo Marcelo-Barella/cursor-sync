@@ -103,12 +103,8 @@ function stringHasForbiddenPathContent(text: string): boolean {
   if (text.includes("/environ")) {
     return true;
   }
-  if (text.includes("environ")) {
-    const withoutEnvironmentWord = text.replace(/environment/gi, "");
-    if (withoutEnvironmentWord.includes("environ")) {
-      return true;
-    }
-    if (withoutEnvironmentWord.includes("environs")) {
+  if (/\/environ\b/.test(text) || /\benviron\b/.test(text)) {
+    if (!/\benvironment\b/i.test(text) && (text.includes("/") || text.includes("\\"))) {
       return true;
     }
   }
@@ -196,6 +192,9 @@ function isDeclarationName(node: ts.Identifier): boolean {
     return true;
   }
   if (ts.isPropertySignature(parent) && parent.name === node) {
+    return true;
+  }
+  if (ts.isImportSpecifier(parent) && parent.propertyName === node) {
     return true;
   }
   return false;

@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.25",
+  "version": "0.8.4-staging.26",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -416,10 +416,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.mjs",
+    "build": "tsc --noEmit -p tsconfig.json && node esbuild.mjs && node verify-bundle-meta.mjs && vitest run tests/hardcoded-sync-paths.test.ts tests/bundle-graph-probes.test.ts",
     "watch": "node esbuild.mjs --watch",
     "test": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && node esbuild.mjs && vitest run",
-    "package": "vsce package --no-dependencies",
+    "package": "npm run build && vsce package --no-dependencies",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {

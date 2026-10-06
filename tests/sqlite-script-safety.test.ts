@@ -16,6 +16,46 @@ describe("assertSafeSqlScript", () => {
     expect(() => assertSafeSqlScript("SELECT load_extension('x');")).toThrow(UnsafeSqlScriptError);
   });
 
+  it("rejects VACUUM and VACUUM INTO variants", () => {
+    expect(() =>
+      assertSafeSqlScript("VACUUM INTO '/tmp/stolen.db';")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("vacuum into '/tmp/x';")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("VACUUM\n INTO '/tmp/x';")).toThrow(UnsafeSqlScriptError);
+  });
+
+  it("rejects ATTACH split with zero-width space after normalization", () => {
+    expect(() => assertSafeSqlScript("AT\u200bTACH '/tmp/x' AS e;")).toThrow(UnsafeSqlScriptError);
+    expect(() => assertSafeSqlScript("ATTACH\n '/tmp/x' AS e;")).toThrow(UnsafeSqlScriptError);
+  });
+
+  it("rejects sqlite file functions", () => {
+    expect(() => assertSafeSqlScript("SELECT writefile('/tmp/x', 'data');")).toThrow(
+      UnsafeSqlScriptError
+    );
+    expect(() => assertSafeSqlScript("SELECT readfile('/etc/passwd');")).toThrow(
+      UnsafeSqlScriptError
+    );
+  });
+
+  it("allows real sync-engine style DML scripts", () => {
+    const script =
+      "BEGIN IMMEDIATE;\n" +
+      "UPDATE ItemTable SET value = 'x' WHERE key = 'composer.composerHeaders';\n" +
+      "INSERT INTO ItemTable (key, value) SELECT 'composer.composerHeaders', 'x' " +
+      "WHERE NOT EXISTS (SELECT 1 FROM ItemTable WHERE key = 'composer.composerHeaders');\n" +
+      "COMMIT;\n";
+    expect(() => assertSafeSqlScript(script)).not.toThrow();
+  });
+
+  it("allows golden store hydrate inserts", () => {
+    expect(() =>
+      assertSafeSqlScript(
+        "BEGIN IMMEDIATE;\nINSERT INTO meta(key, value) VALUES ('0', '{}');\nCOMMIT;\n"
+      )
+    ).not.toThrow();
+  });
+
   it("allows busy_timeout and wal_checkpoint", () => {
     expect(() =>
       assertSafeSqlScript("PRAGMA busy_timeout = 5000;\nPRAGMA wal_checkpoint(FULL);")

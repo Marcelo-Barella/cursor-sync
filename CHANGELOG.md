@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.26
+
+### Fixed
+- SQL manifest safety: normalize scripts (strip Unicode Cf, collapse comments/whitespace), statement allowlist, block VACUUM/ATTACH/file functions; bundle guard checks every metafile input realpath (src or declared runtime `node_modules` without symlink escape); build/package run tsc + bundle meta + AST/bundle probe tests; AST allow `import { process as p }` and literal `environs`; absolute Python only via configured `chatImport.pythonPath`.
+
 ## v0.8.4-staging.25
 
 ### Fixed

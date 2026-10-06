@@ -41,6 +41,25 @@ const SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
 
 const PYTHON_BASENAME_RE = /^py$|^python$|^python3(\.\d+)*$/i;
 
+const configuredAbsolutePythonPaths = new Set<string>();
+
+/** Register machine-scoped pythonPath from settings (absolute paths only). */
+export function registerConfiguredAbsolutePythonPath(command: string): void {
+  const trimmed = command.trim();
+  if (!path.isAbsolute(trimmed)) {
+    return;
+  }
+  configuredAbsolutePythonPaths.add(path.resolve(trimmed));
+}
+
+export function clearConfiguredAbsolutePythonPaths(): void {
+  configuredAbsolutePythonPaths.clear();
+}
+
+function isPythonBasename(basename: string): boolean {
+  return PYTHON_BASENAME_RE.test(basename) || basename.toLowerCase() === "python3";
+}
+
 let sqlite3SafeFlagSupported: boolean | undefined;
 
 export function subprocessCommandBasename(command: string): string {
@@ -141,6 +160,15 @@ export function resolveSubprocessCommand(command: string): string {
     const base = subprocessCommandBasename(resolved);
     if (!isAllowedSubprocessBasename(base)) {
       throw new Error(`Subprocess command not allowlisted: ${command}`);
+    }
+    if (isPythonBasename(base)) {
+      if (!configuredAbsolutePythonPaths.has(resolved)) {
+        throw new Error(
+          `Absolute Python path not allowed (set cursorSync.chatImport.pythonPath on this machine): ${command}`
+        );
+      }
+    } else {
+      throw new Error(`Absolute subprocess command not allowed: ${command}`);
     }
     return resolved;
   }
