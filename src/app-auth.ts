@@ -556,6 +556,7 @@ export async function executeLogoutAppSession(
     return;
   }
 
+  const sessionToken = session;
   const { APP_LOGIN_API_BASE_OVERRIDE_KEY } = await import("./app-session-state.js");
   const apiBase =
     context.globalState.get<string>(APP_LOGIN_API_BASE_OVERRIDE_KEY) ?? getAppApiUrl();
@@ -565,7 +566,6 @@ export async function executeLogoutAppSession(
   );
   bumpSessionEpoch();
   await abortAppConfigsForLogout();
-  await tryServerLogout(apiBase, session);
 
   const { clearAppSessionArtifacts } = await import("./app-session-state.js");
   const cleared = await clearAppSessionArtifacts(context);
@@ -575,6 +575,8 @@ export async function executeLogoutAppSession(
     );
     return;
   }
+
+  await tryServerLogout(apiBase, sessionToken);
 
   const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
   clearR2CredentialsCache();

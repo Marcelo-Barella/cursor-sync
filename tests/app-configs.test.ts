@@ -54,33 +54,37 @@ vi.mock("../src/paths.js", () => ({
   ],
 }));
 
-vi.mock("../src/packaging.js", () => ({
-  packageFiles: async () => ({
-    packaged: new Map([
-      [
-        "cursor-user/settings.json",
-        {
-          content: '{"x":1}',
-          checksum: "abc",
-          sizeBytes: 7,
-        },
-      ],
-    ]),
-    manifest: {
-      schemaVersion: 1,
-      syncProfileName: "default",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      sourceMachineId: "machine",
-      sourceOS: "linux",
-      files: {
-        "cursor-user/settings.json": {
-          checksum: "abc",
-          sizeBytes: 7,
+vi.mock("../src/packaging.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/packaging.js")>();
+  return {
+    ...actual,
+    packageFiles: async () => ({
+      packaged: new Map([
+        [
+          "cursor-user/settings.json",
+          {
+            content: '{"x":1}',
+            checksum: "abc",
+            sizeBytes: 7,
+          },
+        ],
+      ]),
+      manifest: {
+        schemaVersion: 1,
+        syncProfileName: "default",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        sourceMachineId: "machine",
+        sourceOS: "linux",
+        files: {
+          "cursor-user/settings.json": {
+            checksum: "abc",
+            sizeBytes: 7,
+          },
         },
       },
-    },
-  }),
-}));
+    }),
+  };
+});
 
 vi.mock("../src/rollback.js", () => ({
   createBackup: async () => ({ entries: [] }),
@@ -113,6 +117,11 @@ function makeContext(): vscode.ExtensionContext {
       get: async () => undefined,
       store: async () => {},
       delete: async () => {},
+    },
+    globalStorageUri: { fsPath: "/tmp/cursor-sync-app-configs-storage" },
+    globalState: {
+      get: () => undefined,
+      update: async () => {},
     },
   } as unknown as vscode.ExtensionContext;
 }
@@ -267,7 +276,10 @@ describe("hasAppSession", () => {
 });
 
 describe("app-configs R2 sync", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const fs = await import("node:fs/promises");
+    await fs.mkdir("/tmp/cursor-user", { recursive: true });
+    await fs.mkdir("/tmp/cursor-sync-app-configs-storage", { recursive: true });
     vi.resetModules();
     appendLineMock.mockReset();
     showErrorMessageMock.mockReset();
@@ -308,13 +320,19 @@ describe("app-configs R2 sync", () => {
 
   it("push uploads bytes to R2 and PUTs metadata-only payload", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
-        updated_at: "2026-01-02T00:00:00.000Z",
-      }),
+    const fetchMock = vi.fn().mockImplementation(async (_url, init?: { method?: string }) => {
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ payload: null, updated_at: "2026-01-02T00:00:00.000Z" }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ payload: null, updated_at: "2026-01-01T00:00:00.000Z" }),
+      };
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -356,16 +374,18 @@ describe("app-configs R2 sync", () => {
             sourceOS: "linux",
             files: {
               "cursor-user/settings.json": {
-                checksum: "abc",
-                sizeBytes: 7,
+                checksum:
+                  "600bfa81b1561fa6281505a8630327ec94da208976f36c142c781b0b46a95725",
+                sizeBytes: 15,
               },
             },
           },
           files: {
             "cursor-user/settings.json": {
               content: '{"legacy":true}',
-              checksum: "abc",
-              sizeBytes: 7,
+              checksum:
+                "600bfa81b1561fa6281505a8630327ec94da208976f36c142c781b0b46a95725",
+              sizeBytes: 15,
             },
           },
         },

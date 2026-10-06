@@ -73,6 +73,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(registerAppAuthUriHandler(context));
   consumePendingAuthCallback(context);
+  void import("./app-config-pull-journal.js").then(({ replayIncompletePullJournals }) =>
+    replayIncompletePullJournals(context)
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.refreshImportedTranscripts", () => {

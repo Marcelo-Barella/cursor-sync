@@ -12,8 +12,21 @@ import { generateExtensionsJson } from "./extensions.js";
 import { getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
 import { packageFiles } from "./packaging.js";
-import { createBackup, pruneOldBackups, rollbackFromBackup } from "./rollback.js";
+import { pruneOldBackups } from "./rollback.js";
 import type { Manifest, ManifestFileEntry } from "./types.js";
+import { computeChecksum } from "./packaging.js";
+import {
+  clearAppConfigRemoteDirty,
+  markAppConfigRemoteDirty,
+  readAppConfigRemoteDirty,
+} from "./app-config-remote-state.js";
+import {
+  AppConfigsSessionExpiredError,
+  isAppConfigsSessionExpiredError,
+} from "./app-config-errors.js";
+import { resolveSyncRootsRealpaths } from "./app-config-sync-path-safety.js";
+import { executeAppConfigPullWrites, type PullWriteTarget } from "./app-config-pull-files.js";
+import { collectJournalBackupDirs } from "./app-config-pull-journal.js";
 import {
   AppConfigsAbortedError,
   beginAppConfigsRun,
@@ -45,6 +58,10 @@ export interface AppConfigsResponse {
 }
 
 const LOGIN_REQUIRED_MESSAGE = "Log in to Cursor Sync to sync configs with the app.";
+const SESSION_EXPIRED_MESSAGE =
+  "Your Cursor Sync session expired. Log in again to sync configs with the app.";
+const PUT_CONFIGS_TIMEOUT_MS = 15_000;
+const PARTIAL_COMMIT_RETRIES = 2;
 
 export async function hasAppSession(
   context: vscode.ExtensionContext
@@ -105,33 +122,92 @@ export async function fetchAppConfigs(
 async function putAppConfigsWithSession(
   session: string,
   payload: AppConfigsPayloadV1,
-  run?: AppConfigsRunHandle
+  options?: { run?: AppConfigsRunHandle }
 ): Promise<AppConfigsResponse> {
+  const run = options?.run;
   if (run) {
     throwIfAppConfigsAborted(run);
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PUT_CONFIGS_TIMEOUT_MS);
+  const onRunAbort = () => controller.abort();
+  run?.signal.addEventListener("abort", onRunAbort);
+
+  try {
+    const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
+      method: "PUT",
+      headers: {
+        ...authHeaders(session),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ payload }),
+      signal: controller.signal,
+    });
+
+    if (response.status === 401) {
+      if (run?.signal.aborted) {
+        throw new AppConfigsAbortedError("logout");
+      }
+      throw new AppConfigsSessionExpiredError();
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Failed to push app configs (${response.status})${text ? `: ${text}` : ""}`
+      );
+    }
+
+    return (await response.json()) as AppConfigsResponse;
+  } finally {
+    clearTimeout(timeout);
+    run?.signal.removeEventListener("abort", onRunAbort);
+  }
+}
+
+async function fetchRemoteConfigsPayload(
+  session: string
+): Promise<AppConfigsPayloadV1 | undefined> {
   const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
-    method: "PUT",
-    headers: {
-      ...authHeaders(session),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ payload }),
+    method: "GET",
+    headers: authHeaders(session),
   });
-
-  if (response.status === 401) {
-    throw new AppConfigsAbortedError("logout");
-  }
-
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to push app configs (${response.status})${text ? `: ${text}` : ""}`
-    );
+    return undefined;
   }
+  const data = (await response.json()) as AppConfigsResponse;
+  if (!data.payload || data.payload.schemaVersion !== APP_CONFIGS_PAYLOAD_SCHEMA_VERSION) {
+    return undefined;
+  }
+  return data.payload;
+}
 
-  return (await response.json()) as AppConfigsResponse;
+export function mergeUploadedKeysIntoRemotePayload(
+  remote: AppConfigsPayloadV1,
+  local: AppConfigsPayloadV1,
+  uploadedKeys: string[]
+): AppConfigsPayloadV1 {
+  const manifestFiles = { ...remote.manifest.files };
+  const metadataFiles: AppConfigsPayloadV1["files"] = { ...remote.files };
+  for (const syncKey of uploadedKeys) {
+    const manifestEntry = local.manifest.files[syncKey];
+    const fileMeta = local.files[syncKey];
+    if (!manifestEntry || !fileMeta) {
+      continue;
+    }
+    manifestFiles[syncKey] = manifestEntry;
+    metadataFiles[syncKey] = {
+      checksum: fileMeta.checksum ?? manifestEntry.checksum,
+      sizeBytes: fileMeta.sizeBytes ?? manifestEntry.sizeBytes,
+      ...(manifestEntry.encoding ? { encoding: manifestEntry.encoding } : {}),
+    };
+  }
+  return {
+    schemaVersion: remote.schemaVersion,
+    manifest: { ...remote.manifest, files: manifestFiles },
+    files: metadataFiles,
+  };
 }
 
 export async function putAppConfigs(
@@ -280,28 +356,65 @@ async function resolveRemoteFileContent(
   if (credentials) {
     const remote = await getR2Object(credentials, syncKey);
     if (remote) {
+      const checksum = computeChecksum(remote);
+      if (checksum !== manifestEntry.checksum) {
+        getLogger().appendLine(
+          `[${new Date().toISOString()}] Pull skipped checksum mismatch for ${syncKey}`
+        );
+        return undefined;
+      }
       return remote;
     }
   }
 
-  return decodePayloadFileContent(file, manifestEntry);
+  const decoded = decodePayloadFileContent(file, manifestEntry);
+  if (!decoded) {
+    return undefined;
+  }
+  const checksum = computeChecksum(decoded);
+  if (checksum !== manifestEntry.checksum) {
+    getLogger().appendLine(
+      `[${new Date().toISOString()}] Pull skipped embedded checksum mismatch for ${syncKey}`
+    );
+    return undefined;
+  }
+  return decoded;
 }
 
 async function commitPartialAppConfigsPush(
+  context: vscode.ExtensionContext,
+  remoteBaseline: AppConfigsPayloadV1,
   localPayload: AppConfigsPayloadV1,
   uploadedKeys: string[],
-  session: string
+  session: string,
+  run: AppConfigsRunHandle
 ): Promise<boolean> {
   if (uploadedKeys.length === 0) {
     return false;
   }
-  const payload = buildMetadataOnlyPayloadForKeys(
-    localPayload.manifest,
-    localPayload.files,
+  const merged = mergeUploadedKeysIntoRemotePayload(
+    remoteBaseline,
+    localPayload,
     uploadedKeys
   );
-  await putAppConfigsWithSession(session, payload);
-  return true;
+  const payload = buildMetadataOnlyPayload(merged.manifest, merged.files);
+
+  for (let attempt = 0; attempt < PARTIAL_COMMIT_RETRIES; attempt += 1) {
+    try {
+      await putAppConfigsWithSession(session, payload);
+      await clearAppConfigRemoteDirty(context);
+      return true;
+    } catch (err) {
+      if (isAppConfigsAbortedError(err)) {
+        throw err;
+      }
+      if (attempt + 1 >= PARTIAL_COMMIT_RETRIES) {
+        await markAppConfigRemoteDirty(context, "partial_commit_failed");
+        return false;
+      }
+    }
+  }
+  return false;
 }
 
 function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
@@ -327,6 +440,7 @@ export async function executePushAppConfigs(
   const run = beginAppConfigsRun("push");
   let session: string | undefined;
   let localPayload: AppConfigsPayloadV1 | undefined;
+  let remoteBaseline: AppConfigsPayloadV1 | undefined;
   const uploadedKeys: string[] = [];
 
   try {
@@ -335,6 +449,26 @@ export async function executePushAppConfigs(
       return false;
     }
 
+    if (readAppConfigRemoteDirty(context)) {
+      vscode.window.showWarningMessage(
+        "App configs remote state needs reconciliation. Pull app configs before pushing again."
+      );
+    }
+
+    remoteBaseline =
+      (await fetchRemoteConfigsPayload(session)) ??
+      ({
+        schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
+        manifest: {
+          schemaVersion: 1,
+          syncProfileName: "default",
+          createdAt: new Date().toISOString(),
+          sourceMachineId: "",
+          sourceOS: "linux",
+          files: {},
+        },
+        files: {},
+      } satisfies AppConfigsPayloadV1);
     localPayload = await buildLocalAppConfigsPayload();
     throwIfAppConfigsAborted(run);
     const credentials = await getR2StorageCredentials(context);
@@ -365,7 +499,8 @@ export async function executePushAppConfigs(
       localPayload.manifest,
       localPayload.files
     );
-    await putAppConfigsWithSession(session, payload, run);
+    await putAppConfigsWithSession(session, payload, { run });
+    await clearAppConfigRemoteDirty(context);
 
     const fileCount = Object.keys(payload.files).length;
     vscode.window.showInformationMessage(
@@ -376,13 +511,23 @@ export async function executePushAppConfigs(
     );
     return true;
   } catch (err) {
+    if (isAppConfigsSessionExpiredError(err)) {
+      vscode.window.showErrorMessage(SESSION_EXPIRED_MESSAGE);
+      return false;
+    }
     if (isAppConfigsAbortedError(err)) {
-      if (session && localPayload && uploadedKeys.length > 0) {
-        try {
-          await commitPartialAppConfigsPush(localPayload, uploadedKeys, session);
-        } catch (commitErr) {
+      if (session && localPayload && remoteBaseline && uploadedKeys.length > 0) {
+        const committed = await commitPartialAppConfigsPush(
+          context,
+          remoteBaseline,
+          localPayload,
+          uploadedKeys,
+          session,
+          run
+        );
+        if (!committed) {
           logger.appendLine(
-            `[${new Date().toISOString()}] Push app configs partial commit failed: ${commitErr instanceof Error ? commitErr.message : String(commitErr)}`
+            `[${new Date().toISOString()}] Push app configs partial commit failed after abort`
           );
         }
       }
@@ -390,6 +535,9 @@ export async function executePushAppConfigs(
         `[${new Date().toISOString()}] Push app configs aborted (${err.reason})`
       );
       return false;
+    }
+    if (uploadedKeys.length > 0) {
+      await markAppConfigRemoteDirty(context, "push_failed_after_upload");
     }
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(
@@ -409,7 +557,6 @@ export async function executePullAppConfigs(
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
   const run = beginAppConfigsRun("pull");
-  let writtenBackups: Awaited<ReturnType<typeof createBackup>>["entries"] = [];
 
   try {
     throwIfAppConfigsAborted(run);
@@ -428,9 +575,9 @@ export async function executePullAppConfigs(
 
     const { manifest, files } = response.payload;
     const roots = resolveSyncRoots();
+    const resolved = await resolveSyncRootsRealpaths(roots);
     const credentials = await getR2StorageCredentials(context, { silent: true });
-    const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> =
-      [];
+    const pullTargets: PullWriteTarget[] = [];
 
     for (const [syncKey, file] of Object.entries(files)) {
       throwIfAppConfigsAborted(run);
@@ -453,18 +600,19 @@ export async function executePullAppConfigs(
         continue;
       }
 
-      filesToWrite.push({
+      pullTargets.push({
         absolutePath,
         syncKey,
         content,
+        expectedChecksum: manifestEntry.checksum,
       });
     }
 
     const config = vscode.workspace.getConfiguration("cursorSync");
     const safeMode = config.get<boolean>("safeMode") ?? true;
 
-    if (safeMode && filesToWrite.length > 0) {
-      const items = filesToWrite.map((f) => ({
+    if (safeMode && pullTargets.length > 0) {
+      const items = pullTargets.map((f) => ({
         label: f.syncKey,
         picked: true,
       }));
@@ -480,12 +628,12 @@ export async function executePullAppConfigs(
       }
 
       const selectedKeys = new Set(selected.map((s) => s.label));
-      const filtered = filesToWrite.filter((f) => selectedKeys.has(f.syncKey));
-      filesToWrite.length = 0;
-      filesToWrite.push(...filtered);
+      const filtered = pullTargets.filter((f) => selectedKeys.has(f.syncKey));
+      pullTargets.length = 0;
+      pullTargets.push(...filtered);
     }
 
-    if (filesToWrite.length === 0) {
+    if (pullTargets.length === 0) {
       vscode.window.showInformationMessage("Pull app configs complete: no files to update.");
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
@@ -493,50 +641,20 @@ export async function executePullAppConfigs(
       return true;
     }
 
-    const { entries: backupEntries } = await createBackup(
-      context,
-      filesToWrite.map((f) => f.absolutePath)
-    );
+    await executeAppConfigPullWrites(context, run, pullTargets, resolved);
 
-    writtenBackups = [];
-    for (const file of filesToWrite) {
-      throwIfAppConfigsAborted(run);
-      try {
-        const dir = path.dirname(file.absolutePath);
-        await fs.mkdir(dir, { recursive: true });
-        const tmpPath = file.absolutePath + ".tmp";
-        await fs.writeFile(tmpPath, file.content);
-        await fs.rename(tmpPath, file.absolutePath);
-        const backup = backupEntries.find((b) => b.absolutePath === file.absolutePath);
-        if (backup) {
-          writtenBackups.push(backup);
-        }
-      } catch (err) {
-        logger.appendLine(
-          `[${new Date().toISOString()}] Pull app configs write failed for ${file.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
-        );
-        await rollbackFromBackup(writtenBackups);
-        vscode.window.showErrorMessage(
-          "Pull app configs failed: file write error. Changes have been rolled back."
-        );
-        return false;
-      }
-    }
-
-    await pruneOldBackups(context);
+    const protectedDirs = await collectJournalBackupDirs(context);
+    await pruneOldBackups(context, { protectedBackupDirs: protectedDirs });
 
     vscode.window.showInformationMessage(
-      `Pull app configs complete: ${filesToWrite.length} file(s) updated.`
+      `Pull app configs complete: ${pullTargets.length} file(s) updated.`
     );
     logger.appendLine(
-      `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
+      `[${new Date().toISOString()}] Pull app configs succeeded: ${pullTargets.length} files`
     );
     return true;
   } catch (err) {
     if (isAppConfigsAbortedError(err)) {
-      if (writtenBackups.length > 0) {
-        await rollbackFromBackup(writtenBackups);
-      }
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs aborted (${err.reason})`
       );

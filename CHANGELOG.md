@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.9-logout
+
+### Fixed
+- App configs push abort merges uploaded keys into the full remote manifest (server replaces lists; no orphan/shrink).
+- Config `PUT` timeout + abort signal; `401` on normal push shows session-expired (not logout abort); `remoteDirty` flag on failed metadata commit after uploads.
+- Pull checksum verification, journal-backed safe writes/rollback (unique backups/temps, containment, symlink-aware restore, user-edit preservation).
+- Logout clears SecretStorage before server `POST /auth/logout` and waits for pull rollback finalization.
+
 ## v0.8.4-staging.8-logout
 
 ### Fixed

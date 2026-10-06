@@ -1,4 +1,5 @@
 const LOGOUT_ABORT_WAIT_MS = 5000;
+const LOGOUT_PULL_FINALIZE_WAIT_MS = 120_000;
 const SERVER_LOGOUT_TIMEOUT_MS = 2000;
 
 let sessionEpoch = 0;
@@ -15,6 +16,16 @@ interface ActiveAppConfigsRun {
 }
 
 let activeAppConfigsRun: ActiveAppConfigsRun | undefined;
+let pendingPullFinalize: Promise<void> | undefined;
+
+export function registerPullFinalize(promise: Promise<void>): void {
+  pendingPullFinalize = promise;
+  void promise.finally(() => {
+    if (pendingPullFinalize === promise) {
+      pendingPullFinalize = undefined;
+    }
+  });
+}
 
 export class AppConfigsAbortedError extends Error {
   readonly reason: "logout" | "abort";
@@ -100,6 +111,12 @@ export async function abortAppConfigsForLogout(): Promise<void> {
     activeAppConfigsRun.done,
     new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_ABORT_WAIT_MS)),
   ]);
+  if (pendingPullFinalize) {
+    await Promise.race([
+      pendingPullFinalize,
+      new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_PULL_FINALIZE_WAIT_MS)),
+    ]);
+  }
 }
 
 export async function tryServerLogout(apiBase: string, sessionToken: string): Promise<void> {
