@@ -61,5 +61,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
     const syncPaneHtml = await renderSyncPaneHtml(this.context);
     await this._view.webview.postMessage({ type: "sync:update", html: syncPaneHtml });
+    const { readSettingsAccountState, renderSettingsAccountSection } = await import(
+      "./settings-tab.js"
+    );
+    const account = await readSettingsAccountState(this.context);
+    const accountHtml = renderSettingsAccountSection(account);
+    await this._view.webview.postMessage({ type: "settings:account", html: accountHtml });
   }
 }

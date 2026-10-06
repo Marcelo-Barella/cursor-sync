@@ -420,6 +420,8 @@ async function completeLoginWithCode(
     const token = await exchangeCodeForSessionToken(getAppApiUrl(), code, redirectUri);
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
+    const { persistAppSessionMetadata } = await import("./app-session-state.js");
+    await persistAppSessionMetadata(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
@@ -521,6 +523,36 @@ export async function executeLoginToCursorSync(
     logger.appendLine(`[${new Date().toISOString()}] App login start failed: ${message}`);
     vscode.window.showErrorMessage(`Could not start login: ${message}`);
   }
+}
+
+export async function executeLogoutAppSession(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const session = await getAppSession(context);
+  if (!session) {
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    "Log out of Cursor Sync storage? Your local synced files and GitHub Gist settings are not deleted.",
+    { modal: true },
+    "Log out"
+  );
+  if (choice !== "Log out") {
+    return;
+  }
+
+  const { clearAppSessionArtifacts } = await import("./app-session-state.js");
+  await clearAppSessionArtifacts(context);
+  const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
+  clearR2CredentialsCache();
+  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
+  await releaseSyncLatchForAuthRetry(context);
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  await refreshSyncStatusBar(context);
+  refreshSidebar();
+  vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
 }
 
 export async function executeEnterAppAuthCode(

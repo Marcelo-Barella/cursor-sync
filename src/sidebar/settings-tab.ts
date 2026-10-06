@@ -4,6 +4,13 @@ import {
   readAppearanceThemePreference,
   type AppearanceThemePreference,
 } from "./appearance-theme.js";
+import { hasAppSession } from "../app-configs.js";
+import { readCachedAppSessionEmail } from "../app-session-state.js";
+
+export interface SettingsTabAccountState {
+  appSessionActive: boolean;
+  appSessionEmail?: string;
+}
 
 export interface SettingsTabValues {
   appearanceTheme: AppearanceThemePreference;
@@ -12,9 +19,21 @@ export interface SettingsTabValues {
   bridgeWaitResultSeconds: number;
   autoReloadAfterImport: boolean;
   pythonPath: string;
+  account: SettingsTabAccountState;
 }
 
-export function readSettingsValues(): SettingsTabValues {
+export async function readSettingsAccountState(
+  context: vscode.ExtensionContext
+): Promise<SettingsTabAccountState> {
+  const appSessionActive = await hasAppSession(context);
+  if (!appSessionActive) {
+    return { appSessionActive: false };
+  }
+  const appSessionEmail = await readCachedAppSessionEmail(context);
+  return { appSessionActive: true, appSessionEmail };
+}
+
+export function readSettingsValues(account: SettingsTabAccountState): SettingsTabValues {
   const cfg = vscode.workspace.getConfiguration("cursorSync");
   return {
     appearanceTheme: readAppearanceThemePreference(),
@@ -23,7 +42,37 @@ export function readSettingsValues(): SettingsTabValues {
     bridgeWaitResultSeconds: cfg.get<number>("chatImport.bridgeWaitResultSeconds", 0),
     autoReloadAfterImport: cfg.get<boolean>("transcripts.autoReloadAfterImport", false),
     pythonPath: cfg.get<string>("chatImport.pythonPath", ""),
+    account,
   };
+}
+
+export function renderSettingsAccountSection(account: SettingsTabAccountState): string {
+  if (account.appSessionActive) {
+    const emailHtml = account.appSessionEmail
+      ? `<div class="settings-account-email">${escapeHtml(account.appSessionEmail)}</div>`
+      : `<div class="settings-account-email settings-account-muted">Signed in to Cursor Sync</div>`;
+    return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="settings-list">
+      ${emailHtml}
+      <button type="button" class="configure-btn" data-command="appLogout" style="margin-top:8px">
+        <span class="codicon codicon-sign-out"></span> Log out
+      </button>
+    </div>
+  </div>`;
+  }
+
+  return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="settings-list">
+      <button type="button" class="configure-btn" data-command="loginToApp">
+        <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
+      </button>
+      <button type="button" class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
+        <span class="codicon codicon-key"></span> Enter Login Code
+      </button>
+    </div>
+  </div>`;
 }
 
 export async function updateSettingValue(
@@ -50,6 +99,9 @@ export function renderSettingsPane(values: SettingsTabValues): string {
   }
 
   return `<div id="settings-pane" class="tab-pane" style="display:none">
+  <div id="settings-account-section">
+  ${renderSettingsAccountSection(values.account)}
+  </div>
   <div class="section">
     <div class="section-header">Appearance</div>
     <div class="settings-list">

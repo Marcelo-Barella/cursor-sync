@@ -24,6 +24,7 @@ import {
   consumePendingAuthCallback,
   executeEnterAppAuthCode,
   executeLoginToCursorSync,
+  executeLogoutAppSession,
   registerAppAuthUriHandler,
 } from "./app-auth.js";
 import {
@@ -114,6 +115,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.enterAppAuthCode", () =>
       executeEnterAppAuthCode(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.app.logout", () =>
+      executeLogoutAppSession(context)
     )
   );
 

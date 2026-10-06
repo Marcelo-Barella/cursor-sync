@@ -11,7 +11,8 @@ export type SidebarMessage =
         | "import"
         | "configure"
         | "loginToApp"
-        | "enterAppAuthCode";
+        | "enterAppAuthCode"
+        | "appLogout";
     }
   | { command: "chats:listLocal" }
   | { command: "chats:listImports" }
@@ -54,6 +55,9 @@ export async function dispatchSidebarMessage(
       break;
     case "enterAppAuthCode":
       await vscode.commands.executeCommand("cursorSync.enterAppAuthCode");
+      break;
+    case "appLogout":
+      await vscode.commands.executeCommand("cursorSync.app.logout");
       break;
     case "chats:listLocal": {
       const { listLocalConversations } = await import("./chats-tab.js");
@@ -135,8 +139,11 @@ export async function dispatchSidebarMessage(
       await webview.postMessage({ type: "chats:history-cleared" });
       break;
     case "settings:get": {
-      const { readSettingsValues } = await import("./settings-tab.js");
-      const values = readSettingsValues();
+      const { readSettingsValues, readSettingsAccountState } = await import(
+        "./settings-tab.js"
+      );
+      const account = await readSettingsAccountState(context);
+      const values = readSettingsValues(account);
       await webview.postMessage({ type: "settings:current", values });
       break;
     }

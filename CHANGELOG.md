@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.7
+
+### Added
+- Settings tab **Account** section: shows signed-in email when available, **Log out** / **Log in** actions, and command `cursorSync.app.logout` (modal confirm; clears app session, R2 credential cache, and login metadata without touching Gist sync state or sidebar theme).
+
 ## v0.8.4-staging.5
 
 ### Fixed
