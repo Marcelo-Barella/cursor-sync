@@ -14,8 +14,6 @@ export type LocalPresence =
   | "untracked"
   | "absent_eligible";
 
-export type RemotePresence = "absent" | "present_same" | "present_changed";
-
 export type SyncDecisionAction =
   | "push"
   | "pull"
@@ -50,24 +48,6 @@ export function localPresenceForKey(
     return "absent_eligible";
   }
   return "skipped_unknown";
-}
-
-export function remotePresenceForKey(
-  syncKey: string,
-  remoteChecksum: string | undefined,
-  baseline: AppStorageBaseline | undefined
-): RemotePresence {
-  if (remoteChecksum === undefined) {
-    return "absent";
-  }
-  const wasRemote = baseline?.remoteChecksums[syncKey];
-  if (!baselineHasEntries(baseline) || wasRemote === undefined) {
-    return "present_changed";
-  }
-  if (remoteChecksum === wasRemote) {
-    return "present_same";
-  }
-  return "present_changed";
 }
 
 export function isLocallyAbsentSafeToPull(

@@ -10,14 +10,10 @@ export interface SyncDeclineEntry {
 
 type DeclineStore = Record<string, SyncDeclineEntry>;
 
-async function readStore(context: vscode.ExtensionContext): Promise<DeclineStore> {
-  return (context.globalState.get<DeclineStore>(STORAGE_KEY) ?? {}) as DeclineStore;
-}
-
 export async function loadSyncDeclineStore(
   context: vscode.ExtensionContext
 ): Promise<DeclineStore> {
-  return readStore(context);
+  return (context.globalState.get<DeclineStore>(STORAGE_KEY) ?? {}) as DeclineStore;
 }
 
 async function writeStore(
@@ -37,7 +33,7 @@ export async function recordDeclinedPullOverwrite(
   syncKey: string,
   remoteChecksum: string | undefined
 ): Promise<void> {
-  const store = await readStore(context);
+  const store = await loadSyncDeclineStore(context);
   store[syncKey] = {
     ...store[syncKey],
     pullOverwriteRemoteChecksum: remoteChecksum ?? "",
@@ -50,7 +46,7 @@ export async function recordDeclinedLocalDelete(
   syncKey: string,
   localChecksum: string | undefined
 ): Promise<void> {
-  const store = await readStore(context);
+  const store = await loadSyncDeclineStore(context);
   store[syncKey] = {
     ...store[syncKey],
     keepLocalAgainstRemoteDelete: true,
@@ -66,7 +62,7 @@ export async function clearSyncDeclines(
   if (syncKeys.length === 0) {
     return;
   }
-  const store = await readStore(context);
+  const store = await loadSyncDeclineStore(context);
   for (const key of syncKeys) {
     delete store[key];
   }
@@ -101,20 +97,6 @@ export function keepLocalDeclineBlocksDelete(
   return (localChecksum ?? "") === at;
 }
 
-export async function shouldBlockPushForDecline(
-  context: vscode.ExtensionContext,
-  syncKey: string,
-  localChecksum: string | undefined,
-  _trigger: string
-): Promise<boolean> {
-  const store = await readStore(context);
-  const entry = store[syncKey];
-  if (!entry) {
-    return false;
-  }
-  return keepLocalDeclineBlocksDelete(entry, localChecksum);
-}
-
 export async function filterPushKeysRespectingDeclines(
   context: vscode.ExtensionContext,
   keys: string[],
@@ -122,7 +104,7 @@ export async function filterPushKeysRespectingDeclines(
   trigger: string,
   explicitPush: boolean
 ): Promise<string[]> {
-  const store = await readStore(context);
+  const store = await loadSyncDeclineStore(context);
   const out: string[] = [];
   for (const key of keys) {
     const entry = store[key];
@@ -153,7 +135,7 @@ export async function pruneResolvedDeclines(
   localChecksums: Record<string, string>,
   remoteChecksums?: Record<string, string>
 ): Promise<void> {
-  const store = await readStore(context);
+  const store = await loadSyncDeclineStore(context);
   let changed = false;
   for (const [key, entry] of Object.entries(store)) {
     if (entry.keepLocalAgainstRemoteDelete) {

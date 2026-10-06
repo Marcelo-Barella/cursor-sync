@@ -225,7 +225,6 @@ export async function resolveMassDeleteBatch(
   return [];
 }
 
-/** Keep scheduler mass-delete dedupe aligned with the current blocked deletion set. */
 export function syncEvaluatedMassDeleteBlockState(
   candidateDeletions: string[],
   trackedKeyCount: number,

@@ -94,7 +94,6 @@ export {
   syncKeyRootPrefix,
 } from "./app-config-sync-root-keys.js";
 
-/** Create missing sync roots only when the baseline has no keys under that root. */
 export async function ensureSyncRootsForFreshPull(
   roots: SyncRoots,
   syncKeysToWrite: string[],
@@ -472,11 +471,4 @@ export async function classifyPathUnderSyncRoot(
     rootInfo,
     baselineHasKeysUnderRoot
   );
-}
-
-export function absolutePathForSyncKey(
-  syncKey: string,
-  roots: SyncRoots
-): string | undefined {
-  return syncKeyToAbsolutePath(syncKey, roots);
 }

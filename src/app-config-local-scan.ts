@@ -35,7 +35,6 @@ export interface LocalConfigFileScan {
   enumeratedCount: number;
   rootsHealthy: boolean;
   trackingScopeMismatch: boolean;
-  /** Sync root prefixes where deletes must not run (missing/empty root or all keys absent). */
   deleteBlockedRootPrefixes: Set<string>;
 }
 

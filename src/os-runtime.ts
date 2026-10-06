@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { nodePlatform, nodeProcessArgv, nodeProcessCwd, nodeProcessPid } from "./os-runtime.js";
 import * as os from "node:os";
 
 export function systemTmpDir(): string {
@@ -30,7 +29,6 @@ export function nodeProcessCwd(): string {
   return process.cwd();
 }
 
-/** @internal Spawn-only; env is not exposed to other modules. */
 function spawnProcessEnv(): NodeJS.ProcessEnv {
   return process.env;
 }
