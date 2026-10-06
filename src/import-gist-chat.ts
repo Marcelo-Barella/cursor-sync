@@ -16,16 +16,17 @@ import {
   parseChatBundleOrCollection,
   resolveBundlesFromParsedExport,
 } from "./chat-bundle-format.js";
+import { isEncryptedChatGistPayload } from "./chat-gist-crypto.js";
+import { decryptChatPayloadFromGist, reexportLegacyChatUnderDek } from "./e2e/chat-payload-crypto.js";
 import {
-  decryptChatGistPayload,
-  isEncryptedChatGistPayload,
-  ChatGistCryptoError,
-} from "./chat-gist-crypto.js";
-import {
-  requireChatEncryptionPassword,
-  setChatEncryptionPassword,
-  clearChatEncryptionPassword,
-} from "./chat-encryption-auth.js";
+  remoteGistHasE2eMarker,
+  assertCanReadE2eGist,
+  GIST_LOCKED_MESSAGE,
+  readLogicalFileFromGistMap,
+} from "./e2e/gist-read.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { requireChatEncryptionPassword } from "./chat-encryption-auth.js";
+import type { PlaintextKind } from "./chat-gist-crypto.js";
 
 export { CHAT_BUNDLE_GIST_FILE_NAME, CHAT_BUNDLES_GIST_FILE_NAME } from "./chat-bundle-format.js";
 
@@ -107,28 +108,30 @@ export async function executeImportChatFromGist(
 async function resolveGistChatFileContent(
   context: vscode.ExtensionContext,
   raw: string,
-  label: string
+  label: string,
+  logicalFileName: string,
+  gistFiles?: Record<string, { content?: string }>
 ): Promise<string> {
-  if (!isEncryptedChatGistPayload(raw)) {
-    return raw;
-  }
-  const password = await requireChatEncryptionPassword(context, "import-envelope");
-  if (!password) {
-    throw new Error(`${label}: chat encryption password required to decrypt this gist.`);
-  }
-  try {
-    const plaintext = await decryptChatGistPayload(raw, password);
-    await setChatEncryptionPassword(context, password);
-    return plaintext;
-  } catch (err) {
-    if (err instanceof ChatGistCryptoError && err.code === "DECRYPT_FAILED") {
-      await clearChatEncryptionPassword(context);
-      throw new Error(
-        "Could not decrypt chat gist. Check your chat encryption password (Cursor Sync: Set Chat Encryption Password)."
-      );
+  const plaintextKind: PlaintextKind = logicalFileName.includes("bundles")
+    ? "chat-bundles-collection"
+    : "chat-bundle";
+  const decrypted = await decryptChatPayloadFromGist(context, raw, logicalFileName, {
+    gistFiles,
+    promptLegacyPassword: async () => {
+      if (!isEncryptedChatGistPayload(raw)) {
+        return undefined;
+      }
+      return requireChatEncryptionPassword(context, "import-envelope");
+    },
+  });
+  if (isEncryptedChatGistPayload(raw)) {
+    try {
+      await reexportLegacyChatUnderDek(context, decrypted, logicalFileName, plaintextKind);
+    } catch {
+      // Re-export under DEK is best-effort after legacy import.
     }
-    throw err;
   }
+  return decrypted;
 }
 
 async function resolveChatBundlesFromGistContent(
@@ -136,9 +139,17 @@ async function resolveChatBundlesFromGistContent(
   raw: string,
   fileLabel: string,
   requireCollection: boolean,
-  progress: vscode.Progress<{ message?: string; increment?: number }>
+  progress: vscode.Progress<{ message?: string; increment?: number }>,
+  gistFiles?: Record<string, { content?: string }>,
+  logicalFileName?: string
 ): Promise<{ bundles: ChatBundle[]; pickerShown: boolean }> {
-  const plaintext = await resolveGistChatFileContent(context, raw, fileLabel);
+  const plaintext = await resolveGistChatFileContent(
+    context,
+    raw,
+    fileLabel,
+    logicalFileName ?? fileLabel,
+    gistFiles
+  );
   const parsed = parseChatBundleOrCollection(plaintext);
   if (requireCollection && parsed.kind !== "collection") {
     throw new Error("Invalid chat-bundles.json: expected chat-bundles-collection.");
@@ -173,35 +184,59 @@ async function fetchAndResolveGistBundles(
     throw new Error(`Could not fetch Gist "${gistId}". Check the ID and your GitHub token.`);
   }
 
+  if (gist.files && remoteGistHasE2eMarker(gist.files)) {
+    const access = await assertCanReadE2eGist(context, gist.files);
+    if (!access.ok) {
+      throw new Error(access.message === GIST_LOCKED_MESSAGE ? GIST_LOCKED_MESSAGE : access.message);
+    }
+  }
+
   progress.report({ message: "Reading chat bundle..." });
   const bundleFile = gist.files?.[CHAT_BUNDLE_GIST_FILE_NAME] as GistFile | undefined;
   const collectionFile = gist.files?.[CHAT_BUNDLES_GIST_FILE_NAME] as GistFile | undefined;
 
   let resolved: { bundles: ChatBundle[]; pickerShown: boolean };
 
-  if (bundleFile && collectionFile) {
+  const bundleRaw = await readEncryptedOrPlainGistFile(
+    context,
+    gist.files ?? {},
+    token,
+    CHAT_BUNDLE_GIST_FILE_NAME,
+    bundleFile
+  );
+  const collectionRaw = await readEncryptedOrPlainGistFile(
+    context,
+    gist.files ?? {},
+    token,
+    CHAT_BUNDLES_GIST_FILE_NAME,
+    collectionFile
+  );
+
+  if (bundleRaw && collectionRaw) {
     throw new Error(
       "Gist contains both chat-bundle.json and chat-bundles.json. Remove one file so import knows which export to use."
     );
   }
 
-  if (bundleFile) {
-    const bundleRaw = await fetchGistFileContent(bundleFile, token);
+  if (bundleRaw) {
     resolved = await resolveChatBundlesFromGistContent(
       context,
       bundleRaw,
       "chat-bundle.json",
       false,
-      progress
+      progress,
+      gist.files,
+      CHAT_BUNDLE_GIST_FILE_NAME
     );
-  } else if (collectionFile) {
-    const collectionRaw = await fetchGistFileContent(collectionFile, token);
+  } else if (collectionRaw) {
     resolved = await resolveChatBundlesFromGistContent(
       context,
       collectionRaw,
       "chat-bundles.json",
       true,
-      progress
+      progress,
+      gist.files,
+      CHAT_BUNDLES_GIST_FILE_NAME
     );
   } else {
     if (gist.files?.[TRANSCRIPT_MANIFEST_FILE_NAME]) {
@@ -265,6 +300,32 @@ async function fetchGist(
     throw new Error(result.error?.message ?? `Failed to fetch Gist: ${status ?? 0}`);
   }
   return result.data as { files?: Record<string, { content?: string }> };
+}
+
+async function readEncryptedOrPlainGistFile(
+  context: vscode.ExtensionContext,
+  gistFiles: Record<string, { content?: string }>,
+  token: string,
+  logicalName: string,
+  plainFile?: GistFile
+): Promise<string | undefined> {
+  if (remoteGistHasE2eMarker(gistFiles)) {
+    const unlocked = await requireE2eUnlocked(context);
+    if (!unlocked.ok) {
+      throw new Error(GIST_LOCKED_MESSAGE);
+    }
+    return readLogicalFileFromGistMap(
+      unlocked.dek,
+      unlocked.userId,
+      unlocked.keyVersion,
+      gistFiles,
+      logicalName
+    );
+  }
+  if (!plainFile) {
+    return undefined;
+  }
+  return fetchGistFileContent(plainFile, token);
 }
 
 function extractGistId(input: string): string | null {

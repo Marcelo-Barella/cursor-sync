@@ -86,6 +86,26 @@ vi.mock("../src/retry.js", () => ({
   withRetry: withRetryMock,
 }));
 
+vi.mock("../src/e2e/gate.js", () => ({
+  requireE2eUnlocked: vi.fn(async () => ({
+    ok: true as const,
+    dek: Buffer.alloc(32, 4),
+    userId: "transcript-test-user",
+    keyVersion: 1,
+  })),
+}));
+
+vi.mock("../src/e2e/gist-bundle.js", () => ({
+  wrapGistFilesForUpload: vi.fn(
+    (_dek: Buffer, _userId: string, _keyVersion: number, logicalFiles: Record<string, { content: string }>) => ({
+      ...logicalFiles,
+      "cursor-sync-e2e.json": {
+        content: JSON.stringify({ format: "CSE1", keyVersion: 1 }),
+      },
+    })
+  ),
+}));
+
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({
     appendLine: appendLineMock,
