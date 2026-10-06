@@ -1,36 +1,3 @@
-/**
- * App storage sync decision table (single source of truth).
- *
- * Dimensions per sync key:
- * - Baseline: absent | present (tracked in baseline store)
- * - Local: present | provably_absent | skipped_unknown | untracked
- * - Remote: present_same | present_changed | absent
- *
- * Actions: push | pull | delete_remote | delete_local | conflict | noop | baseline_refresh
- * pullPreselected: manual pull overwrite picker default when action is pull
- *
- * | Baseline | Local            | Remote          | Action           | Pull preselected |
- * |----------|------------------|-----------------|------------------|------------------|
- * | absent   | present          | absent          | push             | n/a              |
- * | absent   | present          | present_same    | baseline_refresh | n/a              |
- * | absent   | present          | present_changed | conflict         | false            |
- * | absent   | provably_absent  | present_*       | pull             | true (absent)    |
- * | absent   | provably_absent  | absent          | noop             | n/a              |
- * | absent   | skipped/untracked| present_*       | noop             | false            |
- * | present  | present          | absent          | remote_delete    | n/a              |
- * | present  | present          | present_same    | noop             | n/a              |
- * | present  | present          | present_changed | pull             | true             |
- * | present  | provably_absent  | absent          | baseline_refresh | n/a              |
- * | present  | provably_absent  | present_same    | delete_remote    | n/a              |
- * | present  | provably_absent  | present_changed | conflict         | false            |
- * | present  | skipped/untracked| *               | noop             | false            |
- * | present  | untracked        | (local gone)    | baseline_refresh | n/a              |
- *
- * Scheduled pull: pull keys except skipped/untracked; absent-local uses safe-absent rule;
- * tracked remote-only change pulls even when local file is present on disk.
- * Push never uploads skipped/untracked keys. Deletes require provably_absent + deletesAllowed.
- */
-
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { baselineHasEntries, baselineKeyTracked } from "./app-storage-baseline.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";

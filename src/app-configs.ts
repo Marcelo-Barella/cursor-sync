@@ -542,9 +542,6 @@ export async function determineAppStorageSyncAction(
       deletions = [];
     }
     if (pushKeys.length === 0 && deletions.length === 0) {
-      if (localScan.unreadableKeys.size > 0) {
-        return { action: "none" };
-      }
       return { action: "none" };
     }
     return { action: "push", keys: pushKeys, deletions };
