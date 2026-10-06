@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 const ALLOWLIST = new Set(["src/paths.ts", "src/os-runtime.ts"]);
 const FORBIDDEN = new Set([
   "os",
@@ -20,7 +23,43 @@ const FORBIDDEN = new Set([
   "node:cluster",
 ]);
 
-export function assertBundleRuntimeImports(metafile) {
+export function assertBundleInputsUnderSrc(metafile, repoRoot) {
+  const srcRoot = path.resolve(repoRoot, "src");
+  const offenders = [];
+  for (const inputPath of Object.keys(metafile.inputs ?? {})) {
+    const normalized = inputPath.replace(/\\/g, "/");
+    if (normalized.includes("node_modules")) {
+      continue;
+    }
+    if (!normalized.startsWith("src/")) {
+      continue;
+    }
+    if (ALLOWLIST.has(normalized)) {
+      continue;
+    }
+    const abs = path.resolve(repoRoot, normalized);
+    let real;
+    try {
+      real = fs.realpathSync(abs);
+    } catch {
+      offenders.push(`${normalized}: cannot resolve realpath`);
+      continue;
+    }
+    if (real !== srcRoot && !real.startsWith(srcRoot + path.sep)) {
+      offenders.push(`${normalized}: realpath ${real} is outside ${srcRoot}`);
+    }
+  }
+  if (offenders.length > 0) {
+    const message =
+      "Bundle inputs must resolve under src/ (realpath):\n" + offenders.join("\n");
+    const err = new Error(message);
+    err.offenders = offenders;
+    throw err;
+  }
+}
+
+export function assertBundleRuntimeImports(metafile, repoRoot = process.cwd()) {
+  assertBundleInputsUnderSrc(metafile, repoRoot);
   const offenders = [];
   for (const [inputPath, input] of Object.entries(metafile.inputs ?? {})) {
     const normalized = inputPath.replace(/\\/g, "/");

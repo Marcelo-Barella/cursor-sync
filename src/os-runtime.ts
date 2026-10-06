@@ -8,6 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import { SubprocessCommandNotFoundError } from "./subprocess-errors.js";
+
 const execFilePromisified = promisify(execFileCallback);
 
 /** Subprocess executables the extension may invoke (basename). Documented in docs/app-storage-sync-decisions.md */
@@ -83,7 +85,10 @@ function pathEntriesFromEnv(): string[] {
   if (!raw) {
     return [];
   }
-  return raw.split(path.delimiter).filter((p) => p.length > 0);
+  return raw
+    .split(path.delimiter)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && path.isAbsolute(p));
 }
 
 function looksRelativeCommand(command: string): boolean {
@@ -131,7 +136,7 @@ export function resolveSubprocessCommand(command: string): string {
   if (path.isAbsolute(trimmed)) {
     const resolved = path.resolve(trimmed);
     if (!fs.existsSync(resolved)) {
-      throw new Error(`Subprocess command not found: ${command}`);
+      throw new SubprocessCommandNotFoundError(command);
     }
     const base = subprocessCommandBasename(resolved);
     if (!isAllowedSubprocessBasename(base)) {
@@ -142,7 +147,7 @@ export function resolveSubprocessCommand(command: string): string {
   const base = subprocessCommandBasename(trimmed);
   const resolved = resolveOnPath(base, pathEntriesFromEnv());
   if (!resolved) {
-    throw new Error(`Subprocess command not found on PATH: ${command}`);
+    throw new SubprocessCommandNotFoundError(command);
   }
   return resolved;
 }
@@ -167,7 +172,9 @@ function validateSubprocessCwd(cwd: string | URL | undefined): string | undefine
 type SafeExecFileOptions = Pick<
   ExecFileOptions,
   "cwd" | "maxBuffer" | "timeout" | "encoding"
->;
+> & {
+  input?: string | Buffer;
+};
 
 function safeExecOptions(options?: SafeExecFileOptions): ExecFileOptions {
   return {
@@ -178,6 +185,50 @@ function safeExecOptions(options?: SafeExecFileOptions): ExecFileOptions {
     shell: false,
     env: scrubbedSubprocessEnv(),
   };
+}
+
+export async function execFileWithStdinAsync(
+  file: string,
+  args: readonly string[],
+  stdin: string | Buffer,
+  options?: SafeExecFileOptions
+): Promise<{ stdout: string; stderr: string }> {
+  const resolved = resolveSubprocessCommand(file);
+  const safe = safeExecOptions(options);
+  return await new Promise((resolve, reject) => {
+    const proc = spawn(resolved, args, {
+      cwd: safe.cwd,
+      env: safe.env,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdoutAcc = "";
+    let stderrAcc = "";
+    proc.stdout?.setEncoding("utf8");
+    proc.stderr?.setEncoding("utf8");
+    proc.stdout?.on("data", (c) => {
+      stdoutAcc += String(c);
+    });
+    proc.stderr?.on("data", (c) => {
+      stderrAcc += String(c);
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout: stdoutAcc, stderr: stderrAcc });
+      } else {
+        reject(
+          Object.assign(new Error(`Command failed with exit code ${code ?? 1}`), {
+            code,
+            stdout: stdoutAcc,
+            stderr: stderrAcc,
+          })
+        );
+      }
+    });
+    proc.stdin?.write(stdin);
+    proc.stdin?.end();
+  });
 }
 
 /** @internal test hook for subprocess option hardening */
@@ -239,7 +290,11 @@ export function spawnSyncCapture(
   options?: { cwd?: string; encoding?: BufferEncoding }
 ): { status: number | null; stdout: string; stderr: string } {
   const resolved = resolveSubprocessCommand(command);
-  const res = spawnSync(resolved, args, {
+  const finalArgs =
+    subprocessCommandBasename(command) === "sqlite3"
+      ? sqlite3CliArgs(args)
+      : [...args];
+  const res = spawnSync(resolved, finalArgs, {
     cwd: validateSubprocessCwd(options?.cwd),
     encoding: options?.encoding ?? "utf-8",
     env: scrubbedSubprocessEnv(),

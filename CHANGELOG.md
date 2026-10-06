@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.24
+
+### Fixed
+- SQLite scripts: Python `executescript` with `enable_load_extension(False)`; no `.read` or unsafe `-safe` bypass; manifest SQL validated (dot-commands, ATTACH, load_extension, PRAGMA allowlist).
+- `SubprocessCommandNotFoundError` (ENOENT) restores Python fallback when `sqlite3` is missing on PATH.
+- Bundle guard: metafile inputs must `realpath` under `src/`; AST lexical scope for forbidden identifiers; expanded home-path rules; PATH skips relative/empty entries.
+
 ## v0.8.4-staging.23
 
 ### Fixed

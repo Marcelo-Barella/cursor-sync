@@ -31,7 +31,7 @@ describe("sync path hardcoding guard (AST)", () => {
   });
 
   it("rejects every Tester AST probe fixture", () => {
-    const skipAsSrcOnly = new Set(["f05.ts", "m14.ts"]);
+    const skipAsSrcOnly = new Set(["f05.ts", "g04-reexport.ts", "m14.ts"]);
     const files = fs
       .readdirSync(probeDir)
       .filter(
@@ -56,6 +56,14 @@ describe("sync path hardcoding guard (AST)", () => {
     const content = fs.readFileSync(path.join(probeDir, "f05.ts"), "utf8");
     const offenders = scanSourceText("src/_f05.ts", content, repoRoot);
     expect(offenders.some((o) => o.includes("outside src"))).toBe(true);
+  });
+
+  it("rejects g04 export-from outside src when scanned as src module", () => {
+    const content = fs.readFileSync(path.join(probeDir, "g04-reexport.ts"), "utf8");
+    const offenders = scanSourceText("src/_g04.ts", content, repoRoot);
+    expect(offenders.some((o) => o.includes("export-from") || o.includes("outside src"))).toBe(
+      true
+    );
   });
 
   it("allows false-positive-safe AST patterns in allowed fixtures", () => {

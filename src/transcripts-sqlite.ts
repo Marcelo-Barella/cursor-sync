@@ -2,11 +2,20 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
   execFileAsync,
-  isSqlite3SafeModeCliError,
+  execFileWithStdinAsync,
   isWin32Platform,
   sqlite3CliArgs,
+  subprocessCommandBasename,
   systemTmpDir,
 } from "./os-runtime.js";
+import {
+  isSubprocessCommandNotFoundError,
+  SubprocessCommandNotFoundError,
+} from "./subprocess-errors.js";
+import {
+  assertSafeSqlScript,
+  SQLITE_PYTHON_EXECUTESCRIPT,
+} from "./sqlite-script-safety.js";
 import { getComposerId } from "./composer-merge.js";
 import {
   globalStateVscdbPathsFromRoots,
@@ -194,56 +203,72 @@ export async function runSqliteQuery(
   try {
     return await execFileAsync("sqlite3", sqlite3CliArgs(["-json", dbPath, sql]), execOpts);
   } catch (error) {
-    if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
+    if (!isSqlite3UnavailableError(error)) {
       throw error;
     }
     return runPythonSqliteQuery(dbPath, sql, execOpts);
   }
 }
 
+/** True when the sqlite3 CLI cannot be invoked (missing, blocked, or unusable shim). */
+export function isSqlite3UnavailableError(error: unknown): boolean {
+  if (isCommandMissingError(error, "sqlite3") || isExecFileTimeoutError(error)) {
+    return true;
+  }
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (code === 127 || code === "ENOENT") {
+      return true;
+    }
+  }
+  if (error instanceof Error && /\bexit code 127\b/.test(error.message)) {
+    return true;
+  }
+  return false;
+}
+
 export async function runSqliteScript(dbPath: string, script: string): Promise<void> {
   const scriptWithBusy = `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};\n${script}`;
   const sanitized = scriptWithBusy.replace(/[\ud800-\udfff]/g, "\ufffd");
-  const tmpPath = path.join(systemTmpDir(), `cursor-sync-sql-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`);
-  await fs.writeFile(tmpPath, sanitized, "utf-8");
-  const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
-  try {
-    try {
-      await execFileAsync(
-        "sqlite3",
-        sqlite3CliArgs([dbPath, `.read ${tmpPath}`]),
-        execOpts
-      );
-      return;
-    } catch (error) {
-      if (isSqlite3SafeModeCliError(error)) {
-        await execFileAsync("sqlite3", [dbPath, `.read ${tmpPath}`], execOpts);
-        return;
-      }
-      if (!isCommandMissingError(error, "sqlite3") && !isExecFileTimeoutError(error)) {
-        throw error;
-      }
-      const pyScript = [
-        "import sqlite3, sys",
-        "db_path = sys.argv[1]",
-        "sql_path = sys.argv[2]",
-        "sql_script = open(sql_path, 'r', encoding='utf-8').read()",
-        `conn = sqlite3.connect(db_path, timeout=${Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000)})`,
-        "cur = conn.cursor()",
-        "cur.executescript(sql_script)",
-        "conn.commit()",
-        "conn.close()",
-      ].join(";");
-      const py = await resolvePythonInterpreterForSqlite();
-      const args = [...py.argvPrefix, "-c", pyScript, dbPath, tmpPath];
-      await execFileAsync(py.command, args, execOpts);
+  assertSafeSqlScript(sanitized);
+  const execOpts = {
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: SQLITE_SUBPROCESS_TIMEOUT_MS,
+  };
+  const py = await resolvePythonInterpreterForSqlite();
+  const timeoutSec = Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000);
+  const args = [
+    ...py.argvPrefix,
+    "-c",
+    SQLITE_PYTHON_EXECUTESCRIPT,
+    dbPath,
+    String(timeoutSec),
+  ];
+  await execFileWithStdinAsync(py.command, args, sanitized, execOpts);
+}
+
+/** Run SQL via sqlite3 CLI with -safe -bail and stdin (queries only; no dot-commands). */
+export async function runSqliteCliSafeStdin(
+  dbPath: string,
+  script: string
+): Promise<void> {
+  assertSafeSqlScript(script);
+  await execFileWithStdinAsync(
+    "sqlite3",
+    sqlite3CliArgs(["-bail", dbPath]),
+    script,
+    {
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: SQLITE_SUBPROCESS_TIMEOUT_MS,
     }
-  } finally {
-    await fs.unlink(tmpPath).catch(() => {});
-  }
+  );
 }
 
 export function isCommandMissingError(error: unknown, command: string): boolean {
+  if (error instanceof SubprocessCommandNotFoundError) {
+    const cmd = error.command;
+    return cmd === command || subprocessCommandBasename(cmd) === command;
+  }
   if (!(error instanceof Error)) {
     return false;
   }

@@ -72,7 +72,7 @@ Only these executables may be spawned via `execFileAsync`, `spawnSyncCapture`, o
 
 Commands are resolved to an absolute path on `PATH` from a minimal parent env (never cwd-relative). Caller options cannot override `shell`, `env`, or `argv0`; `shell` is always false. Child `env` is built from an allowlist only: `PATH`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TMPDIR`, `TEMP`, `TMP`, `SystemRoot`, `windir`, `COMSPEC`, `PATHEXT`, `SYSTEMDRIVE` (each justified in source).
 
-`sqlite3` invocations use `-safe` when the installed CLI supports it (disables `.shell` / `.system`); otherwise the extension logs and documents fallback.
+`sqlite3` CLI is used only for `-safe` JSON queries (`runSqliteQuery`). Multi-statement scripts use Python `sqlite3.executescript` on stdin with `enable_load_extension(False)` after `assertSafeSqlScript` (no `.read`, no unsafe CLI fallback). Manifest `pre_hydrate_sql` and `state_vscdb_sql` go through the same path.
 
 `cursorSync.chatImport.pythonPath` is **machine** scope only (workspace overrides ignored).
 

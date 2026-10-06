@@ -53,7 +53,9 @@ const BANNED_IMPORT_MODULES = new Set([
 const PATH_HELPER_IDENTIFIERS = new Set(["systemTmpDir"]);
 
 const HOME_PATH_LITERAL_RE =
-  /(^|[^a-z])\/home\/|\/Users\/|C:\\Users|~\/\.cursor|~\/(?![a-z])/i;
+  /(^|[^a-z])\/home\/|\/Users\/|C:\\Users|~\/Library\/|~\/AppData\/|\/root\/|~\/\.cursor|~\/(?![a-z])/i;
+
+const HOME_PATH_JOIN_FIRST_SEG = new Set(["/home", "/Users", "/root"]);
 
 function normalizeModuleSpecifier(text: string): string {
   return text.replace(/^node:/, "");
@@ -226,9 +228,6 @@ function isObjectLiteralKey(node: ts.Identifier): boolean {
   if (ts.isPropertyAssignment(parent) && parent.name === node) {
     return true;
   }
-  if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
-    return true;
-  }
   if (ts.isPropertySignature(parent) && parent.name === node) {
     return true;
   }
@@ -281,56 +280,120 @@ function isConstructorComparison(node: ts.PropertyAccessExpression): boolean {
   );
 }
 
-function hasLocalConstShadowBefore(
-  name: string,
-  sourceFile: ts.SourceFile,
-  beforePos: number
-): boolean {
-  let found = false;
-  const walk = (n: ts.Node): void => {
-    if (found || n.pos >= beforePos) {
-      return;
+function collectBindingNames(pattern: ts.BindingName, into: Set<string>): void {
+  if (ts.isIdentifier(pattern)) {
+    into.add(pattern.text);
+    return;
+  }
+  for (const el of pattern.elements) {
+    if (ts.isOmittedExpression(el)) {
+      continue;
     }
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === name
-    ) {
-      found = true;
-      return;
+    if (el.propertyName && ts.isIdentifier(el.propertyName)) {
+      continue;
     }
-    ts.forEachChild(n, walk);
-  };
-  walk(sourceFile);
-  return found;
+    collectBindingNames(el.name, into);
+  }
 }
 
-function isForbiddenIdentifierReference(
-  node: ts.Identifier,
-  sourceFile: ts.SourceFile
-): boolean {
-  if (!FORBIDDEN_IDENTIFIERS.has(node.text)) {
+function scanForbiddenIdentifiers(
+  sourceFile: ts.SourceFile,
+  rel: string,
+  offenders: string[]
+): void {
+  const scopes: Set<string>[] = [new Set()];
+
+  const isBound = (name: string): boolean => {
+    for (let i = scopes.length - 1; i >= 0; i--) {
+      if (scopes[i]!.has(name)) {
+        return true;
+      }
+    }
     return false;
-  }
-  if (isDeclarationName(node)) {
-    return false;
-  }
-  if (hasLocalConstShadowBefore(node.text, sourceFile, node.pos)) {
-    return false;
-  }
-  if (isTypePosition(node)) {
-    return false;
-  }
-  if (isObjectLiteralKey(node)) {
-    return false;
-  }
-  if (isPropertyNameInAccess(node)) {
-    return false;
-  }
-  if (node.text === "Reflect" && isReflectMemberAccess(node)) {
-    return false;
-  }
-  return true;
+  };
+
+  const declareInCurrent = (name: string): void => {
+    scopes[scopes.length - 1]!.add(name);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && FORBIDDEN_IDENTIFIERS.has(node.text)) {
+      if (
+        !isDeclarationName(node) &&
+        !isTypePosition(node) &&
+        !isObjectLiteralKey(node) &&
+        !isPropertyNameInAccess(node) &&
+        !(node.text === "Reflect" && isReflectMemberAccess(node)) &&
+        !isBound(node.text)
+      ) {
+        note(rel, offenders, `forbidden identifier ${node.text}`);
+      }
+    }
+
+    if (ts.isImportSpecifier(node) && ts.isIdentifier(node.name)) {
+      declareInCurrent(node.name.text);
+    }
+    if (ts.isImportClause(node) && node.name) {
+      declareInCurrent(node.name.text);
+    }
+
+    const pushScope = (): void => {
+      scopes.push(new Set());
+    };
+    const popScope = (): void => {
+      scopes.pop();
+    };
+
+    if (ts.isFunctionLike(node)) {
+      if (ts.isFunctionDeclaration(node) && node.name) {
+        declareInCurrent(node.name.text);
+      }
+      pushScope();
+      for (const param of node.parameters) {
+        collectBindingNames(param.name, scopes[scopes.length - 1]!);
+      }
+      ts.forEachChild(node, visit);
+      popScope();
+      return;
+    }
+
+    if (ts.isCatchClause(node)) {
+      pushScope();
+      if (node.variableDeclaration) {
+        collectBindingNames(node.variableDeclaration.name, scopes[scopes.length - 1]!);
+      }
+      ts.forEachChild(node, visit);
+      popScope();
+      return;
+    }
+
+    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      pushScope();
+      if (node.initializer && ts.isVariableDeclarationList(node.initializer)) {
+        for (const decl of node.initializer.declarations) {
+          collectBindingNames(decl.name, scopes[scopes.length - 1]!);
+        }
+      }
+      ts.forEachChild(node, visit);
+      popScope();
+      return;
+    }
+
+    if (ts.isBlock(node) || ts.isCaseBlock(node) || ts.isModuleBlock(node)) {
+      pushScope();
+      ts.forEachChild(node, visit);
+      popScope();
+      return;
+    }
+
+    if (ts.isVariableDeclaration(node)) {
+      collectBindingNames(node.name, scopes[scopes.length - 1]!);
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
 }
 
 function isDynamicImportOrRequire(node: ts.CallExpression): boolean {
@@ -410,9 +473,6 @@ export function visitAst(
   opts: { repoRoot: string; sourceFile: ts.SourceFile }
 ): void {
   const sourceFile = opts.sourceFile;
-  if (ts.isIdentifier(node) && isForbiddenIdentifierReference(node, sourceFile)) {
-    note(rel, offenders, `forbidden identifier ${node.text}`);
-  }
 
   if (
     isModuleTopLevelNode(node) &&
@@ -518,6 +578,27 @@ export function visitAst(
     }
   }
 
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.expression.getText() === "path" &&
+    node.expression.name.text === "join"
+  ) {
+    const first = node.arguments[0];
+    if (ts.isStringLiteral(first) && HOME_PATH_JOIN_FIRST_SEG.has(first.text)) {
+      note(rel, offenders, "forbidden path.join home segment");
+    }
+  }
+
+  if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+    const spec = node.moduleSpecifier;
+    if (ts.isStringLiteral(spec) && rel.startsWith("src/")) {
+      if (isImportOutsideSrc(spec.text, rel, opts.repoRoot)) {
+        note(rel, offenders, `export-from resolves outside src/: ${spec.text}`);
+      }
+    }
+  }
+
   if (ts.isCallExpression(node) && isDynamicImportOrRequire(node)) {
     const arg = node.arguments[0];
     if (!importArgIsStringLiteral(node)) {
@@ -569,8 +650,10 @@ export function scanSourceText(
     true,
     kind
   );
+  const root = repoRoot ?? process.cwd();
+  scanForbiddenIdentifiers(source, rel, offenders);
   visitAst(source, rel, offenders, {
-    repoRoot: repoRoot ?? process.cwd(),
+    repoRoot: root,
     sourceFile: source,
   });
   return offenders;

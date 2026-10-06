@@ -1,6 +1,6 @@
-// @ts-nocheck
-/* RequestInfo is DOM-only; tests use string URLs. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+type FetchInput = Parameters<typeof fetch>[0];
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -95,7 +95,7 @@ describe("push/pull debug wiring", () => {
   });
 
   it("calls showSyncFailureWithDebug on push gist create failure", async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
@@ -164,7 +164,7 @@ describe("push/pull debug wiring", () => {
   it("calls showSyncFailureWithDebug on pull getGist failure", async () => {
     const gistId = "abcdef1234567890abcdef1234567890";
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput) => {
       const url = String(input);
 
       if (url.endsWith(`/gists/${gistId}`)) {
@@ -240,6 +240,7 @@ describe("push/pull debug wiring", () => {
         relativeSyncKey: "cursor-user/settings.json",
         localChecksum: "local",
         remoteChecksum: "remote",
+        baseChecksum: "base",
       },
     ]);
     vi.spyOn(conflicts, "getResolutionForKey").mockReturnValue(undefined);
@@ -461,7 +462,7 @@ describe("sync now debug wiring", () => {
   it("does not duplicate debug toast when delegating to push failure", async () => {
     determineSyncActionMock.mockResolvedValue({ action: "push" });
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 

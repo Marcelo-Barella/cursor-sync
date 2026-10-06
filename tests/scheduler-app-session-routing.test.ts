@@ -71,11 +71,21 @@ describe("scheduler app session routing", () => {
     vi.spyOn(
       scheduler.scheduledAppStorageSyncActionResolver,
       "determineAppStorageSyncAction"
-    ).mockResolvedValue({ action: "push" });
+    ).mockResolvedValue({
+      action: "push",
+      keys: ["cursor-user/settings.json"],
+      deletions: ["dot-cursor/removed.md"],
+    });
 
     await scheduler.scheduledTick(mockContext());
 
-    expect(executePushMock).toHaveBeenCalled();
+    expect(executePushMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        trigger: "scheduled",
+        deletions: ["dot-cursor/removed.md"],
+      })
+    );
   });
 
   it("routes scheduled pull-push through executePull and executePush when app session is active", async () => {
@@ -85,7 +95,13 @@ describe("scheduler app session routing", () => {
     vi.spyOn(
       scheduler.scheduledAppStorageSyncActionResolver,
       "determineAppStorageSyncAction"
-    ).mockResolvedValue({ action: "pull-push" });
+    ).mockResolvedValue({
+      action: "pull-push",
+      pullKeys: [],
+      remoteDeletions: [],
+      pushKeys: ["cursor-user/settings.json"],
+      deletions: ["dot-cursor/removed.md"],
+    });
 
     await scheduler.scheduledTick(mockContext());
 
