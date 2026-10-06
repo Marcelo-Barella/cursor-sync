@@ -7,7 +7,6 @@ const NETWORK_ERRNO = new Set([
   "UND_ERR_CONNECT_TIMEOUT",
 ]);
 
-/** True when the server could not be reached (not HTTP 4xx/5xx from the API). */
 export function isTransientNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) {
     return true;

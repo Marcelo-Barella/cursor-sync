@@ -120,7 +120,6 @@ export async function invalidateKeysGateCache(
   }
 }
 
-/** After offline unlock, force the next gate check to re-fetch and verify keys online. */
 export async function markKeysCacheUnverifiedOffline(
   context: vscode.ExtensionContext
 ): Promise<void> {

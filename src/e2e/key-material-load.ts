@@ -22,7 +22,6 @@ export const OFFLINE_KEY_MATERIAL_MESSAGE =
 export const OFFLINE_UNLOCK_SUCCESS_LABEL = "Unlocked offline using cached keys";
 
 export type KeyMaterialLoadOptions = {
-  /** Only unlock may use persisted key material when the API is unreachable. */
   allowOfflineFallback?: boolean;
 };
 
@@ -34,7 +33,6 @@ export type KeyMaterialLoadResult =
     }
   | { ok: false; message: string };
 
-/** Force GET /v1/keys for crypto ops; optional disk cache only on true network failure (unlock only). */
 export async function loadKeyMaterialForCryptoOps(
   context: vscode.ExtensionContext,
   options?: KeyMaterialLoadOptions
