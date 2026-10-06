@@ -1,37 +1,3 @@
-/**
- * App storage sync decision table (single source of truth).
- *
- * Dimensions per sync key:
- * - Baseline: absent | present (tracked in baseline store)
- * - Local: present | provably_absent | absent_eligible (proven) | skipped_unknown | untracked
- * - Remote: absent | present_same | present_changed
- *
- * Actions: push | pull | delete_remote | delete_local | conflict | noop | baseline_refresh
- * pullPreselected: manual pull overwrite picker default when action is pull
- *
- * | Baseline | Local              | Remote          | Action           | Pull preselected |
- * |----------|--------------------|-----------------|------------------|------------------|
- * | absent   | present            | absent          | push             | n/a              |
- * | absent   | present            | present_same    | baseline_refresh | n/a              |
- * | absent   | present            | present_changed | conflict         | false            |
- * | absent   | absent_eligible    | present_*       | pull             | true             |
- * | absent   | provably_absent    | present_*       | pull             | true             |
- * | absent   | provably_absent    | absent          | noop             | n/a              |
- * | absent   | skipped/untracked  | present_*       | noop             | false            |
- * | present  | present            | present_same    | noop             | n/a              |
- * | present  | present            | present_changed | pull             | true             |
- * | present  | present            | absent          | delete_local     | n/a (threshold)  |
- * | present  | provably_absent    | absent          | baseline_refresh | n/a              |
- * | present  | provably_absent    | present_same    | delete_remote    | n/a              |
- * | present  | provably_absent    | present_changed | conflict         | false            |
- * | present  | skipped_unknown    | *               | noop             | false            |
- * | present  | untracked          | local gone      | baseline_refresh | prune baseline |
- *
- * absent_eligible is never inferred: only set after lstat proves ENOENT under an in-scope root.
- * Excluded/oversize/symlink/unreadable on disk are always skipped_unknown (never pulled).
- * Skipped_unknown keys never participate in conflicts or pending pulls.
- */
-
 import type { AppStorageBaseline } from "./app-storage-baseline.js";
 import { baselineHasEntries, baselineKeyTracked } from "./app-storage-baseline.js";
 import type { LocalConfigFileScan } from "./app-config-local-scan.js";

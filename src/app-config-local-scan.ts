@@ -23,7 +23,6 @@ export interface LocalConfigFileScan {
   provablyAbsentKeys: Set<string>;
   skippedUnknownKeys: Set<string>;
   untrackedKeys: Set<string>;
-  /** Proven via lstat ENOENT + readable parent; never inferred by default. */
   absentEligibleKeys: Set<string>;
   deletesAllowed: boolean;
   deleteBlockReason?: string;
@@ -220,7 +219,6 @@ export async function scanLocalAppConfigFiles(
           skippedUnknownKeys.add(key);
           unreadableKeys.add(key);
         } catch {
-          // excluded and absent
         }
       }
       continue;

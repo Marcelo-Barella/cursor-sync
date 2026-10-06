@@ -3,9 +3,7 @@ import type * as vscode from "vscode";
 const STORAGE_KEY = "appStorage.syncDeclines.v2";
 
 export interface SyncDeclineEntry {
-  /** Local checksum when user declined a pull overwrite; push blocked while unchanged. */
   pullOverwriteChecksum?: string;
-  /** User declined applying a remote-side delete locally; push must not re-upload. */
   keepLocalAgainstRemoteDelete?: boolean;
 }
 
