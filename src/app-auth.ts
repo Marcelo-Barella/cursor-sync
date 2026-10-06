@@ -393,7 +393,6 @@ export async function clearAppSession(
     // Clear in-memory session even when SecretStorage is unavailable or hung.
   }
   inMemoryAppSession = undefined;
-  const { refreshSyncCommandContextsAndStatusBar } = await import("./sync-context.js");
   void refreshSyncCommandContextsAndStatusBar(context);
 }
 
@@ -417,8 +416,6 @@ async function completeLoginWithCode(
     await setAppSession(context, token);
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
-    const { refreshSidebar } = await import("./sidebar/index.js");
-    const { refreshSyncCommandContextsAndStatusBar } = await import("./sync-context.js");
     refreshSidebar();
     void refreshSyncCommandContextsAndStatusBar(context);
     vscode.window.showInformationMessage("Logged in to Cursor Sync.");
