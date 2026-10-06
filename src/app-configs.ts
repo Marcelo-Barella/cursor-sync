@@ -478,6 +478,32 @@ function finalizeAppStorageSyncAction(
   return action;
 }
 
+function preferEmptyScanHoldOverBaselineRefresh(
+  action: AppStorageSyncAction,
+  scan: LocalConfigFileScan,
+  perFileHeldKeys: string[]
+): AppStorageSyncAction {
+  if (action.action !== "baseline_refresh") {
+    return action;
+  }
+  const held = finalizeAppStorageSyncAction(
+    { action: "none" },
+    scan,
+    perFileHeldKeys
+  );
+  if (held.action === "blocked") {
+    return held;
+  }
+  return action;
+}
+
+export async function clearScheduledRootHeldMarkers(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await context.globalState.update(ROOT_ENSURE_WARN_STATE_KEY, []);
+  await context.globalState.update(SCHEDULED_ROOT_HELD_HISTORY_KEY, undefined);
+}
+
 function collectPushDiskProbeKeys(input: {
   localManifestKeys: string[];
   baselineLocalKeys: string[];
@@ -619,7 +645,7 @@ function describePushSkipLabel(
 ): string {
   const reason = perFileHeldReasonForKey(syncKey, scan);
   if (reason === "symlink" && !trackedManifestKeys.has(syncKey)) {
-    return `${syncKey} (never-synced symlink)`;
+    return syncKey;
   }
   if (reason === "symlink") {
     return `${syncKey} (symlink)`;
@@ -787,6 +813,11 @@ export async function determineAppStorageSyncAction(
     classified,
     remoteChecksums
   );
+  const perFileHeldKeys = listPerFileHeldSyncKeys(
+    probedScan,
+    localChecksums,
+    remoteChecksums
+  );
 
   const trackedCountForBlock = baseline
     ? Object.keys(baseline.localChecksums).length
@@ -898,19 +929,27 @@ export async function determineAppStorageSyncAction(
     }
     if (pushKeys.length === 0 && deletions.length === 0) {
       if (classified.baselineRefreshKeys.length > 0) {
-        return { action: "baseline_refresh", keys: classified.baselineRefreshKeys };
+        return preferEmptyScanHoldOverBaselineRefresh(
+          { action: "baseline_refresh", keys: classified.baselineRefreshKeys },
+          probedScan,
+          perFileHeldKeys
+        );
       }
       return finalizeAppStorageSyncAction(
         { action: "none" },
         probedScan,
-        listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+        perFileHeldKeys
       );
     }
     return { action: "push", keys: pushKeys, deletions };
   }
 
   if (derived.action === "baseline_refresh") {
-    return { action: "baseline_refresh", keys: derived.keys };
+    return preferEmptyScanHoldOverBaselineRefresh(
+      { action: "baseline_refresh", keys: derived.keys },
+      probedScan,
+      perFileHeldKeys
+    );
   }
 
   if (derived.action === "conflict") {
@@ -990,7 +1029,7 @@ export async function determineAppStorageSyncAction(
       return finalizeAppStorageSyncAction(
         { action: "none" },
         probedScan,
-        listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+        perFileHeldKeys
       );
     }
     return {
@@ -1003,7 +1042,7 @@ export async function determineAppStorageSyncAction(
   return finalizeAppStorageSyncAction(
     { action: "none" },
     probedScan,
-    listPerFileHeldSyncKeys(probedScan, localChecksums, remoteChecksums)
+    perFileHeldKeys
   );
 }
 
@@ -1036,14 +1075,7 @@ export async function applyAppStorageBaselineRefresh(
     (key) =>
       localChecksums[key] === undefined && remoteChecksums[key] === undefined
   );
-  for (const key of localScan.untrackedKeys) {
-    if (!deletedKeys.includes(key)) {
-      deletedKeys.push(key);
-    }
-  }
-  const syncedKeys = keys.filter(
-    (key) => !deletedKeys.includes(key) && !localScan.untrackedKeys.has(key)
-  );
+  const syncedKeys = keys.filter((key) => !deletedKeys.includes(key));
   await updateAppStorageBaselineAfterSync(context, {
     accountKey,
     destination: "cursor-sync-storage",
@@ -1791,7 +1823,12 @@ export async function executePullAppConfigs(
       );
 
       if (!shouldAllowPullWriteForKey(syncKey, pullLocalScan)) {
-        if (remoteWouldChange) {
+        if (
+          localChecksum !== undefined &&
+          localChecksum === manifestEntry.checksum
+        ) {
+          reconciledKeys.push(syncKey);
+        } else if (remoteWouldChange) {
           pullRefusedKeys.push(syncKey);
           heldRemoteUpdateKeys.push(syncKey);
         }
@@ -2048,13 +2085,20 @@ export async function executePullAppConfigs(
         });
       }
       const emptyRemote = manifestKeys.length === 0;
-      const emptyMsg = emptyRemote && trigger === "manual"
-        ? `Pull from ${destinationLabel}: remote manifest is empty.`
-        : formatPullEmptyToast(destination);
-      if (emptyRemote && trigger === "manual") {
-        vscode.window.showWarningMessage(emptyMsg);
-      } else {
-        vscode.window.showInformationMessage(emptyMsg);
+      if (emptyRemote) {
+        const emptyMsg =
+          trigger === "manual"
+            ? `Pull from ${destinationLabel}: remote manifest is empty.`
+            : formatPullEmptyToast(destination);
+        if (trigger === "manual") {
+          vscode.window.showWarningMessage(emptyMsg);
+        } else {
+          vscode.window.showInformationMessage(emptyMsg);
+        }
+      } else if (trigger === "manual") {
+        vscode.window.showInformationMessage(
+          `Pull from ${destinationLabel}: up to date.`
+        );
       }
       logger.appendLine(
         `[${new Date().toISOString()}] Pull app configs succeeded: 0 files`
@@ -2125,6 +2169,16 @@ export async function executePullAppConfigs(
           writtenBackups.push(backup);
         }
       } catch (err) {
+        if (
+          err instanceof Error &&
+          err.message.includes("changed during write")
+        ) {
+          pullWriteSkipped.push(file.syncKey);
+          logger.appendLine(
+            `[${new Date().toISOString()}] Pull skipped changed during write ${file.syncKey}: ${err.message}`
+          );
+          continue;
+        }
         if (
           err instanceof Error &&
           (err.message.includes("Unsafe path") ||
@@ -2284,20 +2338,17 @@ export async function executePullAppConfigs(
       success: !pullPartial,
       partial: pullPartial,
       destination,
-      ...(pullPartial ? { error: partialToast } : {}),
+      ...(pullPartial
+        ? { error: partialToast }
+        : trigger === "scheduled" && totalPulled > 0
+          ? { error: `Pulled ${totalPulled} file(s) from storage` }
+          : {}),
     });
     if (pullPartial && !suppressScheduledPartialUi) {
       vscode.window.showWarningMessage(partialToast);
       const skipNotice = formatPullSkippedFilesNotice(pullLocalScan, pullSkippedKeys);
       if (skipNotice) {
         vscode.window.showWarningMessage(skipNotice);
-      }
-      if (rootEnsureFailures.length > 0) {
-        const roots = rootEnsureFailures.map((f) => f.rootPath).join(", ");
-        const detail = rootEnsureFailures[0]?.message ?? "";
-        vscode.window.showWarningMessage(
-          `Pull skipped sync root(s): ${roots}. ${detail}`
-        );
       }
     } else if (totalPulled > 0 && !pullPartial) {
       vscode.window.showInformationMessage(

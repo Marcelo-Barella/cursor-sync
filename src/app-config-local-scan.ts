@@ -168,7 +168,6 @@ export async function scanLocalAppConfigFiles(
       continue;
     }
     if (isSyncKeyExcludedByConfig(key, enumConfig)) {
-      untrackedKeys.add(key);
       excludedKeys.add(key);
       const absExcluded = syncKeyToAbsolutePath(key, roots);
       if (absExcluded) {
@@ -198,7 +197,6 @@ export async function scanLocalAppConfigFiles(
           ? 50 * 1024 * 1024
           : enumConfig.maxBytes;
         if (st.size > sizeLimit) {
-          untrackedKeys.add(key);
           oversizeKeys.add(key);
           skippedUnknownKeys.add(key);
           unreadableKeys.add(key);
@@ -314,9 +312,15 @@ export async function scanLocalAppConfigFiles(
     const enumeratedUserKeys = [...enumeratedKeys].filter(
       (k) => k !== GENERATED_EXTENSIONS_SYNC_KEY
     );
-    const trackedUserSeen = baselineUserKeys.some(
-      (k) => checksums[k] !== undefined || provablyAbsentKeys.has(k)
+    const inScopeBaselineKeys = baselineUserKeys.filter(
+      (k) => !excludedKeys.has(k) && !oversizeKeys.has(k)
     );
+    const trackedUserSeen =
+      inScopeBaselineKeys.length === 0
+        ? false
+        : inScopeBaselineKeys.some(
+            (k) => checksums[k] !== undefined || provablyAbsentKeys.has(k)
+          );
     if (
       baselineUserKeys.length > 0 &&
       (enumeratedUserKeys.length === 0 || !trackedUserSeen)

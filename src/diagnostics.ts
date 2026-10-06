@@ -36,7 +36,8 @@ export function formatStatusTimestamp(iso: string): string {
 function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
   const when = formatStatusTimestamp(entry.timestamp);
   if (entry.success) {
-    return `${when} — succeeded (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})`;
+    const summary = entry.error ? ` — ${entry.error}` : "";
+    return `${when} — succeeded (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})${summary}`;
   }
   return `${when} — failed${entry.error ? `: ${entry.error}` : ""}`;
 }

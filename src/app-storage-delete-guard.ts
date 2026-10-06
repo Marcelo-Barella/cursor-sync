@@ -152,7 +152,8 @@ export type PerFileHeldReason =
   | "oversize"
   | "symlink"
   | "under_symlinked_dir"
-  | "unsafe_path";
+  | "unsafe_path"
+  | "changed_during_write";
 
 function scanSet(scan: LocalConfigFileScan, key: keyof LocalConfigFileScan): Set<string> {
   const value = scan[key];
@@ -311,7 +312,9 @@ export function formatPullSkippedFilesNotice(
               ? "oversize"
               : reason === "unreadable"
                 ? "unreadable"
-                : "unsafe path";
+                : reason === "changed_during_write"
+                  ? "changed during write"
+                  : "unsafe path";
     return `Pull skipped 1 file (${label}): ${key}`;
   }
   const detail = formatPerFileSyncHeldNotice(scan, skippedKeys).replace(/^Sync held: /, "");

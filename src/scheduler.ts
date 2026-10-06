@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
 import {
   applyAppStorageBaselineRefresh,
+  clearScheduledRootHeldMarkers,
   determineAppStorageSyncAction,
   fetchAppConfigs,
   notifyAppStorageConflicts,
@@ -215,6 +216,7 @@ export async function scheduledTick(
 
     switch (result.action) {
       case "none":
+        await clearScheduledRootHeldMarkers(context);
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: already in sync, skipping`
         );
@@ -230,6 +232,7 @@ export async function scheduledTick(
             remote.updated_at
           );
         }
+        await clearScheduledRootHeldMarkers(context);
         break;
       }
 
@@ -237,7 +240,7 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: remote changes detected, pulling`
         );
-        await executePull(context, {
+        const pullOk = await executePull(context, {
           trigger: "scheduled",
           keys: "keys" in result ? (result.keys as string[]) : undefined,
           remoteDeletions:
@@ -245,6 +248,9 @@ export async function scheduledTick(
               ? (result.remoteDeletions as string[])
               : undefined,
         });
+        if (pullOk) {
+          await clearScheduledRootHeldMarkers(context);
+        }
         break;
       }
 
@@ -252,11 +258,14 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local changes detected, pushing`
         );
-        await executePush(context, {
+        const pushOk = await executePush(context, {
           trigger: "scheduled",
           keys: "keys" in result ? (result.keys as string[]) : undefined,
           deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
         });
+        if (pushOk) {
+          await clearScheduledRootHeldMarkers(context);
+        }
         break;
       }
 
@@ -275,12 +284,15 @@ export async function scheduledTick(
         if (!pullOk) {
           break;
         }
-        await executePush(context, {
+        const pushOk = await executePush(context, {
           trigger: "scheduled",
           keys: "pushKeys" in result ? (result.pushKeys as string[]) : undefined,
           deletions:
             "deletions" in result ? (result.deletions as string[]) : undefined,
         });
+        if (pullOk && pushOk) {
+          await clearScheduledRootHeldMarkers(context);
+        }
         break;
       }
 

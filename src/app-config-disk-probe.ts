@@ -148,14 +148,12 @@ function applyHeldHintsToScan(scan: LocalConfigFileScan, syncKey: string, hints:
       scan.excludedKeys = new Set();
     }
     scan.excludedKeys.add(syncKey);
-    scan.untrackedKeys.add(syncKey);
   }
   if (hints.oversize) {
     if (!scan.oversizeKeys) {
       scan.oversizeKeys = new Set();
     }
     scan.oversizeKeys.add(syncKey);
-    scan.untrackedKeys.add(syncKey);
   }
   if (hints.symlink) {
     if (!scan.symlinkKeys) {

@@ -319,7 +319,16 @@ export async function writeFileWithoutFollow(
     await handle.close();
     handle = undefined;
     if (options) {
-      await assertSafePullTarget(target, options.syncKey, options.resolved);
+      try {
+        await assertSafePullTarget(target, options.syncKey, options.resolved);
+      } catch (preRenameErr) {
+        if (tmpOpened) {
+          throw new Error(
+            `Sync path changed during write (${options.syncKey}): ${preRenameErr instanceof Error ? preRenameErr.message : String(preRenameErr)}`
+          );
+        }
+        throw preRenameErr;
+      }
     }
     await fs.rename(tmpPath, target);
   } catch (err) {

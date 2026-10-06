@@ -250,7 +250,7 @@ export async function runSqlitePythonExecutescriptUnchecked(
 
 export async function runSqliteScript(dbPath: string, script: string): Promise<void> {
   const scriptWithBusy = `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};\n${script}`;
-  const sanitized = scriptWithBusy.replace(/[\ud800-\udfff]/g, "\ufffd");
+  const sanitized = Buffer.from(scriptWithBusy, "utf8").toString("utf8");
   assertSafeSqlScript(sanitized);
   const execOpts = {
     maxBuffer: 64 * 1024 * 1024,
