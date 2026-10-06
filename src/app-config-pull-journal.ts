@@ -6,6 +6,7 @@ import type * as vscode from "vscode";
 import * as vscodeApi from "vscode";
 import { getLogger } from "./diagnostics.js";
 import type { ResolvedSyncRoots } from "./app-config-sync-path-safety.js";
+import { expectedBackupDirForJournal } from "./app-config-journal-validate.js";
 
 export interface PullJournalEntry {
   syncKey: string;
@@ -32,8 +33,11 @@ export interface PullJournal {
 }
 
 const JOURNALS_DIR = "app-config-pull-journals";
+const QUARANTINE_DIR = "app-config-pull-journals-quarantine";
+const DISMISSED_MISSING_BACKUP_KEY = "cursorSync.appConfigs.dismissedMissingBackupJournals";
 
 const corruptJournalIds = new Set<string>();
+let corruptWarningShown = false;
 
 export function getCorruptPullJournalIds(): ReadonlySet<string> {
   return corruptJournalIds;
@@ -41,6 +45,10 @@ export function getCorruptPullJournalIds(): ReadonlySet<string> {
 
 function journalsRoot(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, JOURNALS_DIR);
+}
+
+function quarantineRoot(context: vscode.ExtensionContext): string {
+  return path.join(context.globalStorageUri.fsPath, QUARANTINE_DIR);
 }
 
 export function newJournalId(): string {
@@ -120,9 +128,30 @@ async function readJournalFile(
   }
 }
 
+export async function scanCorruptPullJournals(context: vscode.ExtensionContext): Promise<void> {
+  const root = journalsRoot(context);
+  let files: string[];
+  try {
+    files = await fs.readdir(root);
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    if (!file.endsWith(".json")) {
+      continue;
+    }
+    const journalId = file.replace(/\.json$/, "");
+    const parsed = await readJournalFile(context, file);
+    if (parsed === "corrupt") {
+      corruptJournalIds.add(journalId);
+    }
+  }
+}
+
 export async function listIncompletePullJournals(
   context: vscode.ExtensionContext
 ): Promise<PullJournal[]> {
+  await scanCorruptPullJournals(context);
   const root = journalsRoot(context);
   let files: string[];
   try {
@@ -136,12 +165,11 @@ export async function listIncompletePullJournals(
       continue;
     }
     const journalId = file.replace(/\.json$/, "");
-    const parsed = await readJournalFile(context, file);
-    if (parsed === "corrupt") {
-      corruptJournalIds.add(journalId);
+    if (corruptJournalIds.has(journalId)) {
       continue;
     }
-    if (!parsed) {
+    const parsed = await readJournalFile(context, file);
+    if (parsed === "corrupt" || !parsed) {
       continue;
     }
     if (parsed.phase !== "complete") {
@@ -154,50 +182,130 @@ export async function listIncompletePullJournals(
 export async function collectJournalBackupDirs(
   context: vscode.ExtensionContext
 ): Promise<Set<string>> {
+  await scanCorruptPullJournals(context);
+  const dirs = new Set<string>();
   const journals = await listIncompletePullJournals(context);
-  const dirs = new Set(journals.map((j) => j.backupDir).filter(Boolean));
+  for (const journal of journals) {
+    dirs.add(expectedBackupDirForJournal(context, journal.id));
+    if (journal.backupDir) {
+      dirs.add(path.resolve(journal.backupDir));
+    }
+  }
   for (const id of corruptJournalIds) {
+    dirs.add(expectedBackupDirForJournal(context, id));
     const parsed = await readJournalFile(context, `${id}.json`);
     if (parsed && parsed !== "corrupt" && parsed.backupDir) {
-      dirs.add(parsed.backupDir);
+      dirs.add(path.resolve(parsed.backupDir));
     }
   }
   return dirs;
 }
 
 export async function warnCorruptPullJournals(context: vscode.ExtensionContext): Promise<void> {
-  if (corruptJournalIds.size === 0) {
+  await scanCorruptPullJournals(context);
+  if (corruptJournalIds.size === 0 || corruptWarningShown) {
     return;
   }
+  corruptWarningShown = true;
   vscodeApi.window.showWarningMessage(
     "Cursor Sync found a damaged app-config pull journal. Backups were kept; restart may retry restore."
   );
+}
+
+export async function quarantinePullJournal(
+  context: vscode.ExtensionContext,
+  journalId: string,
+  reason: string
+): Promise<void> {
+  const logger = getLogger();
+  corruptJournalIds.add(journalId);
+  const src = path.join(journalsRoot(context), `${journalId}.json`);
+  const destRoot = quarantineRoot(context);
+  await fs.mkdir(destRoot, { recursive: true });
+  const dest = path.join(destRoot, `${journalId}.json`);
+  try {
+    await fs.rename(src, dest);
+  } catch {
+    try {
+      await fs.copyFile(src, dest);
+      await fs.unlink(src);
+    } catch {
+      // keep id in corrupt set
+    }
+  }
+  logger.appendLine(
+    `[${new Date().toISOString()}] Quarantined pull journal ${journalId}: ${reason}`
+  );
+}
+
+function dismissedMissingBackupIds(context: vscode.ExtensionContext): Set<string> {
+  const raw = context.globalState.get<string[]>(DISMISSED_MISSING_BACKUP_KEY) ?? [];
+  return new Set(raw);
+}
+
+export async function dismissMissingBackupJournal(
+  context: vscode.ExtensionContext,
+  journalId: string
+): Promise<void> {
+  const set = dismissedMissingBackupIds(context);
+  set.add(journalId);
+  await context.globalState.update(DISMISSED_MISSING_BACKUP_KEY, [...set]);
+  await deletePullJournal(context, journalId);
 }
 
 export async function replayIncompletePullJournals(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
-  const { rollbackPullJournal } = await import("./app-config-pull-files.js");
+  await scanCorruptPullJournals(context);
   await warnCorruptPullJournals(context);
+  const { rollbackPullJournal } = await import("./app-config-pull-files.js");
+  const { validatePullJournalForReplay } = await import("./app-config-journal-validate.js");
   const journals = await listIncompletePullJournals(context);
+  const dismissed = dismissedMissingBackupIds(context);
+
   for (const journal of journals) {
+    const validation = await validatePullJournalForReplay(context, journal);
+    if (!validation.ok) {
+      await quarantinePullJournal(context, journal.id, validation.reason ?? "invalid");
+      continue;
+    }
+
     logger.appendLine(
       `[${new Date().toISOString()}] Replaying incomplete app config pull journal ${journal.id}`
     );
+    const backupDir = expectedBackupDirForJournal(context, journal.id);
     try {
-      await fs.access(journal.backupDir);
+      await fs.access(backupDir);
     } catch {
-      vscodeApi.window.showWarningMessage(
-        `Cursor Sync could not restore app config pull ${journal.id}: backup folder is missing.`
+      if (dismissed.has(journal.id)) {
+        continue;
+      }
+      const choice = await vscodeApi.window.showWarningMessage(
+        `Cursor Sync could not restore app config pull ${journal.id}: backup folder is missing.`,
+        "Dismiss",
+        "Keep"
       );
+      if (choice === "Dismiss") {
+        await dismissMissingBackupJournal(context, journal.id);
+      }
       continue;
     }
     journal.phase = "rollback";
     await writePullJournal(context, journal);
-    await rollbackPullJournal(context, journal);
-    journal.phase = "complete";
-    await writePullJournal(context, journal);
-    await deletePullJournal(context, journal.id);
+    try {
+      await rollbackPullJournal(context, journal);
+      journal.phase = "complete";
+      await writePullJournal(context, journal);
+      await deletePullJournal(context, journal.id);
+    } catch {
+      // journal retained
+    }
   }
+}
+
+/** Test-only */
+export function __resetPullJournalWarningsForTests(): void {
+  corruptJournalIds.clear();
+  corruptWarningShown = false;
 }

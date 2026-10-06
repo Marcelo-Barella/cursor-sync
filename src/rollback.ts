@@ -72,6 +72,13 @@ export async function rollbackFromBackup(entries: BackupEntry[]): Promise<void> 
   }
 }
 
+export async function collectProtectedBackupDirs(
+  context: vscode.ExtensionContext
+): Promise<Set<string>> {
+  const { collectJournalBackupDirs } = await import("./app-config-pull-journal.js");
+  return collectJournalBackupDirs(context);
+}
+
 export async function pruneOldBackups(
   context: vscode.ExtensionContext,
   options?: { protectedBackupDirs?: Set<string> }
@@ -87,10 +94,19 @@ export async function pruneOldBackups(
 
   dirs.sort();
 
-  const protectedDirs = options?.protectedBackupDirs ?? new Set<string>();
+  const journalProtected = await collectProtectedBackupDirs(context);
+  const protectedDirs = new Set<string>([
+    ...journalProtected,
+    ...(options?.protectedBackupDirs ?? []),
+  ]);
   const eligible = dirs.filter((dir) => {
-    const full = path.join(backupsRoot, dir);
-    return !protectedDirs.has(full);
+    const full = path.resolve(path.join(backupsRoot, dir));
+    for (const protectedDir of protectedDirs) {
+      if (full === path.resolve(protectedDir) || full.startsWith(path.resolve(protectedDir) + path.sep)) {
+        return false;
+      }
+    }
+    return true;
   });
 
   if (eligible.length <= MAX_BACKUPS) {

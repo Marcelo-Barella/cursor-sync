@@ -232,6 +232,7 @@ describe("app configs logout coordination", () => {
 
   it("7b: aborted pull shows one logout notice and rolls back partial writes", async () => {
     const ctx = await makeContext();
+    await fs.writeFile("/tmp/cursor-user-coord/a.json", "local-before", "utf-8");
     const checksum = (
       await import("../src/packaging.js")
     ).computeChecksum(Buffer.from("remote"));
@@ -278,6 +279,7 @@ describe("app configs logout coordination", () => {
 
     const ok = await executePullAppConfigs(ctx);
     expect(ok).toBe(false);
+    expect(await fs.readFile("/tmp/cursor-user-coord/a.json", "utf-8")).toBe("local-before");
     expect(
       showInformationMessageMock.mock.calls.some(
         (call) => call[0] === "Logged out, pull cancelled."

@@ -3,10 +3,21 @@ import * as fs from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import type * as vscode from "vscode";
+import * as vscodeApi from "vscode";
 import { computeChecksum } from "./packaging.js";
 import { getLogger } from "./diagnostics.js";
 import type { ResolvedSyncRoots } from "./app-config-sync-path-safety.js";
-import { assertContainedSyncPath } from "./app-config-sync-path-safety.js";
+import {
+  assertFinalPathMatchesHandle,
+  assertPathInodeSnapshotFresh,
+  capturePathInodeSnapshot,
+  closeDirChain,
+  inodeOfHandle,
+  openFileNoFollow,
+  openVerifiedDirChain,
+  PathVerificationError,
+  type PathInodeSnapshot,
+} from "./app-config-path-fd.js";
 import {
   deletePullJournal,
   newJournalId,
@@ -14,6 +25,11 @@ import {
   type PullJournal,
   type PullJournalEntry,
 } from "./app-config-pull-journal.js";
+import {
+  entryMatchesRemoteOrPrePull,
+  expectedBackupDirForJournal,
+  validatePullJournalForReplay,
+} from "./app-config-journal-validate.js";
 import { registerPullFinalize } from "./app-session-coordination.js";
 import type { AppConfigsRunHandle } from "./app-session-coordination.js";
 import { throwIfAppConfigsAborted } from "./app-session-coordination.js";
@@ -23,6 +39,11 @@ export interface PullWriteTarget {
   absolutePath: string;
   content: Buffer;
   expectedChecksum: string;
+}
+
+export interface PullWriteResult {
+  updated: number;
+  failed: string[];
 }
 
 function backupNameFor(syncKey: string, index: number): string {
@@ -54,22 +75,39 @@ async function readLinkOrFileChecksum(absolutePath: string): Promise<{
   return { kind: "file", checksum: computeChecksum(buf) };
 }
 
-async function backupExisting(
+async function backupExistingSafe(
   backupDir: string,
   absolutePath: string,
   syncKey: string,
-  index: number
+  index: number,
+  resolved: ResolvedSyncRoots
 ): Promise<PullJournalEntry | undefined> {
   if (!(await pathExists(absolutePath))) {
     return undefined;
   }
+  const snapshot = await capturePathInodeSnapshot(absolutePath, syncKey, resolved);
+  await assertPathInodeSnapshotFresh(snapshot);
   const existing = await readLinkOrFileChecksum(absolutePath);
   const backupPath = path.join(backupDir, backupNameFor(syncKey, index));
   if (existing.kind === "symlink" && existing.linkTarget !== undefined) {
     await fs.symlink(existing.linkTarget, backupPath);
   } else {
-    await fs.copyFile(absolutePath, backupPath);
-    const mode = (await fs.stat(absolutePath)).mode & 0o777;
+    const src = await openFileNoFollow(absolutePath, fsConstants.O_RDONLY);
+    try {
+      const data = await src.readFile();
+      const dest = await fs.open(
+        backupPath,
+        fsConstants.O_CREAT | fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW
+      );
+      try {
+        await dest.writeFile(data);
+      } finally {
+        await dest.close();
+      }
+    } finally {
+      await src.close();
+    }
+    const mode = (await fs.lstat(absolutePath)).mode & 0o777;
     await fs.chmod(backupPath, mode);
   }
   return {
@@ -83,17 +121,20 @@ async function backupExisting(
   };
 }
 
-async function writeUniqueTemp(dir: string): Promise<string> {
+async function writeUniqueTempInVerifiedParent(
+  parentDirPath: string,
+  snapshot: PathInodeSnapshot
+): Promise<{ tmpPath: string; handle: Awaited<ReturnType<typeof openFileNoFollow>> }> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const name = `.cursor-sync-pull-${randomBytes(6).toString("hex")}.tmp`;
-    const tmpPath = path.join(dir, name);
+    const tmpPath = path.join(parentDirPath, name);
     try {
+      await assertPathInodeSnapshotFresh(snapshot);
       const handle = await fs.open(
         tmpPath,
-        fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY
+        fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW
       );
-      await handle.close();
-      return tmpPath;
+      return { tmpPath, handle };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EEXIST") {
         continue;
@@ -104,26 +145,14 @@ async function writeUniqueTemp(dir: string): Promise<string> {
   throw new Error("Could not allocate unique temp file for pull write");
 }
 
-async function assertEntryContained(
-  entry: PullJournalEntry,
-  resolved?: ResolvedSyncRoots
-): Promise<void> {
-  if (!resolved) {
-    return;
-  }
-  await assertContainedSyncPath(entry.absolutePath, entry.syncKey, resolved);
-  if (entry.backupPath) {
-    const backupReal = await fs.realpath(entry.backupPath).catch(() => entry.backupPath!);
-    const backupDirReal = await fs.realpath(path.dirname(entry.backupPath));
-    if (!backupReal.startsWith(backupDirReal)) {
-      throw new Error(`Refusing backup path outside backup dir: ${entry.backupPath}`);
-    }
-  }
-}
-
 async function cleanupPullTempsAndEmptyDirs(entry: PullJournalEntry): Promise<void> {
   if (entry.tmpPath && (await pathExists(entry.tmpPath))) {
-    await fs.rm(entry.tmpPath, { force: true });
+    try {
+      const inode = await fs.lstat(entry.tmpPath);
+      await fs.unlink(entry.tmpPath);
+    } catch {
+      // ignore
+    }
   }
   if (entry.createdDirs) {
     for (const dir of [...entry.createdDirs].reverse()) {
@@ -144,18 +173,44 @@ export async function rollbackPullJournal(
   journal: PullJournal
 ): Promise<void> {
   const logger = getLogger();
-  const resolved = journal.resolvedRoots;
+  const validation = await validatePullJournalForReplay(context, journal);
+  if (!validation.ok) {
+    const { quarantinePullJournal } = await import("./app-config-pull-journal.js");
+    await quarantinePullJournal(context, journal.id, validation.reason ?? "invalid journal");
+    vscodeApi.window.showWarningMessage(
+      `Cursor Sync refused to replay pull journal ${journal.id}: ${validation.reason ?? "validation failed"}. Backups were kept.`
+    );
+    return;
+  }
+
+  const { resolveSyncRoots } = await import("./paths.js");
+  const { resolveSyncRootsRealpaths } = await import("./app-config-sync-path-safety.js");
+  const resolved = await resolveSyncRootsRealpaths(resolveSyncRoots());
+
   for (const entry of [...journal.entries].reverse()) {
     try {
-      await assertEntryContained(entry, resolved);
+      const snapshot = await capturePathInodeSnapshot(
+        entry.absolutePath,
+        entry.syncKey,
+        resolved
+      );
+      await assertPathInodeSnapshotFresh(snapshot);
+
       if (!entry.renameCompleted && entry.tmpPath) {
         await cleanupPullTempsAndEmptyDirs(entry);
       }
       if (entry.createdByPull) {
         if (await pathExists(entry.absolutePath)) {
           const current = await readLinkOrFileChecksum(entry.absolutePath);
-          if (entry.wroteChecksum && current.checksum === entry.wroteChecksum) {
+          if (
+            entry.wroteChecksum &&
+            entryMatchesRemoteOrPrePull(entry, current.checksum)
+          ) {
             await fs.rm(entry.absolutePath, { force: true });
+          } else if (!entryMatchesRemoteOrPrePull(entry, current.checksum)) {
+            logger.appendLine(
+              `[${new Date().toISOString()}] Pull rollback kept user-edited created file ${entry.absolutePath}`
+            );
           }
         }
         await cleanupPullTempsAndEmptyDirs(entry);
@@ -164,12 +219,23 @@ export async function rollbackPullJournal(
       if (!entry.backupPath) {
         continue;
       }
+      const backupExpected = path.join(
+        expectedBackupDirForJournal(context, journal.id),
+        path.basename(entry.backupPath)
+      );
+      if (path.resolve(entry.backupPath) !== path.resolve(backupExpected)) {
+        throw new PathVerificationError("backup path outside journal dir");
+      }
+
       const onDisk = await pathExists(entry.absolutePath);
-      if (onDisk && entry.wroteChecksum && entry.renameCompleted) {
+      if (onDisk) {
         const current = await readLinkOrFileChecksum(entry.absolutePath);
-        if (current.checksum !== entry.wroteChecksum) {
+        if (!entryMatchesRemoteOrPrePull(entry, current.checksum)) {
           logger.appendLine(
             `[${new Date().toISOString()}] Pull rollback skipped user-edited file ${entry.absolutePath}`
+          );
+          vscodeApi.window.showWarningMessage(
+            `Cursor Sync kept your changes to ${entry.syncKey} during pull restore.`
           );
           continue;
         }
@@ -178,14 +244,39 @@ export async function rollbackPullJournal(
         await fs.rm(entry.absolutePath, { force: true });
         await fs.symlink(entry.linkTarget, entry.absolutePath);
       } else if (entry.backupPath) {
-        await fs.copyFile(entry.backupPath, entry.absolutePath);
+        const src = await openFileNoFollow(entry.backupPath, fsConstants.O_RDONLY);
+        try {
+          const data = await src.readFile();
+          await assertPathInodeSnapshotFresh(snapshot);
+          const dest = await openFileNoFollow(
+            entry.absolutePath,
+            fsConstants.O_WRONLY | fsConstants.O_TRUNC
+          );
+          try {
+            await dest.writeFile(data);
+          } finally {
+            await dest.close();
+          }
+        } finally {
+          await src.close();
+        }
         if (entry.priorMode !== undefined) {
-          await fs.chmod(entry.absolutePath, entry.priorMode);
+          try {
+            await fs.chmod(entry.absolutePath, entry.priorMode);
+          } catch (err) {
+            logger.appendLine(
+              `[${new Date().toISOString()}] Pull rollback chmod skipped for ${entry.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
         }
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.appendLine(
-        `[${new Date().toISOString()}] Pull rollback failed for ${entry.absolutePath}: ${err instanceof Error ? err.message : String(err)}`
+        `[${new Date().toISOString()}] Pull rollback failed for ${entry.absolutePath}: ${message}`
+      );
+      vscodeApi.window.showWarningMessage(
+        `Cursor Sync could not fully restore ${entry.syncKey}: ${message}. The pull journal was kept.`
       );
     }
   }
@@ -196,17 +287,14 @@ export async function executeAppConfigPullWrites(
   run: AppConfigsRunHandle,
   targets: PullWriteTarget[],
   resolved: ResolvedSyncRoots
-): Promise<boolean> {
+): Promise<PullWriteResult> {
+  const failed: string[] = [];
   if (targets.length === 0) {
-    return true;
+    return { updated: 0, failed };
   }
 
   const journalId = newJournalId();
-  const backupDir = path.join(
-    context.globalStorageUri.fsPath,
-    "backups",
-    `app-config-pull-${journalId}`
-  );
+  const backupDir = expectedBackupDirForJournal(context, journalId);
   await fs.mkdir(backupDir, { recursive: true });
 
   const journal: PullJournal = {
@@ -219,82 +307,117 @@ export async function executeAppConfigPullWrites(
   };
   await writePullJournal(context, journal);
 
+  let updated = 0;
   try {
     let index = 0;
     for (const target of targets) {
       throwIfAppConfigsAborted(run);
-      await assertContainedSyncPath(target.absolutePath, target.syncKey, resolved);
+      try {
+        const chain = await openVerifiedDirChain(target.absolutePath, target.syncKey, resolved);
 
-      const backupEntry = await backupExisting(
-        backupDir,
-        target.absolutePath,
-        target.syncKey,
-        index
-      );
-      index += 1;
+        const backupEntry = await backupExistingSafe(
+          backupDir,
+          target.absolutePath,
+          target.syncKey,
+          index,
+          resolved
+        );
+        index += 1;
 
-      const existedBefore = await pathExists(target.absolutePath);
-      const createdByPull = !existedBefore;
-      let priorMode: number | undefined;
-      if (existedBefore) {
-        const st = await fs.lstat(target.absolutePath);
-        if (st.isFile()) {
-          priorMode = st.mode & 0o777;
+        const existedBefore = await pathExists(target.absolutePath);
+        const createdByPull = !existedBefore;
+        let priorMode: number | undefined;
+        if (existedBefore) {
+          const st = await fs.lstat(target.absolutePath);
+          if (st.isFile()) {
+            priorMode = st.mode & 0o777;
+          }
+        }
+
+        const createdDirs: string[] = [];
+        if (!(await pathExists(chain.parentDirPath))) {
+          await fs.mkdir(chain.parentDirPath, { recursive: true });
+          createdDirs.push(chain.parentDirPath);
+        }
+
+        const { tmpPath, handle: tmpHandle } = await writeUniqueTempInVerifiedParent(
+          chain.parentDirPath,
+          chain.snapshot
+        );
+        try {
+          await tmpHandle.writeFile(target.content);
+          await tmpHandle.sync();
+        } finally {
+          await tmpHandle.close();
+        }
+
+        const wroteChecksum = computeChecksum(target.content);
+        const pendingEntry: PullJournalEntry = {
+          syncKey: target.syncKey,
+          absolutePath: target.absolutePath,
+          backupPath: backupEntry?.backupPath,
+          createdByPull,
+          expectedChecksum: target.expectedChecksum,
+          kind: backupEntry?.kind ?? "file",
+          linkTarget: backupEntry?.linkTarget,
+          wroteChecksum,
+          tmpPath,
+          renameCompleted: false,
+          priorMode,
+          createdDirs: createdDirs.length > 0 ? createdDirs : undefined,
+        };
+        journal.entries.push(pendingEntry);
+        await writePullJournal(context, journal);
+
+        await assertPathInodeSnapshotFresh(chain.snapshot);
+        await fs.rename(tmpPath, target.absolutePath);
+        const finalHandle = await openFileNoFollow(target.absolutePath, fsConstants.O_RDONLY);
+        try {
+          await assertFinalPathMatchesHandle(finalHandle, target.absolutePath);
+        } finally {
+          await finalHandle.close();
+        }
+        if (priorMode !== undefined) {
+          await fs.chmod(target.absolutePath, priorMode);
+        }
+        pendingEntry.renameCompleted = true;
+        pendingEntry.tmpPath = undefined;
+        await writePullJournal(context, journal);
+        updated += 1;
+        await closeDirChain(chain);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        failed.push(`${target.syncKey}: ${reason}`);
+        if (err instanceof PathVerificationError) {
+          // best-effort cleanup of tmp if we can match inode
         }
       }
+    }
 
-      const dir = path.dirname(target.absolutePath);
-      const createdDirs: string[] = [];
-      if (!(await pathExists(dir))) {
-        await fs.mkdir(dir, { recursive: true });
-        createdDirs.push(dir);
-      }
-      await assertContainedSyncPath(target.absolutePath, target.syncKey, resolved);
-
-      const tmpPath = await writeUniqueTemp(dir);
-      await fs.writeFile(tmpPath, target.content);
-      const wroteChecksum = computeChecksum(target.content);
-
-      const pendingEntry: PullJournalEntry = {
-        syncKey: target.syncKey,
-        absolutePath: target.absolutePath,
-        backupPath: backupEntry?.backupPath,
-        createdByPull,
-        expectedChecksum: target.expectedChecksum,
-        kind: backupEntry?.kind ?? "file",
-        linkTarget: backupEntry?.linkTarget,
-        wroteChecksum,
-        tmpPath,
-        renameCompleted: false,
-        priorMode,
-        createdDirs: createdDirs.length > 0 ? createdDirs : undefined,
-      };
-      journal.entries.push(pendingEntry);
-      await writePullJournal(context, journal);
-
-      await assertContainedSyncPath(target.absolutePath, target.syncKey, resolved);
-      await fs.rename(tmpPath, target.absolutePath);
-      if (priorMode !== undefined) {
-        await fs.chmod(target.absolutePath, priorMode);
-      }
-      pendingEntry.renameCompleted = true;
-      pendingEntry.tmpPath = undefined;
-      await writePullJournal(context, journal);
+    if (failed.length > 0) {
+      throw new Error(`Pull write failed for ${failed.length} file(s)`);
     }
 
     journal.phase = "complete";
     await writePullJournal(context, journal);
     await deletePullJournal(context, journal.id);
-    return true;
+    return { updated, failed };
   } catch (err) {
     journal.phase = "rollback";
     await writePullJournal(context, journal);
     const finalize = rollbackPullJournal(context, journal);
     registerPullFinalize(finalize);
-    await finalize;
-    journal.phase = "complete";
-    await writePullJournal(context, journal);
-    await deletePullJournal(context, journal.id);
+    let rollbackOk = true;
+    try {
+      await finalize;
+    } catch {
+      rollbackOk = false;
+    }
+    if (rollbackOk) {
+      journal.phase = "complete";
+      await writePullJournal(context, journal);
+      await deletePullJournal(context, journal.id);
+    }
     throw err;
   }
 }

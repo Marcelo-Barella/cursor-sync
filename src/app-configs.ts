@@ -165,6 +165,11 @@ async function putAppConfigsWithSession(
       ) {
         throw new AppConfigsAbortedError("logout");
       }
+      if (isAbortLikeError(err) && !run?.signal.aborted) {
+        throw new Error(
+          `Push app configs timed out waiting for config PUT (${PUT_CONFIGS_TIMEOUT_MS / 1000}s)`
+        );
+      }
       throw err;
     }
 
@@ -528,7 +533,15 @@ export async function executePushAppConfigs(
         encoding === "base64"
           ? Buffer.from(file.content, "base64")
           : Buffer.from(file.content, "utf-8");
-      await putR2Object(credentials, syncKey, body);
+      const remoteEntry = remoteBaseline?.manifest.files[syncKey];
+      if (
+        remoteEntry &&
+        remoteEntry.checksum === manifestEntry.checksum &&
+        remoteEntry.sizeBytes === manifestEntry.sizeBytes
+      ) {
+        continue;
+      }
+      await putR2Object(credentials, syncKey, body, { signal: run.signal });
       uploadedKeys.push(syncKey);
     }
 
@@ -652,6 +665,9 @@ export async function executePullAppConfigs(
         logger.appendLine(
           `[${new Date().toISOString()}] Pull skipped held external symlink: ${syncKey}`
         );
+        vscode.window.showWarningMessage(
+          `Skipped ${syncKey}: symlink points outside the sync root (held as-is).`
+        );
         continue;
       }
 
@@ -713,22 +729,29 @@ export async function executePullAppConfigs(
       return true;
     }
 
-    await executeAppConfigPullWrites(context, run, pullTargets, resolved);
+    const writeResult = await executeAppConfigPullWrites(context, run, pullTargets, resolved);
 
     const protectedDirs = await collectJournalBackupDirs(context);
     await pruneOldBackups(context, { protectedBackupDirs: protectedDirs });
 
+    if (writeResult.failed.length > 0) {
+      vscode.window.showWarningMessage(
+        `Pull app configs failed for ${writeResult.failed.length} file(s); see the log for details.`
+      );
+      return false;
+    }
+
     if (skippedTotal > 0) {
       vscode.window.showWarningMessage(
-        `Pull app configs updated ${pullTargets.length} file(s); ${skippedTotal} file(s) skipped: remote checksum mismatch or held symlink.`
+        `Pull app configs updated ${writeResult.updated} file(s); ${skippedTotal} file(s) skipped: remote checksum mismatch or held symlink.`
       );
     } else {
       vscode.window.showInformationMessage(
-        `Pull app configs complete: ${pullTargets.length} file(s) updated.`
+        `Pull app configs complete: ${writeResult.updated} file(s) updated.`
       );
     }
     logger.appendLine(
-      `[${new Date().toISOString()}] Pull app configs succeeded: ${pullTargets.length} files`
+      `[${new Date().toISOString()}] Pull app configs succeeded: ${writeResult.updated} files`
     );
     return true;
   } catch (err) {

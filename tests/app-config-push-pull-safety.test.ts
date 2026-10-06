@@ -1,5 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+const mockRoots = vi.hoisted(() => ({ cursorUser: "", dotCursor: "" }));
+
+vi.mock("../src/paths.js", () => ({
+  resolveSyncRoots: () => ({
+    cursorUser: mockRoots.cursorUser || "/tmp/cursor-sync-pull-fallback-user",
+    dotCursor: mockRoots.dotCursor || "/tmp/cursor-sync-pull-fallback-dot",
+  }),
+  enumerateSyncFiles: async () => [],
+}));
+
 vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({
@@ -116,15 +126,21 @@ describe("pull journal replay", () => {
 
   it("replays incomplete journal on startup", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-journal-"));
-    const target = path.join(dir, "settings.json");
+    const cursorUser = path.join(dir, "cursor-user");
+    await fs.mkdir(cursorUser, { recursive: true });
+    mockRoots.cursorUser = cursorUser;
+    mockRoots.dotCursor = path.join(dir, "dot-cursor");
+    const target = path.join(cursorUser, "settings.json");
     await fs.writeFile(target, "new-content", "utf-8");
-    const backupDir = path.join(dir, "backup");
+    const journalId = "abcd1234567890ab";
+    const storage = path.join(dir, "storage");
+    const backupDir = path.join(storage, "backups", `app-config-pull-${journalId}`);
     await fs.mkdir(backupDir, { recursive: true });
-    const backupPath = path.join(backupDir, "settings.backup");
+    const backupPath = path.join(backupDir, `${computeChecksum(Buffer.from("x"))}.backup`);
     await fs.writeFile(backupPath, "old-content", "utf-8");
 
     const ctx = {
-      globalStorageUri: { fsPath: path.join(dir, "storage") },
+      globalStorageUri: { fsPath: storage },
       globalState: { get: () => undefined, update: async () => {} },
     } as never;
 
@@ -132,7 +148,7 @@ describe("pull journal replay", () => {
       "../src/app-config-pull-journal.js"
     );
     await writePullJournal(ctx, {
-      id: "journal1",
+      id: journalId,
       startedAt: new Date().toISOString(),
       backupDir,
       phase: "writing",
@@ -145,6 +161,7 @@ describe("pull journal replay", () => {
           expectedChecksum: computeChecksum(Buffer.from("old-content")),
           kind: "file",
           wroteChecksum: computeChecksum(Buffer.from("new-content")),
+          renameCompleted: true,
         },
       ],
     });
@@ -169,11 +186,14 @@ describe("executeAppConfigPullWrites safety", () => {
       globalStorageUri: { fsPath: storage },
       globalState: { get: () => undefined, update: async () => {} },
     } as never;
+    mockRoots.cursorUser = cursorUser;
+    mockRoots.dotCursor = path.join(root, "dot-cursor");
+    await fs.mkdir(mockRoots.dotCursor, { recursive: true });
     const resolved = {
       cursorUser,
-      dotCursor: path.join(root, "dot-cursor"),
+      dotCursor: mockRoots.dotCursor,
       cursorUserReal: await fs.realpath(cursorUser),
-      dotCursorReal: path.join(root, "dot-cursor"),
+      dotCursorReal: await fs.realpath(mockRoots.dotCursor),
     };
     const { beginAppConfigsRun } = await import("../src/app-session-coordination.js");
     const run = beginAppConfigsRun("pull");
@@ -339,13 +359,20 @@ describe("executeAppConfigPullWrites safety", () => {
 
   it("removes only files created by the pull on abort rollback", async () => {
     const { cursorUser, ctx } = await makePullFixture();
+    const journalId = "cafebabedeadbeef";
+    const backupDir = path.join(
+      ctx.globalStorageUri.fsPath,
+      "backups",
+      `app-config-pull-${journalId}`
+    );
+    await fs.mkdir(backupDir, { recursive: true });
     const created = path.join(cursorUser, "new-from-pull.json");
     await fs.writeFile(created, "new", "utf-8");
     const { rollbackPullJournal } = await import("../src/app-config-pull-files.js");
     await rollbackPullJournal(ctx, {
-      id: "created",
+      id: journalId,
       startedAt: new Date().toISOString(),
-      backupDir: path.join(ctx.globalStorageUri.fsPath, "backups", "created"),
+      backupDir,
       phase: "rollback",
       entries: [
         {
@@ -355,6 +382,7 @@ describe("executeAppConfigPullWrites safety", () => {
           expectedChecksum: "",
           kind: "file",
           wroteChecksum: computeChecksum(Buffer.from("new", "utf-8")),
+          renameCompleted: true,
         },
       ],
     });

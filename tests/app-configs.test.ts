@@ -343,7 +343,8 @@ describe("app-configs R2 sync", () => {
     expect(putR2ObjectMock).toHaveBeenCalledWith(
       expect.objectContaining({ prefix: "users/user-1/" }),
       "cursor-user/settings.json",
-      Buffer.from('{"x":1}')
+      Buffer.from('{"x":1}'),
+      expect.objectContaining({ signal: expect.anything() })
     );
     const putCall = fetchMock.mock.calls.find(
       (call) => call[1]?.method === "PUT"

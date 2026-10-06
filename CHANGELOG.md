@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.11-logout
+
+### Fixed
+- Pull path TOCTOU hardening (dev/ino verified dir walk, O_NOFOLLOW opens, journal validation/quarantine).
+- Logout drain 120s prompt races in-flight work; R2 fetch abort signals; keyring clear bounded with retry on activate.
+- Corrupt/missing pull journal warnings, backup dir protection on all pruners, dismissible missing-backup prompts.
+
 ## v0.8.4-staging.10-logout
 
 ### Fixed

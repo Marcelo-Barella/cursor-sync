@@ -7,6 +7,7 @@ let sessionEpoch = 0;
 let loggingOut = false;
 let logoutInProgress: Promise<void> | undefined;
 let logoutProgress: vscode.Progress<{ message?: string }> | undefined;
+let logoutForceProceed = false;
 
 type AppConfigsRunType = "push" | "pull";
 
@@ -27,6 +28,9 @@ export function registerPullFinalize(promise: Promise<void>): void {
   void promise.finally(() => {
     if (pendingPullFinalize === promise) {
       pendingPullFinalize = undefined;
+      if (loggingOut) {
+        reportLogoutProgress("Finishing logout…");
+      }
     }
   });
 }
@@ -69,6 +73,9 @@ export function setLogoutInProgress(promise: Promise<void> | undefined): void {
 
 export function setLoggingOut(value: boolean): void {
   loggingOut = value;
+  if (!value) {
+    logoutForceProceed = false;
+  }
 }
 
 export function reportLogoutProgress(message: string): void {
@@ -106,6 +113,16 @@ export function bumpSessionEpoch(): void {
   if (activeAppConfigsRun) {
     activeAppConfigsRun.logoutAbort = true;
     activeAppConfigsRun.abortController.abort("logout");
+  }
+}
+
+export function forceReleaseActiveAppConfigsRunForLogout(): void {
+  logoutForceProceed = true;
+  if (activeAppConfigsRun) {
+    activeAppConfigsRun.logoutAbort = true;
+    activeAppConfigsRun.abortController.abort("logout");
+    activeAppConfigsRun.resolveDone();
+    activeAppConfigsRun = undefined;
   }
 }
 
@@ -148,63 +165,75 @@ export function throwIfAppConfigsAborted(run: AppConfigsRunHandle): void {
   }
 }
 
+function workStillPending(): boolean {
+  return !!(activeAppConfigsRun || pendingPullFinalize);
+}
+
 async function waitForActiveRunToFinish(): Promise<void> {
   if (!activeAppConfigsRun) {
+    return;
+  }
+  if (logoutForceProceed) {
     return;
   }
   await activeAppConfigsRun.done;
 }
 
 async function waitForPullFinalize(): Promise<void> {
-  if (!pendingPullFinalize) {
+  if (!pendingPullFinalize || logoutForceProceed) {
     return;
   }
   await pendingPullFinalize;
 }
 
-export async function waitForAppConfigsLogoutDrain(
-  options?: { force?: boolean }
-): Promise<void> {
+export async function waitForAppConfigsLogoutDrain(): Promise<void> {
   if (activeAppConfigsRun) {
     activeAppConfigsRun.logoutAbort = true;
     activeAppConfigsRun.abortController.abort("logout");
   }
   reportLogoutProgress("Stopping sync…");
   await waitForActiveRunToFinish();
-  reportLogoutProgress("Restoring files…");
-  await waitForPullFinalize();
-  if (options?.force) {
-    return;
+  if (pendingPullFinalize) {
+    reportLogoutProgress("Restoring files…");
   }
+  await waitForPullFinalize();
 }
 
 export async function abortAppConfigsForLogout(): Promise<void> {
   const started = Date.now();
-  await waitForAppConfigsLogoutDrain();
-  while (Date.now() - started < LOGOUT_FORCE_PROMPT_MS) {
-    if (!activeAppConfigsRun && !pendingPullFinalize) {
+  let prompted = false;
+
+  while (workStillPending()) {
+    const elapsed = Date.now() - started;
+    const drainPromise = waitForAppConfigsLogoutDrain();
+    const winner = await Promise.race([
+      drainPromise.then(() => "drained" as const),
+      new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), Math.max(0, LOGOUT_FORCE_PROMPT_MS - elapsed))
+      ),
+    ]);
+
+    if (!workStillPending()) {
       return;
     }
-    await waitForAppConfigsLogoutDrain();
-    if (!activeAppConfigsRun && !pendingPullFinalize) {
-      return;
+
+    if (winner === "timeout" && !prompted) {
+      prompted = true;
+      const choice = await vscode.window.showWarningMessage(
+        "Logout is still waiting for app config sync to finish. You can wait for restore to complete or log out now; any incomplete restore will finish on the next start.",
+        { modal: true },
+        "Log out anyway",
+        "Keep waiting"
+      );
+      if (choice === "Log out anyway") {
+        forceReleaseActiveAppConfigsRunForLogout();
+        await waitForPullFinalize();
+        return;
+      }
+      continue;
     }
+
     await new Promise<void>((resolve) => setTimeout(resolve, 250));
-  }
-  const choice = await vscode.window.showWarningMessage(
-    "Logout is still waiting for app config files to finish restoring. Logging out now may leave some files half-updated.",
-    { modal: true },
-    "Log out anyway",
-    "Keep waiting"
-  );
-  if (choice === "Log out anyway") {
-    await waitForAppConfigsLogoutDrain({ force: true });
-    return;
-  }
-  while (activeAppConfigsRun || pendingPullFinalize) {
-    reportLogoutProgress("Restoring files…");
-    await waitForAppConfigsLogoutDrain();
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
   }
 }
 
@@ -213,6 +242,7 @@ export function __resetAppSessionCoordinationForTests(): void {
   loggingOut = false;
   logoutInProgress = undefined;
   logoutProgress = undefined;
+  logoutForceProceed = false;
   sessionEpoch = 0;
   activeAppConfigsRun = undefined;
   pendingPullFinalize = undefined;

@@ -308,7 +308,7 @@ describe("app-configs push abort and errors", () => {
     };
     const putPromise = putAppConfigs(makeContext(), payload);
     await Promise.all([
-      expect(putPromise).rejects.toThrow(/abort/i),
+      expect(putPromise).rejects.toThrow(/timed out waiting for config PUT/i),
       vi.advanceTimersByTimeAsync(16_000),
     ]);
     vi.useRealTimers();

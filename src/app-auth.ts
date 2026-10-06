@@ -7,6 +7,8 @@ export { getAppApiUrl } from "./config/urls.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
+const LOGOUT_SECRET_STORAGE_TIMEOUT_MS = 10_000;
+export const PENDING_SECRET_CLEAR_KEY = "cursorSync.appSession.pendingSecretClear";
 
 class SecretStorageTimeoutError extends Error {
   constructor() {
@@ -418,23 +420,57 @@ export async function clearAppSession(
   }
 }
 
-/** Logout path: await SecretStorage without a short timeout (keyring prompts). */
+/** Logout path: bounded wait; on timeout clear local session and retry delete on next activation. */
 export async function clearAppSessionForLogout(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
   try {
-    const stored = await awaitSecretStorage(context.secrets.get(APP_SESSION_SECRET));
+    const stored = await withSecretStorageTimeout(
+      context.secrets.get(APP_SESSION_SECRET),
+      LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+    );
     if (stored) {
-      await awaitSecretStorage(context.secrets.delete(APP_SESSION_SECRET));
-      const stillStored = await awaitSecretStorage(context.secrets.get(APP_SESSION_SECRET));
+      try {
+        await withSecretStorageTimeout(
+          context.secrets.delete(APP_SESSION_SECRET),
+          LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+        );
+      } catch (err) {
+        if (err instanceof SecretStorageTimeoutError) {
+          inMemoryAppSession = undefined;
+          await context.globalState.update(PENDING_SECRET_CLEAR_KEY, true);
+          vscode.window.showWarningMessage(
+            "Cursor Sync cleared your session locally, but secure storage is still busy. It will retry clearing the saved login on the next start."
+          );
+          return true;
+        }
+        throw err;
+      }
+      const stillStored = await withSecretStorageTimeout(
+        context.secrets.get(APP_SESSION_SECRET),
+        LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+      );
       if (stillStored) {
         return false;
       }
     }
     inMemoryAppSession = undefined;
+    await context.globalState.update(PENDING_SECRET_CLEAR_KEY, undefined);
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function retryPendingSecretClearOnActivate(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (!context.globalState.get<boolean>(PENDING_SECRET_CLEAR_KEY)) {
+    return;
+  }
+  const cleared = await clearAppSession(context);
+  if (cleared) {
+    await context.globalState.update(PENDING_SECRET_CLEAR_KEY, undefined);
   }
 }
 

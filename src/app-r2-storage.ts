@@ -173,7 +173,8 @@ export async function getR2StorageCredentials(
 export async function putR2Object(
   credentials: R2StorageCredentials,
   syncKey: string,
-  body: Buffer
+  body: Buffer,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
   const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
   const url = r2ObjectUrl(credentials, objectKey);
@@ -185,6 +186,7 @@ export async function putR2Object(
     headers: {
       "Content-Type": "application/octet-stream",
     },
+    signal: options?.signal,
   });
 
   if (!response.ok) {
@@ -197,13 +199,14 @@ export async function putR2Object(
 
 export async function getR2Object(
   credentials: R2StorageCredentials,
-  syncKey: string
+  syncKey: string,
+  options?: { signal?: AbortSignal }
 ): Promise<Buffer | undefined> {
   const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
 
-  const response = await client.fetch(url, { method: "GET" });
+  const response = await client.fetch(url, { method: "GET", signal: options?.signal });
 
   if (response.status === 404) {
     return undefined;
