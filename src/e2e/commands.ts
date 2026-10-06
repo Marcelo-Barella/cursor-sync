@@ -32,6 +32,7 @@ import {
   generateRecoveryKeyBytes,
   lastRecoveryKeyGroup,
 } from "./recovery-key.js";
+import { defaultRecoveryKeySavePath } from "./recovery-key-save-uri.js";
 import {
   refreshE2eGateAfterCryptoChange,
   lockLocalDek,
@@ -56,7 +57,7 @@ export async function ensureEmailVerifiedForSetup(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
   try {
-    const cache = await fetchServerKeyMaterial(context, { force: true });
+    const { cache } = await fetchServerKeyMaterial(context, { force: true });
     if (cache.verification === "email_not_verified") {
       vscode.window.showErrorMessage(
         "Verify your email on the Cursor Sync website, then use “I verified, re-check” in the sidebar."
@@ -76,7 +77,7 @@ export async function runRecheckEmailVerification(
   invalidateE2eGateSnapshot();
   await invalidateKeysGateCache(context);
   try {
-    const cache = await fetchServerKeyMaterial(context, { force: true });
+    const { cache } = await fetchServerKeyMaterial(context, { force: true });
     if (cache.verification === "email_not_verified") {
       vscode.window.showWarningMessage(
         "Email is still not verified. Complete verification on the Cursor Sync website and try again."
@@ -208,7 +209,7 @@ export async function runCreatePassphraseFlow(context: vscode.ExtensionContext):
     await vscode.env.clipboard.writeText(formattedRecovery);
   } else if (panel === "Save to file") {
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file("cursor-sync-recovery-key.txt"),
+      defaultUri: vscode.Uri.file(defaultRecoveryKeySavePath()),
       filters: { Text: ["txt"] },
     });
     if (uri) {
@@ -549,7 +550,7 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
     await vscode.env.clipboard.writeText(formattedRecovery);
   } else if (panel === "Save to file") {
     const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file("cursor-sync-recovery-key.txt"),
+      defaultUri: vscode.Uri.file(defaultRecoveryKeySavePath()),
       filters: { Text: ["txt"] },
     });
     if (uri) {

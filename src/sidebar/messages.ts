@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { clearImports } from "./import-history.js";
+import { E2E_LOCKED_SYNC_MESSAGE } from "../e2e/gate.js";
 
 export type SidebarMessage =
   | {
@@ -40,7 +41,14 @@ export async function dispatchSidebarMessage(
       const { requireE2eUnlocked } = await import("../e2e/gate.js");
       const e2e = await requireE2eUnlocked(context, { gistSync: true });
       if (!e2e.ok) {
-        vscode.window.showWarningMessage(e2e.message);
+        if (e2e.message === E2E_LOCKED_SYNC_MESSAGE) {
+          const action = await vscode.window.showWarningMessage(e2e.message, "Unlock");
+          if (action === "Unlock") {
+            await vscode.commands.executeCommand("cursorSync.e2e.unlock");
+          }
+        } else {
+          void vscode.window.showWarningMessage(e2e.message);
+        }
         break;
       }
       const cmd =

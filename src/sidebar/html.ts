@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
+import { isAppSessionExpired } from "../app-auth.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
 import type { E2eSidebarPhase, SyncTabState } from "./sync-tab.js";
 import { resolveE2eGateSnapshot } from "../e2e/gate.js";
@@ -15,6 +16,7 @@ export async function buildSyncTabState(
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
+  const appSessionExpired = isAppSessionExpired(context);
   const gate = await resolveE2eGateSnapshot(context);
   const e2ePhase: E2eSidebarPhase =
     gate.phase === "unlocked"
@@ -32,6 +34,7 @@ export async function buildSyncTabState(
   const base = {
     history,
     appSessionActive,
+    appSessionExpired,
     e2ePhase,
     ...(gate.keysStatusMessage ? { keysStatusMessage: gate.keysStatusMessage } : {}),
   };

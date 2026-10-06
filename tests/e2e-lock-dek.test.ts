@@ -26,6 +26,8 @@ vi.mock("../src/e2e/keys-client.js", async (importOriginal) => {
   return {
     ...actual,
   fetchServerKeyMaterial: vi.fn(async () => ({
+    fetchedFromNetwork: false,
+    cache: {
     presence: "set",
     verification: "verified",
     keyMaterial: {
@@ -35,6 +37,7 @@ vi.mock("../src/e2e/keys-client.js", async (importOriginal) => {
       salt: Buffer.alloc(16),
       passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
       recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+    },
     },
   })),
   hydrateKeysCacheFromDisk: vi.fn(async () => undefined),

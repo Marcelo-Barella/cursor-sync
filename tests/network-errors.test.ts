@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  API_REQUEST_TIMEOUT_MESSAGE,
   extractNestedCauseCodes,
   isTlsOrCertError,
   isTransientNetworkError,
@@ -43,6 +44,18 @@ describe("isTransientNetworkError", () => {
   it("does not classify bare AbortError as offline", () => {
     const err = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
     expect(isTransientNetworkError(err)).toBe(false);
+  });
+
+  it("maps TimeoutError and AbortError to friendly timeout copy (fail-closed)", () => {
+    const timeout = Object.assign(new Error("The operation was aborted due to timeout"), {
+      name: "TimeoutError",
+    });
+    expect(isTransientNetworkError(timeout)).toBe(false);
+    expect(userFriendlyConnectivityMessage(timeout)).toBe(API_REQUEST_TIMEOUT_MESSAGE);
+    const aborted = Object.assign(new Error("The operation was aborted due to timeout"), {
+      name: "AbortError",
+    });
+    expect(userFriendlyConnectivityMessage(aborted)).toBe(API_REQUEST_TIMEOUT_MESSAGE);
   });
 
   it("does not classify bare TypeError as offline", () => {

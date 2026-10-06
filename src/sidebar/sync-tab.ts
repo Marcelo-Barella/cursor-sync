@@ -16,11 +16,34 @@ export interface SyncTabState {
   gistId: string | undefined;
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
+  appSessionExpired: boolean;
   e2ePhase: E2eSidebarPhase;
   keysStatusMessage?: string;
 }
 
-export function renderAccountSection(appSessionActive: boolean): string {
+export function renderAccountSection(
+  appSessionActive: boolean,
+  appSessionExpired: boolean
+): string {
+  if (appSessionExpired && !appSessionActive) {
+    return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="account-status" style="opacity:0.9">
+      <span class="codicon codicon-warning"></span>
+      <span>Session expired, log in again</span>
+    </div>
+    <button class="configure-btn" data-command="loginToApp" style="margin-top:8px">
+      <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
+    </button>
+    <button class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
+      <span class="codicon codicon-key"></span> Enter Login Code
+    </button>
+    <button class="configure-btn" data-command="configure" style="margin-top:8px">
+      <span class="codicon codicon-github-alt"></span> Configure GitHub
+    </button>
+  </div>`;
+  }
+
   if (appSessionActive) {
     return `<div class="section">
     <div class="section-header">Account</div>
@@ -236,6 +259,6 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
-  ${renderAccountSection(state.appSessionActive)}
+  ${renderAccountSection(state.appSessionActive, state.appSessionExpired)}
 </div>`;
 }

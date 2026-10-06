@@ -47,17 +47,20 @@ describe("refreshE2eGateOnActivation", () => {
       fetchedAtMs: Date.now() - 60_000,
     });
     fetchServerKeyMaterialMock.mockResolvedValue({
-      presence: "set",
-      verification: "verified",
-      keyMaterial: {
-        keyVersion: 1,
-        kdf: "argon2id",
-        kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
-        salt: Buffer.alloc(16),
-        passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
-        recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+      fetchedFromNetwork: true,
+      cache: {
+        presence: "set",
+        verification: "verified",
+        keyMaterial: {
+          keyVersion: 1,
+          kdf: "argon2id",
+          kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+          salt: Buffer.alloc(16),
+          passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+          recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+        },
+        fetchedAtMs: Date.now(),
       },
-      fetchedAtMs: Date.now(),
     });
 
     const { refreshE2eGateOnActivation, invalidateE2eGateSnapshot } = await import(
@@ -89,17 +92,20 @@ describe("refreshE2eGateOnActivation", () => {
       },
     });
     fetchServerKeyMaterialMock.mockResolvedValue({
-      presence: "set",
-      verification: "verified",
-      keyMaterial: {
-        keyVersion: 1,
-        kdf: "argon2id",
-        kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
-        salt: Buffer.alloc(16),
-        passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
-        recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+      fetchedFromNetwork: true,
+      cache: {
+        presence: "set",
+        verification: "verified",
+        keyMaterial: {
+          keyVersion: 1,
+          kdf: "argon2id",
+          kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+          salt: Buffer.alloc(16),
+          passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+          recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+        },
+        fetchedAtMs: Date.now(),
       },
-      fetchedAtMs: Date.now(),
     });
 
     const { refreshE2eGateOnActivation, invalidateE2eGateSnapshot } = await import(
@@ -113,5 +119,45 @@ describe("refreshE2eGateOnActivation", () => {
 
     await refreshE2eGateOnActivation(context);
     expect(fetchServerKeyMaterialMock).toHaveBeenCalledWith(context, { force: true });
+  });
+
+  it("does not attach keysGateForCrypto when fetch returns cache without network", async () => {
+    vi.doMock("../src/e2e/dek-storage.js", () => ({
+      loadStoredDek: vi.fn(async () => undefined),
+      clearStoredDekForUser: vi.fn(async () => undefined),
+    }));
+    const keyMaterial = {
+      keyVersion: 1,
+      kdf: "argon2id" as const,
+      kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+      salt: Buffer.alloc(16),
+      passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+      recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+    };
+    const diskCache = {
+      presence: "set" as const,
+      verification: "verified" as const,
+      keyMaterial,
+      fetchedAtMs: Date.now(),
+    };
+    getCachedMock.mockReturnValue(diskCache);
+    fetchServerKeyMaterialMock.mockResolvedValue({
+      fetchedFromNetwork: false,
+      cache: diskCache,
+    });
+
+    vi.resetModules();
+    const { resolveE2eGateSnapshot, invalidateE2eGateSnapshot } = await import(
+      "../src/e2e/gate.js"
+    );
+    invalidateE2eGateSnapshot();
+    const context = {
+      globalState: { get: async () => undefined, update: async () => {} },
+      secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
+    } as unknown as import("vscode").ExtensionContext;
+
+    const snapshot = await resolveE2eGateSnapshot(context, { bypassCache: true });
+    expect(snapshot.phase).toBe("locked");
+    expect(snapshot.keysGateForCrypto).toBeUndefined();
   });
 });

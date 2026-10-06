@@ -16,6 +16,9 @@ import { isTransientNetworkError, userFriendlyConnectivityMessage } from "./netw
 import type { ServerKeyMaterialResponse } from "./keys-wire.js";
 import { refreshSyncStatusBar } from "../sync-status-bar.js";
 
+export const E2E_LOCKED_SYNC_MESSAGE =
+  "Sync is locked. Unlock with your passphrase or recovery key.";
+
 export type E2eGatePhase =
   | "no_app_session"
   | "email_not_verified"
@@ -102,13 +105,16 @@ export async function resolveE2eGateSnapshot(
   const forceKeysFetch =
     options?.refreshKeys === true || keysCacheNeedsRefresh(diskCache);
   try {
-    keysCache = await fetchServerKeyMaterial(context, {
+    const fetchResult = await fetchServerKeyMaterial(context, {
       force: forceKeysFetch,
       skipNetwork: options?.skipNetwork,
     });
-    freshKeysFromServer = true;
+    keysCache = fetchResult.cache;
+    freshKeysFromServer = fetchResult.fetchedFromNetwork;
   } catch (err) {
     if (err instanceof KeysApiError && err.status === 401) {
+      const { markAppSessionExpired } = await import("../app-auth.js");
+      await markAppSessionExpired(context);
       cachedSnapshot = { phase: "no_app_session" };
       return cachedSnapshot;
     }
@@ -272,12 +278,12 @@ export async function requireE2eUnlocked(
     return { ok: false, message: "Log in to Cursor Sync to use encrypted sync." };
   }
   if (snapshot.phase === "locked" || !snapshot.userId || !snapshot.keyVersion) {
-    return { ok: false, message: "Sync is locked. Unlock with your passphrase or recovery key." };
+    return { ok: false, message: E2E_LOCKED_SYNC_MESSAGE };
   }
   const dek = await loadStoredDek(context, snapshot.userId, snapshot.keyVersion);
   if (!dek) {
     invalidateE2eGateSnapshot();
-    return { ok: false, message: "Sync is locked. Unlock with your passphrase or recovery key." };
+    return { ok: false, message: E2E_LOCKED_SYNC_MESSAGE };
   }
   return {
     ok: true,

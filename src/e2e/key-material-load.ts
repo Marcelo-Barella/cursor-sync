@@ -53,7 +53,7 @@ export async function loadKeyMaterialForCryptoOps(
     };
   }
   try {
-    const cache = await fetchServerKeyMaterial(context, { force: true });
+    const { cache } = await fetchServerKeyMaterial(context, { force: true });
     if (!cache.keyMaterial) {
       return { ok: false, message: "Could not load encryption keys from the server." };
     }

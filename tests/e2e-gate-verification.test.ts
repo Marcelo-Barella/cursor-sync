@@ -86,15 +86,18 @@ describe("resolveE2eGateSnapshot email verification", () => {
       return {
         ...actual,
         fetchServerKeyMaterial: async () => ({
-          presence: "set" as const,
-          verification: "verified" as const,
-          keyMaterial: {
-            keyVersion: 1,
-            kdf: "argon2id" as const,
-            kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
-            salt: Buffer.alloc(16),
-            passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
-            recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+          fetchedFromNetwork: true,
+          cache: {
+            presence: "set" as const,
+            verification: "verified" as const,
+            keyMaterial: {
+              keyVersion: 1,
+              kdf: "argon2id" as const,
+              kdfParams: { m: 64 * 1024 * 1024, t: 3, p: 1 },
+              salt: Buffer.alloc(16),
+              passWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+              recoveryWrap: { nonce: Buffer.alloc(12), ct: Buffer.alloc(32) },
+            },
           },
         }),
         hydrateKeysCacheFromDisk: async () => ({}),

@@ -170,10 +170,16 @@ async function authFetch(
   });
 }
 
+export type FetchServerKeyMaterialResult = {
+  cache: KeysGateCache;
+  /** True only when a live HTTP GET /v1/keys completed successfully. */
+  fetchedFromNetwork: boolean;
+};
+
 export async function fetchServerKeyMaterial(
   context: vscode.ExtensionContext,
   options?: { force?: boolean; skipNetwork?: boolean }
-): Promise<KeysGateCache> {
+): Promise<FetchServerKeyMaterialResult> {
   await hydrateKeysCacheFromDisk(context);
   const stale = keysCacheNeedsRefresh(inMemoryKeysCache);
   if (
@@ -181,10 +187,10 @@ export async function fetchServerKeyMaterial(
     !stale &&
     inMemoryKeysCache.presence !== "unknown"
   ) {
-    return inMemoryKeysCache;
+    return { cache: inMemoryKeysCache, fetchedFromNetwork: false };
   }
   if (options?.skipNetwork) {
-    return inMemoryKeysCache;
+    return { cache: inMemoryKeysCache, fetchedFromNetwork: false };
   }
 
   const response = await authFetch(context, "/v1/keys", {
@@ -193,7 +199,7 @@ export async function fetchServerKeyMaterial(
   });
   const cache = await keysGetResponseToCache(response);
   await setCachedKeysGate(context, cache);
-  return cache;
+  return { cache, fetchedFromNetwork: true };
 }
 
 export async function keysGetResponseToCache(response: Response): Promise<KeysGateCache> {

@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.9.0-staging.8",
+  "version": "0.9.0-staging.9",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -74,6 +74,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "cursorSync.syncNow",
+          "when": "cursorSync.configured"
+        },
         {
           "command": "cursorSync.exportCurrentChatBundle",
           "when": "false"

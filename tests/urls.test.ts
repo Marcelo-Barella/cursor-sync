@@ -11,7 +11,9 @@ import {
   resolveAppApiUrlFromInputs,
   resolveAppWebsiteUrlFromInputs,
   INVALID_APP_API_URL_MESSAGE,
+  INVALID_APP_WEBSITE_URL_MESSAGE,
   InvalidAppApiUrlError,
+  InvalidAppWebsiteUrlError,
   type UrlResolutionInputs,
 } from "../src/config/urls.js";
 
@@ -196,6 +198,28 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
         })
       )
     ).toBe("https://custom.web.example");
+  });
+
+  it("throws for invalid custom website URL instead of falling back to production", () => {
+    expect(() =>
+      resolveAppWebsiteUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitWebsiteUrl: "http://exa mple",
+        })
+      )
+    ).toThrow(InvalidAppWebsiteUrlError);
+    try {
+      resolveAppWebsiteUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitWebsiteUrl: "not-a-url",
+        })
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidAppWebsiteUrlError);
+      expect((err as Error).message).toBe(INVALID_APP_WEBSITE_URL_MESSAGE);
+    }
   });
 });
 

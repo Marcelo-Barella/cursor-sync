@@ -21,6 +21,19 @@ const TLS_CAUSE_CODES = new Set([
 
 export const KEYS_GET_TIMEOUT_MS = 15_000;
 
+export const API_REQUEST_TIMEOUT_MESSAGE =
+  "Cursor Sync API did not respond in time. Try again later.";
+
+function isAbortOrTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  if (err.name === "TimeoutError" || err.name === "AbortError") {
+    return true;
+  }
+  return /aborted due to timeout/i.test(err.message);
+}
+
 export function extractNestedCauseCodes(err: unknown): string[] {
   const codes: string[] = [];
   let current: unknown = err;
@@ -67,6 +80,9 @@ export function isTransientNetworkError(err: unknown): boolean {
 }
 
 export function userFriendlyConnectivityMessage(err: unknown): string {
+  if (isAbortOrTimeoutError(err)) {
+    return API_REQUEST_TIMEOUT_MESSAGE;
+  }
   if (isTlsOrCertError(err)) {
     return "Secure connection to the Cursor Sync API failed. Check TLS or proxy settings and try again.";
   }

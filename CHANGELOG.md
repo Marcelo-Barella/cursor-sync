@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.9
+
+### Fixed
+- Friendly timeout copy for `TimeoutError` / `AbortError` (fail-closed, not offline).
+- `freshKeysFromServer` only after a real `GET /v1/keys` network response.
+- Invalid custom website URL fails closed (matches API URL behavior).
+- Recovery key save dialog defaults to Downloads or home directory.
+- Sidebar Sync Now / Push / Pull when locked: unlock toast with **Unlock** action; palette **Sync Now** entry.
+- Push/Pull log start only after lock check passes.
+- `401` on `/v1/keys` marks app session expired for the Account sidebar.
+
 ## v0.9.0-staging.8
 
 ### Fixed

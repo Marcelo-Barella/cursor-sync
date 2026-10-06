@@ -21,6 +21,7 @@ import {
 } from "./sync-debug.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
 import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
 import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
@@ -72,6 +73,20 @@ async function doPull(
   trigger: PullTrigger = "manual"
 ): Promise<boolean> {
   const logger = getLogger();
+
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
+  if (!e2e.ok) {
+    void showSyncFailureWithDebug(
+      context,
+      buildSyncDebugFailure("pull", trigger, e2e.message, {
+        direction: "pull",
+        category: "AUTH_FAILED",
+      }),
+      { title: e2e.message }
+    );
+    return false;
+  }
+
   logger.appendLine(`[${new Date().toISOString()}] Pull started (trigger=${trigger})`);
 
   let syncState = await loadSyncState(context);

@@ -72,7 +72,6 @@ async function doPush(
   trigger: PushTrigger = "manual"
 ): Promise<boolean> {
   const logger = getLogger();
-  logger.appendLine(`[${new Date().toISOString()}] Push started`);
 
   const e2e = await requireE2eUnlocked(context, { gistSync: true });
   if (!e2e.ok) {
@@ -86,6 +85,8 @@ async function doPush(
     );
     return false;
   }
+
+  logger.appendLine(`[${new Date().toISOString()}] Push started`);
 
   const authFailedMessage =
     "GitHub token not configured. Configure your token to sync.";

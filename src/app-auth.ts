@@ -4,6 +4,7 @@ import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
+export const APP_SESSION_EXPIRED_STATE_KEY = "cursorSync.appSession.expired";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
 
 class SecretStorageTimeoutError extends Error {
@@ -362,10 +363,32 @@ export async function getAppSession(
   return inMemoryAppSession;
 }
 
+export function isAppSessionExpired(context: vscode.ExtensionContext): boolean {
+  return context.globalState.get<boolean>(APP_SESSION_EXPIRED_STATE_KEY) === true;
+}
+
+export async function markAppSessionExpired(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context?.globalState?.update) {
+    await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, true);
+  }
+  await clearAppSession(context);
+}
+
+export async function clearAppSessionExpiredMark(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context?.globalState?.update) {
+    await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, undefined);
+  }
+}
+
 export async function setAppSession(
   context: vscode.ExtensionContext,
   token: string
 ): Promise<void> {
+  await clearAppSessionExpiredMark(context);
   const logger = getLogger();
   logger.appendLine(
     `[${new Date().toISOString()}] App session: storing to SecretStorage (${APP_SESSION_SECRET})...`
