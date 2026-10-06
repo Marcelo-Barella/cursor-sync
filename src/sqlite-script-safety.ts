@@ -41,15 +41,30 @@ export class UnsafeSqlScriptError extends Error {
   }
 }
 
-function stripUnicodeFormatChars(text: string): string {
-  return text.replace(/\p{Cf}/gu, "");
-}
+const UNICODE_FORMAT_CHAR_RE = /\p{Cf}/u;
 
 function isHexDigit(ch: string): boolean {
   return /[0-9a-f]/i.test(ch);
 }
 
-function isWordChar(ch: string): boolean {
+function isAsciiWhitespace(ch: string): boolean {
+  return ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r";
+}
+
+/** SQLite manifest SQL is ASCII outside single-quoted string literals. */
+function rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch: string): void {
+  if (ch.length !== 1) {
+    return;
+  }
+  const code = ch.charCodeAt(0);
+  if (code > 0x7f || UNICODE_FORMAT_CHAR_RE.test(ch)) {
+    throw new UnsafeSqlScriptError(
+      "SQL script contains non-ASCII or format characters outside string literals"
+    );
+  }
+}
+
+function isAsciiIdentifierChar(ch: string): boolean {
   return /[A-Za-z0-9_]/.test(ch);
 }
 
@@ -144,20 +159,25 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
     const next = script[i + 1];
 
     if (state === LexState.Normal) {
-      if (ch === "\n" || ch === "\r") {
+      rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch);
+      if (isAsciiWhitespace(ch)) {
         flushWord(i);
-        atLineStart = true;
-        i++;
-        continue;
-      }
-      if (atLineStart && (ch === " " || ch === "\t")) {
+        if (atLineStart && (ch === " " || ch === "\t")) {
+          i++;
+          continue;
+        }
+        if (ch === "\n") {
+          atLineStart = true;
+        } else if (ch !== "\r") {
+          atLineStart = false;
+        }
         i++;
         continue;
       }
       if (atLineStart && ch === ".") {
         const lineStart = i;
         let lineEnd = i;
-        while (lineEnd < script.length && script[lineEnd] !== "\n" && script[lineEnd] !== "\r") {
+        while (lineEnd < script.length && script[lineEnd] !== "\n") {
           lineEnd++;
         }
         failDotCommandLine(lineStart, lineEnd);
@@ -221,7 +241,7 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
         atLineStart = false;
         continue;
       }
-      if (isWordChar(ch)) {
+      if (isAsciiIdentifierChar(ch)) {
         if (wordStart < 0) {
           wordStart = i;
         }
@@ -272,6 +292,7 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
     }
 
     if (state === LexState.DoubleQuote) {
+      rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch);
       if (ch === '"') {
         if (next === '"') {
           i += 2;
@@ -290,6 +311,7 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
     }
 
     if (state === LexState.BacktickQuote) {
+      rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch);
       if (ch === "`") {
         if (next === "`") {
           i += 2;
@@ -308,6 +330,7 @@ export function tokenizeSqlScript(script: string): SqlToken[] {
     }
 
     if (state === LexState.BracketQuote) {
+      rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch);
       if (ch === "]") {
         const last = tokens[tokens.length - 1];
         if (last?.kind === "literal") {
@@ -354,7 +377,7 @@ function appendTokenToSurface(
   }
   if (prevEnd > 0 && token.start > prevEnd) {
     const gap = script.slice(prevEnd, token.start);
-    if (/\s/.test(gap)) {
+    if (/[ \t\n\f\r]/.test(gap)) {
       surface += " ";
     }
   }
@@ -462,9 +485,8 @@ export function removeSqlComments(script: string): string {
 
 /** Collapse whitespace after tokenization-based masking and comment stripping. */
 export function normalizeSqlForSafetyAnalysis(script: string): string {
-  const stripped = stripUnicodeFormatChars(script);
-  const tokens = tokenizeSqlScript(stripped);
-  const statements = buildStatementSecuritySurfaces(stripped, tokens);
+  const tokens = tokenizeSqlScript(script);
+  const statements = buildStatementSecuritySurfaces(script, tokens);
   return statements.join(" ; ").replace(/\s+/g, " ").trim();
 }
 
@@ -524,10 +546,9 @@ export function assertValidSqlScriptUnicode(script: string): void {
 }
 
 export function assertSafeSqlScript(script: string): void {
-  const stripped = stripUnicodeFormatChars(script);
-  assertValidSqlScriptUnicode(stripped);
-  const tokens = tokenizeSqlScript(stripped);
-  const statements = buildStatementSecuritySurfaces(stripped, tokens);
+  assertValidSqlScriptUnicode(script);
+  const tokens = tokenizeSqlScript(script);
+  const statements = buildStatementSecuritySurfaces(script, tokens);
 
   for (const statement of statements) {
     assertNormalizedForbiddenTokens(statement);
@@ -536,7 +557,7 @@ export function assertSafeSqlScript(script: string): void {
 }
 
 export const SQLITE_PYTHON_EXECUTESCRIPT = [
-  "import re, sqlite3, sys",
+  "import re, sqlite3, sys, unicodedata",
   "db_path = sys.argv[1]",
   "sql = sys.stdin.read()",
   `timeout = int(sys.argv[2]) if len(sys.argv) > 2 else ${20}`,
@@ -565,6 +586,18 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "    sqlite3.SQLITE_PRAGMA,",
   "})",
   "",
+  "def _is_cf(ch):",
+  "    return len(ch) == 1 and unicodedata.category(ch) == 'Cf'",
+  "",
+  "def _reject_outside_single_quoted(ch):",
+  "    if len(ch) != 1:",
+  "        return",
+  "    if ord(ch) > 0x7f or _is_cf(ch):",
+  "        raise sqlite3.OperationalError('non-ascii outside string literal')",
+  "",
+  "def _is_ws(ch):",
+  "    return ch in ' \\t\\n\\f\\r'",
+  "",
   "def _authorizer(action, p1, p2, dbname, trigger):",
   "    if action not in ALLOWED_AUTHORIZER_ACTIONS:",
   "        return sqlite3.SQLITE_DENY",
@@ -587,6 +620,11 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "        ch = script[i]",
   "        nxt = script[i + 1] if i + 1 < len(script) else ''",
   "        if state == 'n':",
+  "            _reject_outside_single_quoted(ch)",
+  "            if _is_ws(ch):",
+  "                buf.append(ch)",
+  "                i += 1",
+  "                continue",
   "            if ch == '-' and nxt == '-':",
   "                i += 2",
   "                while i < len(script) and script[i] != '\\n':",
@@ -655,6 +693,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 'd':",
+  "            _reject_outside_single_quoted(ch)",
   "            buf.append(ch)",
   "            if ch == '\"' and nxt == '\"':",
   "                buf.append(nxt)",
@@ -665,6 +704,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 't':",
+  "            _reject_outside_single_quoted(ch)",
   "            buf.append(ch)",
   "            if ch == '`' and nxt == '`':",
   "                buf.append(nxt)",
@@ -675,6 +715,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 'k':",
+  "            _reject_outside_single_quoted(ch)",
   "            buf.append(ch)",
   "            if ch == ']':",
   "                state = 'n'",
@@ -695,6 +736,13 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "        ch = stmt[i]",
   "        nxt = stmt[i + 1] if i + 1 < len(stmt) else ''",
   "        if state == 'n':",
+  "            _reject_outside_single_quoted(ch)",
+  "            if _is_ws(ch):",
+  "                if word:",
+  "                    surface.append(''.join(word))",
+  "                    word = []",
+  "                i += 1",
+  "                continue",
   "            if ch == '-' and nxt == '-':",
   "                if word:",
   "                    surface.append(''.join(word))",
@@ -722,7 +770,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "                if word:",
   "                    surface.append(''.join(word))",
   "                    word = []",
-  "                if prev_end < i and surface and re.search(r'\\s', stmt[prev_end:i]):",
+  "                if prev_end < i and surface and re.search(r'[ \\t\\n\\f\\r]', stmt[prev_end:i]):",
   "                    surface.append(' ')",
   "                surface.append(' ')",
   "                state = 's'",
@@ -742,15 +790,15 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "                if word:",
   "                    surface.append(''.join(word))",
   "                    word = []",
-  "                if prev_end < i and surface and re.search(r'\\s', stmt[prev_end:i]):",
+  "                if prev_end < i and surface and re.search(r'[ \\t\\n\\f\\r]', stmt[prev_end:i]):",
   "                    surface.append(' ')",
   "                surface.append(' ')",
   "                state = 'd' if ch == '\"' else ('t' if ch == '`' else 'k')",
   "                i += 1",
   "                prev_end = i",
   "                continue",
-  "            if ch.isalnum() or ch == '_':",
-  "                if prev_end < i and word and re.search(r'\\s', stmt[prev_end:i]):",
+  "            if ch.isascii() and (ch.isalnum() or ch == '_'):",
+  "                if prev_end < i and word and re.search(r'[ \\t\\n\\f\\r]', stmt[prev_end:i]):",
   "                    surface.append(''.join(word))",
   "                    surface.append(' ')",
   "                    word = []",
@@ -783,6 +831,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 'd':",
+  "            _reject_outside_single_quoted(ch)",
   "            if ch == '\"' and nxt == '\"':",
   "                i += 2",
   "                continue",
@@ -792,6 +841,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 't':",
+  "            _reject_outside_single_quoted(ch)",
   "            if ch == '`' and nxt == '`':",
   "                i += 2",
   "                continue",
@@ -801,6 +851,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            i += 1",
   "            continue",
   "        if state == 'k':",
+  "            _reject_outside_single_quoted(ch)",
   "            if ch == ']':",
   "                state = 'n'",
   "                prev_end = i + 1",
@@ -808,7 +859,7 @@ export const SQLITE_PYTHON_EXECUTESCRIPT = [
   "            continue",
   "    if word:",
   "        surface.append(''.join(word))",
-  "    return re.sub(r'\\s+', ' ', ''.join(surface)).strip()",
+  "    return re.sub(r'[ \\t\\n\\f\\r]+', ' ', ''.join(surface)).strip()",
   "",
   "def _refuse_unsafe_statement(stmt):",
   "    surface = _security_surface(stmt)",

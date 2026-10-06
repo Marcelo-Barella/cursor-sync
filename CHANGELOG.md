@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.31
+
+### Fixed
+- SQL safety: stop stripping Unicode Cf before lexing; reject non-ASCII and format characters outside single-quoted string literals so fake `--`/`/*` openers cannot hide VACUUM/ATTACH; Python `_split_statements` / `_security_surface` match TS rules.
+
 ## v0.8.4-staging.30
 
 ### Fixed
