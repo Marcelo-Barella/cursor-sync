@@ -17,10 +17,9 @@ import {
 } from "./e2e/configs-sync.js";
 import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
-import {
-  legacyPlaintextKeysFromConfigsResponse,
-  runLegacyPlaintextCleanup,
-} from "./e2e/legacy-cleanup.js";
+import { runAppStorageLegacyCleanup } from "./e2e/app-storage-cleanup.js";
+import { hasLegacyConfigsPayload } from "./e2e/configs-legacy-payload.js";
+import { legacyPlaintextKeysFromConfigsResponse } from "./e2e/legacy-cleanup.js";
 import { KeysApiError } from "./e2e/keys-client.js";
 import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
@@ -320,7 +319,7 @@ export async function executePushAppConfigs(
     };
 
     const remoteBefore = await fetchConfigsApi(context);
-    const hadLegacyPayload = Boolean(remoteBefore?.payload);
+    const hadLegacyPayload = hasLegacyConfigsPayload(remoteBefore?.payload);
     const extraKeysFromConfigs = legacyPlaintextKeysFromConfigsResponse(remoteBefore);
     const clearLegacyPayload =
       hadLegacyPayload ||
@@ -338,14 +337,25 @@ export async function executePushAppConfigs(
       ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
     }));
 
-    const cleanup = await runLegacyPlaintextCleanup(context, {
+    const cleanupRun = await runAppStorageLegacyCleanup(context, {
       extraKeysFromConfigs,
     });
+    const cleanup =
+      cleanupRun.kind === "ran"
+        ? cleanupRun.result
+        : {
+            legacyPayloadPresent: false,
+            deleted: [],
+            remainingKeys: [],
+            partial: false,
+            failed: [],
+          };
     if (
-      cleanup.legacyPayloadPresent ||
-      cleanup.deleted.length > 0 ||
-      cleanup.remainingKeys.length > 0 ||
-      cleanup.partial
+      cleanupRun.kind === "ran" &&
+      (cleanup.legacyPayloadPresent ||
+        cleanup.deleted.length > 0 ||
+        cleanup.remainingKeys.length > 0 ||
+        cleanup.partial)
     ) {
       const existing = await loadMigrationState(context);
       if (existing && existing.phase !== "completed") {
@@ -517,7 +527,7 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
     );
-    await runLegacyPlaintextCleanup(context);
+    await runAppStorageLegacyCleanup(context);
     await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {

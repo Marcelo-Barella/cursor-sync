@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { E2E_MIGRATION_STATE_KEY } from "./constants.js";
+import { hasLegacyConfigsPayload } from "./configs-legacy-payload.js";
 
 export interface E2eMigrationState {
   phase: "pending" | "in_progress" | "completed";
@@ -74,8 +75,7 @@ export async function tryCompleteMigration(
       return;
     }
     const remote = await fetchConfigsApi(context);
-    const legacyPayloadStillPresent = Boolean(remote?.payload);
-    if (legacyPayloadStillPresent) {
+    if (hasLegacyConfigsPayload(remote?.payload)) {
       return;
     }
   }

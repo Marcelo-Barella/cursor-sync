@@ -267,6 +267,13 @@ export async function runUnlockFlow(context: vscode.ExtensionContext): Promise<b
     );
     return false;
   }
+  if (snapshot.phase === "keys_unavailable") {
+    vscode.window.showErrorMessage(
+      snapshot.keysStatusMessage ??
+        "Key service rate-limited. Retry in a few minutes from the sidebar."
+    );
+    return false;
+  }
   if (snapshot.phase !== "locked" || !snapshot.userId || !snapshot.keyVersion) {
     vscode.window.showInformationMessage("Sync is not locked.");
     return snapshot.phase === "unlocked";
@@ -501,19 +508,29 @@ export async function executeE2eRotateRecoveryKey(context: vscode.ExtensionConte
   vscode.window.showInformationMessage("Recovery key rotated.");
 }
 
-export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext): Promise<void> {
-  let snapshot: Awaited<ReturnType<typeof refreshE2eGateAfterCryptoChange>>;
+export async function runRetryKeysGateFlow(context: vscode.ExtensionContext): Promise<void> {
+  invalidateE2eGateSnapshot();
   try {
-    snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
-  } catch (err) {
-    if (err instanceof KeysApiError && err.status === 429) {
-      snapshot = await refreshE2eGateContext(context, { bypassCache: true });
-      vscode.window.showInformationMessage(
-        `Logged in. Encryption key status check was deferred: ${err.message}`
+    const snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+    refreshSidebar();
+    if (snapshot.phase === "keys_unavailable") {
+      vscode.window.showWarningMessage(
+        snapshot.keysStatusMessage ?? "Key service is still rate-limited. Try again later."
       );
-    } else {
-      throw err;
+      return;
     }
+    vscode.window.showInformationMessage("Encryption key status refreshed.");
+  } catch (err) {
+    vscode.window.showErrorMessage(keysApiUserMessage(err));
+  }
+}
+
+export async function ensureE2eGateAfterLogin(context: vscode.ExtensionContext): Promise<void> {
+  const snapshot = await refreshE2eGateAfterCryptoChange(context, { refreshKeys: true });
+  if (snapshot.phase === "keys_unavailable") {
+    vscode.window.showInformationMessage(
+      `Logged in. Encryption key status check was deferred: ${snapshot.keysStatusMessage ?? "rate limited"}`
+    );
   }
   if (snapshot.phase === "keys_not_set") {
     void runCreatePassphraseFlow(context);

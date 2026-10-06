@@ -127,6 +127,7 @@ export function renderE2eLockBanner(state: SyncTabState): string {
     return `<div class="section e2e-lock-banner">
     <div class="section-header">Encrypted sync</div>
     <p class="e2e-lock-copy">${msg}</p>
+    <button class="configure-btn" data-command="e2eRetryKeys"><span class="codicon codicon-refresh"></span> Retry</button>
   </div>`;
   }
   if (state.e2ePhase === "needs_setup") {

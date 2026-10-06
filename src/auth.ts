@@ -125,11 +125,13 @@ export async function validateStoredToken(
   const result = await withRetry(() => client.validateToken());
 
   if (!result.ok) {
-    vscode.window.showErrorMessage(
-      "Stored GitHub token is no longer valid. Please reconfigure."
-    );
-    await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-    updateStatusBar("unconfigured");
+    if (result.error.category === "AUTH_FAILED") {
+      vscode.window.showErrorMessage(
+        "Stored GitHub token is no longer valid. Please reconfigure."
+      );
+      await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
+      updateStatusBar("unconfigured");
+    }
     return false;
   }
 

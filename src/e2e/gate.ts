@@ -7,6 +7,7 @@ import {
   getCachedKeysGate,
   hydrateKeysCacheFromDisk,
   invalidateKeysGateCache,
+  keysCacheNeedsRefresh,
   KeysApiError,
   type KeysGateCache,
 } from "./keys-client.js";
@@ -31,6 +32,15 @@ let cachedSnapshot: E2eGateSnapshot | undefined;
 
 export function invalidateE2eGateSnapshot(): void {
   cachedSnapshot = undefined;
+}
+
+export async function refreshE2eGateOnActivation(
+  context: vscode.ExtensionContext
+): Promise<E2eGateSnapshot> {
+  await hydrateKeysCacheFromDisk(context);
+  const disk = getCachedKeysGate();
+  const refreshKeys = keysCacheNeedsRefresh(disk);
+  return refreshE2eGateContext(context, { bypassCache: true, refreshKeys });
 }
 
 export async function refreshE2eGateAfterCryptoChange(
@@ -94,9 +104,9 @@ export async function resolveE2eGateSnapshot(
   }
 
   if (
+    !options?.refreshKeys &&
     keysCache.verification === "email_not_verified" &&
-    diskCache.verification === "verified" &&
-    !options?.refreshKeys
+    diskCache.verification === "verified"
   ) {
     keysCache = diskCache;
   }
@@ -200,6 +210,14 @@ export async function requireE2eUnlocked(
       return { ok: false, message: err.message };
     }
     throw err;
+  }
+  if (snapshot.phase === "keys_unavailable") {
+    return {
+      ok: false,
+      message:
+        snapshot.keysStatusMessage ??
+        "Key service rate-limited. Retry in a few minutes from the sidebar.",
+    };
   }
   if (snapshot.phase === "email_not_verified") {
     return {

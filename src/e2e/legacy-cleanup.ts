@@ -8,6 +8,7 @@ import {
 } from "./storage-plaintext.js";
 import { loadMigrationState, saveMigrationState } from "./migration.js";
 import { getLogger } from "../diagnostics.js";
+import { hasLegacyConfigsPayload } from "./configs-legacy-payload.js";
 
 function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
   if (!value || typeof value !== "object") {
@@ -59,9 +60,7 @@ export async function runLegacyPlaintextCleanup(
 ): Promise<LegacyPlaintextCleanupResult> {
   const logger = getLogger();
   const remote = await fetchConfigsApi(context);
-  const legacyPayloadPresent = Boolean(
-    remote?.payload && isAppConfigsPayloadV1(remote.payload)
-  );
+  const legacyPayloadPresent = hasLegacyConfigsPayload(remote?.payload);
 
   const serverKeys = await listPlaintextObjectKeys(context);
   const keysToDelete = unionKeys(serverKeys, options?.extraKeysFromConfigs ?? []);

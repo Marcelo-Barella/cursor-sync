@@ -4,7 +4,8 @@ vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 import { GIST_E2E_MARKER_FILE } from "../src/e2e/constants.js";
 import {
   assertPlaintextGistWriteAllowed,
-  remoteSyncGistIsEncrypted,
+  GIST_ENCRYPTION_STATE_UNKNOWN_MESSAGE,
+  probeSyncGistEncryption,
 } from "../src/e2e/gist-plaintext-guard.js";
 
 function mockClient(files: Record<string, { content?: string }>, gistId = "gist-1") {
@@ -21,15 +22,31 @@ describe("gist plaintext guard", () => {
         content: JSON.stringify({ format: "CSE1", keyVersion: 1 }),
       },
     });
-    expect(await remoteSyncGistIsEncrypted(client)).toBe(true);
+    expect(await probeSyncGistEncryption(client, "gist-1")).toEqual({ state: "encrypted" });
     const guard = await assertPlaintextGistWriteAllowed(client, "gist-1");
     expect(guard.ok).toBe(false);
   });
 
   it("allows plaintext write when gist has no marker", async () => {
     const client = mockClient({ "manifest.json": { content: "{}" } });
-    expect(await remoteSyncGistIsEncrypted(client)).toBe(false);
+    expect(await probeSyncGistEncryption(client)).toEqual({ state: "plain" });
     const guard = await assertPlaintextGistWriteAllowed(client);
     expect(guard.ok).toBe(true);
+  });
+
+  it("fails closed when gist cannot be read (e.g. GitHub 503)", async () => {
+    const client = {
+      findExistingGist: vi.fn(async () => ({ ok: true, data: { id: "gist-1" } })),
+      getGist: vi.fn(async () => ({
+        ok: false,
+        error: { category: "NETWORK_ERROR", message: "Server error (503)", statusCode: 503 },
+      })),
+    } as unknown as import("../src/gist.js").GistClient;
+    expect(await probeSyncGistEncryption(client, "gist-1")).toEqual({ state: "unknown" });
+    const guard = await assertPlaintextGistWriteAllowed(client, "gist-1");
+    expect(guard.ok).toBe(false);
+    if (!guard.ok) {
+      expect(guard.message).toBe(GIST_ENCRYPTION_STATE_UNKNOWN_MESSAGE);
+    }
   });
 });

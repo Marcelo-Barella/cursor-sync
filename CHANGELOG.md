@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.4
+
+### Fixed
+- Migration completion treats cleared `payload: {}` as no legacy payload (`hasLegacyConfigsPayload`); throttles stray plaintext re-checks when migration is complete.
+- Activation refreshes stale non-verified keys cache with a real `GET /v1/keys` when needed.
+- Gist plaintext guard fails closed when the gist cannot be read; GitHub 503 no longer shows “token invalid”.
+- `keys_unavailable` / 429: correct sync/unlock messages, sidebar Retry, login deferred toast.
+
 ## v0.9.0-staging.3
 
 ### Fixed

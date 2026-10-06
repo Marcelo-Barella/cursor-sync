@@ -71,6 +71,7 @@ import {
   executeE2eRotateRecoveryKey,
   executeE2eUnlock,
   runRecheckEmailVerification,
+  runRetryKeysGateFlow,
 } from "./e2e/commands.js";
 let configListener: vscode.Disposable | undefined;
 
@@ -189,6 +190,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.e2e.recheckEmail", () =>
       runRecheckEmailVerification(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.retryKeys", () =>
+      runRetryKeysGateFlow(context)
     )
   );
 
@@ -326,7 +332,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
-  void refreshE2eGateContext(context, { bypassCache: true });
+  void import("./e2e/gate.js").then(({ refreshE2eGateOnActivation }) =>
+    refreshE2eGateOnActivation(context)
+  );
   getOrCreateClientId(context);
   startScheduler(context);
 
