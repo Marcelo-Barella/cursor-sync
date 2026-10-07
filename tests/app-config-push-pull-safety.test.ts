@@ -398,6 +398,49 @@ describe("executeAppConfigPullWrites safety", () => {
     vi.restoreAllMocks();
   });
 
+  it("post-rename chmod failure keeps file on disk and retains journal (no data-loss regression)", async () => {
+    const { cursorUser, ctx, resolved, run } = await makePullFixture();
+    const target = path.join(cursorUser, "settings.json");
+    const content = Buffer.from("after-rename", "utf-8");
+    const journalMod = await import("../src/app-config-pull-journal.js");
+    const originalWrite = journalMod.writePullJournal;
+    let postRenameJournalWrites = 0;
+    vi.spyOn(journalMod, "writePullJournal").mockImplementation(async (c, j) => {
+      const last = j.entries[j.entries.length - 1];
+      if (last?.renameCompleted) {
+        postRenameJournalWrites += 1;
+        if (postRenameJournalWrites === 1) {
+          throw new Error("journal write failed after rename");
+        }
+      }
+      return originalWrite(c, j);
+    });
+    const { executeAppConfigPullWrites } = await import("../src/app-config-pull-files.js");
+    const { listIncompletePullJournals } = await import("../src/app-config-pull-journal.js");
+
+    const result = await executeAppConfigPullWrites(
+      ctx,
+      run,
+      [
+        {
+          syncKey: "cursor-user/settings.json",
+          absolutePath: target,
+          content,
+          expectedChecksum: computeChecksum(content),
+        },
+      ],
+      resolved
+    );
+    run.end();
+
+    expect(await fs.readFile(target, "utf-8")).toBe("after-rename");
+    const journals = await listIncompletePullJournals(ctx);
+    expect(journals.length).toBe(1);
+    expect(journals[0]?.entries[0]?.renameCompleted).toBe(true);
+    expect(result.failed.some((line) => line.includes("post-rename held"))).toBe(true);
+    vi.restoreAllMocks();
+  });
+
   it("removes only files created by the pull on abort rollback", async () => {
     const { cursorUser, ctx } = await makePullFixture();
     const journalId = "cafebabedeadbeef";

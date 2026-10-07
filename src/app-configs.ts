@@ -103,17 +103,27 @@ function authHeaders(session: string): Record<string, string> {
 }
 
 export async function fetchAppConfigs(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { signal?: AbortSignal }
 ): Promise<AppConfigsResponse | undefined> {
   const session = await requireAppSession(context);
   if (!session) {
     return undefined;
   }
 
-  const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
-    method: "GET",
-    headers: authHeaders(session),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${appConfigsBaseUrl()}/configs`, {
+      method: "GET",
+      headers: authHeaders(session),
+      signal: options?.signal,
+    });
+  } catch (err) {
+    if (options?.signal?.aborted || isAbortLikeError(err)) {
+      throw new AppConfigsAbortedError("logout");
+    }
+    throw err;
+  }
 
   if (response.status === 401) {
     vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
@@ -133,9 +143,10 @@ export async function fetchAppConfigs(
 async function putAppConfigsWithSession(
   session: string,
   payload: AppConfigsPayloadV1,
-  options?: { run?: AppConfigsRunHandle }
+  options?: { run?: AppConfigsRunHandle; signal?: AbortSignal }
 ): Promise<AppConfigsResponse> {
   const run = options?.run;
+  const linkedSignal = run?.signal ?? options?.signal;
   if (run) {
     throwIfAppConfigsAborted(run);
   }
@@ -143,7 +154,7 @@ async function putAppConfigsWithSession(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PUT_CONFIGS_TIMEOUT_MS);
   const onRunAbort = () => controller.abort();
-  run?.signal.addEventListener("abort", onRunAbort);
+  linkedSignal?.addEventListener("abort", onRunAbort);
 
   try {
     let response: Response;
@@ -158,14 +169,18 @@ async function putAppConfigsWithSession(
         signal: controller.signal,
       });
     } catch (err) {
-      if (
-        run &&
-        (run.signal.aborted || isAbortLikeError(err)) &&
-        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch())
-      ) {
+      if (isAppConfigsAbortedError(err)) {
+        throw err;
+      }
+      const logoutAbort =
+        run !== undefined
+          ? (run.signal.aborted || isAbortLikeError(err)) &&
+            (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch())
+          : Boolean(linkedSignal?.aborted && isAbortLikeError(err));
+      if (logoutAbort) {
         throw new AppConfigsAbortedError("logout");
       }
-      if (isAbortLikeError(err) && !run?.signal.aborted) {
+      if (isAbortLikeError(err) && !linkedSignal?.aborted) {
         throw new Error(
           `Push app configs timed out waiting for config PUT (${PUT_CONFIGS_TIMEOUT_MS / 1000}s)`
         );
@@ -174,7 +189,7 @@ async function putAppConfigsWithSession(
     }
 
     if (response.status === 401) {
-      if (run?.signal.aborted) {
+      if (linkedSignal?.aborted) {
         throw new AppConfigsAbortedError("logout");
       }
       throw new AppConfigsSessionExpiredError();
@@ -190,17 +205,27 @@ async function putAppConfigsWithSession(
     return (await response.json()) as AppConfigsResponse;
   } finally {
     clearTimeout(timeout);
-    run?.signal.removeEventListener("abort", onRunAbort);
+    linkedSignal?.removeEventListener("abort", onRunAbort);
   }
 }
 
 async function fetchRemoteConfigsPayload(
-  session: string
+  session: string,
+  options?: { signal?: AbortSignal }
 ): Promise<AppConfigsPayloadV1 | undefined> {
-  const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
-    method: "GET",
-    headers: authHeaders(session),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${appConfigsBaseUrl()}/configs`, {
+      method: "GET",
+      headers: authHeaders(session),
+      signal: options?.signal,
+    });
+  } catch (err) {
+    if (options?.signal?.aborted || isAbortLikeError(err)) {
+      throw new AppConfigsAbortedError("logout");
+    }
+    throw err;
+  }
   if (!response.ok) {
     return undefined;
   }
@@ -417,7 +442,8 @@ async function commitPartialAppConfigsPush(
   localPayload: AppConfigsPayloadV1,
   uploadedKeys: string[],
   session: string,
-  credentials: Awaited<ReturnType<typeof getR2StorageCredentials>>
+  credentials: Awaited<ReturnType<typeof getR2StorageCredentials>>,
+  options?: { signal?: AbortSignal }
 ): Promise<boolean> {
   if (uploadedKeys.length === 0) {
     return false;
@@ -431,9 +457,11 @@ async function commitPartialAppConfigsPush(
 
   for (let attempt = 0; attempt < PARTIAL_COMMIT_RETRIES; attempt += 1) {
     try {
-      await putAppConfigsWithSession(session, payload);
+      await putAppConfigsWithSession(session, payload, { signal: options?.signal });
       if (credentials) {
-        await tryClearRemoteDirtyWhenReconciled(context, credentials, payload);
+        await tryClearRemoteDirtyWhenReconciled(context, credentials, payload, {
+          signal: options?.signal,
+        });
       } else {
         await markAppConfigRemoteDirty(context, "partial_commit_unverified");
       }
@@ -500,7 +528,7 @@ export async function executePushAppConfigs(
       return false;
     }
 
-    const fetchedRemote = await fetchRemoteConfigsPayload(session);
+    const fetchedRemote = await fetchRemoteConfigsPayload(session, { signal: run.signal });
     if (fetchedRemote) {
       remoteBaseline = fetchedRemote;
       remoteBaselineFetched = true;
@@ -591,7 +619,8 @@ export async function executePushAppConfigs(
           localPayload,
           uploadedKeys,
           session,
-          credentials
+          credentials,
+          { signal: run.signal }
         );
         if (!committed) {
           logger.appendLine(
@@ -604,6 +633,7 @@ export async function executePushAppConfigs(
       logger.appendLine(
         `[${new Date().toISOString()}] Push app configs aborted (logout)`
       );
+      vscode.window.showInformationMessage("Logged out, push cancelled.");
       return false;
     }
     await markDirtyIfUploaded(context, uploadedKeys, "push_failed_after_upload");
@@ -635,7 +665,7 @@ export async function executePullAppConfigs(
 
   try {
     throwIfAppConfigsAborted(run);
-    const response = await fetchAppConfigs(context);
+    const response = await fetchAppConfigs(context, { signal: run.signal });
     if (!response) {
       return false;
     }
@@ -761,13 +791,15 @@ export async function executePullAppConfigs(
     );
     return true;
   } catch (err) {
-    if (isAppConfigsAbortedError(err)) {
+    const logoutAbort =
+      isAppConfigsAbortedError(err) ||
+      (isAbortLikeError(err) &&
+        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch()));
+    if (logoutAbort) {
       logger.appendLine(
-        `[${new Date().toISOString()}] Pull app configs aborted (${err.reason})`
+        `[${new Date().toISOString()}] Pull app configs aborted (logout)`
       );
-      if (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch()) {
-        vscode.window.showInformationMessage("Logged out, pull cancelled.");
-      }
+      vscode.window.showInformationMessage("Logged out, pull cancelled.");
       return false;
     }
     const message = err instanceof Error ? err.message : String(err);

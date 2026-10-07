@@ -214,12 +214,12 @@ export async function warnCorruptPullJournals(context: vscode.ExtensionContext):
   );
 }
 
-async function warnQuarantinedInvalidPullJournalOnce(): Promise<void> {
+function warnQuarantinedInvalidPullJournalOnce(): void {
   if (quarantinedJournalWarningShown) {
     return;
   }
   quarantinedJournalWarningShown = true;
-  await vscodeApi.window.showWarningMessage(
+  void vscodeApi.window.showWarningMessage(
     "Cursor Sync quarantined an app-config pull journal that could not be replayed safely. Backups were kept.",
     "Dismiss"
   );

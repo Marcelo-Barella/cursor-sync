@@ -9,15 +9,17 @@
  *    We do not hold the destination open across rename because the final path may
  *    not exist yet; there is no `renameat` bound to our parent fd.
  *
- * 2. After `rename`, a race could leave bytes at a path that no longer matches the
- *    inode we wrote on the temp fd; post-rename `O_NOFOLLOW` open + dev/ino match
- *    and a second realpath containment check detect this; escaped files are unlinked
- *    only when `lstat` matches the written file's dev/ino.
+ * 2. Temp files are still opened by path string (`fs.open(tmpPath, …)`); a parent
+ *    directory swap between our snapshot and that open is not fully closed in Node
+ *    (no `openat`). We re-open the parent by path after `rename` and compare dev/ino
+ *    to the pre-write snapshot.
  *
- * 3. `rename` itself is atomic on the same volume, but cannot be issued relative to
- *    an open parent directory fd in Node's API, so the parent inode can change identity
- *    if the directory is unlinked/replaced between our fstat and rename (detected by
- *    re-fstat on the held O_DIRECTORY handle).
+ * 3. After `rename`, post-rename `O_NOFOLLOW` open + dev/ino match and realpath
+ *    containment detect a swapped destination; escaped-byte cleanup unlinks only when
+ *    an `O_NOFOLLOW` open proves the path still refers to the inode we wrote (never
+ *    `lstat`+`unlink` alone).
+ *
+ * 4. `rename` is atomic on one volume but is not issued relative to a held parent fd.
  *
  * Temp files use `O_CREAT|O_EXCL|O_WRONLY|O_NOFOLLOW` with unpredictable names inside
  * the verified parent; final verification uses `O_RDONLY|O_NOFOLLOW` after rename.
@@ -187,12 +189,20 @@ export async function inodeOfParentDirHandle(chain: OpenDirChain): Promise<Inode
   return inodeOfHandle(parentHandle);
 }
 
-export async function assertParentDirHandleUnchanged(
-  chain: OpenDirChain,
-  parentInode: InodeRef
+export async function assertParentDirInodeUnchangedByPath(
+  parentDirPath: string,
+  expectedInode: InodeRef
 ): Promise<void> {
-  const current = await inodeOfParentDirHandle(chain);
-  assertInodesMatch(parentInode, current, "Parent directory");
+  const handle = await fs.open(
+    parentDirPath,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+  );
+  try {
+    const current = await inodeOfHandle(handle);
+    assertInodesMatch(expectedInode, current, "Parent directory");
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function assertRealpathContainedInSyncRoot(
@@ -218,20 +228,38 @@ export class HeldUnsafeWriteError extends Error {
   }
 }
 
-export async function unlinkPathIfInodeMatches(
+/**
+ * Unlink only when an O_NOFOLLOW open proves the path still refers to expectedInode.
+ * Returns true if unlinked, false if the path is a different file or cannot be proven.
+ */
+export async function unlinkWrittenFileIfProvenByOpen(
   absolutePath: string,
   expectedInode: InodeRef
 ): Promise<boolean> {
+  let handle: FileHandle | undefined;
   try {
-    const st = await fs.lstat(absolutePath);
-    const current = { dev: st.dev, ino: st.ino };
-    if (!inodesMatch(current, expectedInode)) {
+    handle = await openFileNoFollow(
+      absolutePath,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW
+    );
+    const fromHandle = await inodeOfHandle(handle);
+    if (!inodesMatch(fromHandle, expectedInode)) {
       return false;
     }
+    const fromPath = await lstatInode(absolutePath);
+    if (!inodesMatch(fromHandle, fromPath)) {
+      return false;
+    }
+    await handle.close();
+    handle = undefined;
     await fs.unlink(absolutePath);
     return true;
   } catch {
     return false;
+  } finally {
+    if (handle) {
+      await handle.close().catch(() => {});
+    }
   }
 }
 

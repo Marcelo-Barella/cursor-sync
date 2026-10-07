@@ -53,7 +53,7 @@ export function updateStatusBar(
       icon = "$(gear)";
       text = "Sync: Setup";
       tooltip = "Cursor Sync is not configured. Click to set up.";
-      statusBarItem.command = options?.setupCommand ?? "cursorSync.loginToApp";
+      statusBarItem.command = options?.setupCommand ?? "cursorSync.configureGithub";
       break;
   }
 

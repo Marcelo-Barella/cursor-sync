@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.13-logout
+
+### Fixed
+- Pull write post-rename: no recovery on benign chmod/journal failures; fd-proven escape cleanup only; parent dev/ino re-opened by path after rename.
+- AbortSignal on GET `/configs` (pull/push) and partial-commit reconcile; logout abort no longer surfaces as generic pull/push failure.
+- Quarantine toast is non-blocking; Setup → `loginToApp` scoped to no-GitHub-PAT refresh only.
+
 ## v0.8.4-staging.12-logout
 
 ### Fixed

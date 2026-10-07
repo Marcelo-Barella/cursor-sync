@@ -9,7 +9,7 @@ import { getLogger } from "./diagnostics.js";
 import type { ResolvedSyncRoots } from "./app-config-sync-path-safety.js";
 import {
   assertFinalPathMatchesHandle,
-  assertParentDirHandleUnchanged,
+  assertParentDirInodeUnchangedByPath,
   assertPathInodeSnapshotFresh,
   assertRealpathContainedInSyncRoot,
   capturePathInodeSnapshot,
@@ -21,7 +21,7 @@ import {
   openVerifiedDirChain,
   PathVerificationError,
   safeUnlinkTemp,
-  unlinkPathIfInodeMatches,
+  unlinkWrittenFileIfProvenByOpen,
   type InodeRef,
   type PathInodeSnapshot,
 } from "./app-config-path-fd.js";
@@ -159,13 +159,19 @@ async function cleanupOrphanPullTemp(tmpPath: string | undefined): Promise<void>
   await safeUnlinkTemp(tmpPath);
 }
 
-async function recoverEscapedWrite(
+const POST_RENAME_HELD_PREFIX = "post-rename held:";
+
+async function tryCleanupEscapedWrittenFile(
   finalPath: string,
   writtenInode: InodeRef,
   tmpPath: string | undefined
 ): Promise<void> {
-  await unlinkPathIfInodeMatches(finalPath, writtenInode);
+  await unlinkWrittenFileIfProvenByOpen(finalPath, writtenInode);
   await cleanupOrphanPullTemp(tmpPath);
+}
+
+function isPathVerificationError(error: unknown): error is PathVerificationError {
+  return error instanceof PathVerificationError;
 }
 
 async function cleanupPullTempsAndEmptyDirs(entry: PullJournalEntry): Promise<void> {
@@ -271,15 +277,8 @@ export async function rollbackPullJournal(
         try {
           const data = await src.readFile();
           await assertPathInodeSnapshotFresh(snapshot);
-          const dest = await openFileNoFollow(
-            entry.absolutePath,
-            fsConstants.O_WRONLY | fsConstants.O_TRUNC
-          );
-          try {
-            await dest.writeFile(data);
-          } finally {
-            await dest.close();
-          }
+          await assertPathInodeSnapshotFresh(snapshot);
+          await fs.writeFile(entry.absolutePath, data);
         } finally {
           await src.close();
         }
@@ -399,9 +398,10 @@ export async function executeAppConfigPullWrites(
         journal.entries.push(pendingEntry);
         await writePullJournal(context, journal);
 
+        let renameDone = false;
         try {
           await assertPathInodeSnapshotFresh(chain.snapshot);
-          await assertParentDirHandleUnchanged(chain, parentInode);
+          await assertParentDirInodeUnchangedByPath(chain.parentDirPath, parentInode);
           await assertRealpathContainedInSyncRoot(
             target.absolutePath,
             target.syncKey,
@@ -409,55 +409,82 @@ export async function executeAppConfigPullWrites(
           );
 
           await fs.rename(tmpPath, target.absolutePath);
+          renameDone = true;
+          orphanTmp = undefined;
 
-          await assertParentDirHandleUnchanged(chain, parentInode);
-          await assertRealpathContainedInSyncRoot(
-            target.absolutePath,
-            target.syncKey,
-            resolved
-          );
-
-          const finalHandle = await openFileNoFollow(
-            target.absolutePath,
-            fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW
-          );
           try {
-            await assertFinalPathMatchesHandle(finalHandle, target.absolutePath);
-            if (writtenInode) {
-              const finalInode = await inodeOfHandle(finalHandle);
-              if (finalInode.dev !== writtenInode.dev || finalInode.ino !== writtenInode.ino) {
-                throw new PathVerificationError(
-                  `Post-rename file inode does not match written temp for ${target.absolutePath}`
-                );
+            await assertParentDirInodeUnchangedByPath(chain.parentDirPath, parentInode);
+            await assertRealpathContainedInSyncRoot(
+              target.absolutePath,
+              target.syncKey,
+              resolved
+            );
+
+            const finalHandle = await openFileNoFollow(
+              target.absolutePath,
+              fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW
+            );
+            try {
+              await assertFinalPathMatchesHandle(finalHandle, target.absolutePath);
+              if (writtenInode) {
+                const finalInode = await inodeOfHandle(finalHandle);
+                if (finalInode.dev !== writtenInode.dev || finalInode.ino !== writtenInode.ino) {
+                  throw new PathVerificationError(
+                    `Post-rename file inode does not match written temp for ${target.absolutePath}`
+                  );
+                }
               }
+            } finally {
+              await finalHandle.close();
             }
-          } finally {
-            await finalHandle.close();
-          }
-          if (priorMode !== undefined) {
-            await fs.chmod(target.absolutePath, priorMode);
-          }
-          pendingEntry.renameCompleted = true;
-          pendingEntry.tmpPath = undefined;
-          orphanTmp = undefined;
-          await writePullJournal(context, journal);
-          updated += 1;
-        } catch (postWriteErr) {
-          if (writtenInode) {
-            await recoverEscapedWrite(target.absolutePath, writtenInode, tmpPath);
-          } else {
-            await cleanupOrphanPullTemp(tmpPath);
-          }
-          orphanTmp = undefined;
-          if (
-            postWriteErr instanceof PathVerificationError ||
-            postWriteErr instanceof HeldUnsafeWriteError
-          ) {
+          } catch (verifyErr) {
+            if (writtenInode && isPathVerificationError(verifyErr)) {
+              await tryCleanupEscapedWrittenFile(
+                target.absolutePath,
+                writtenInode,
+                tmpPath
+              );
+            } else if (!renameDone) {
+              await cleanupOrphanPullTemp(tmpPath);
+            }
             throw new HeldUnsafeWriteError(
-              `Held/unsafe write for ${target.syncKey}: ${postWriteErr.message}`
+              `Held/unsafe write for ${target.syncKey}: ${verifyErr instanceof Error ? verifyErr.message : String(verifyErr)}`
             );
           }
-          throw postWriteErr;
+
+          pendingEntry.renameCompleted = true;
+          pendingEntry.tmpPath = undefined;
+
+          try {
+            if (priorMode !== undefined) {
+              await fs.chmod(target.absolutePath, priorMode);
+            }
+            await writePullJournal(context, journal);
+            updated += 1;
+          } catch (postRenameErr) {
+            const detail =
+              postRenameErr instanceof Error ? postRenameErr.message : String(postRenameErr);
+            getLogger().appendLine(
+              `[${new Date().toISOString()}] Pull post-rename step failed for ${target.syncKey} (file kept on disk): ${detail}`
+            );
+            try {
+              await writePullJournal(context, journal);
+            } catch {
+              // keep last on-disk journal; file is already renamed
+            }
+            failed.push(
+              `${POST_RENAME_HELD_PREFIX} ${target.syncKey}: ${detail} (file on disk; journal retained)`
+            );
+            vscodeApi.window.showWarningMessage(
+              `Cursor Sync wrote ${target.syncKey} but could not finish bookkeeping (${detail}). The file on disk was kept; restart may complete restore.`
+            );
+          }
+        } catch (err) {
+          if (!renameDone) {
+            await cleanupOrphanPullTemp(tmpPath);
+            orphanTmp = undefined;
+          }
+          throw err;
         }
       } catch (err) {
         if (orphanTmp) {
@@ -483,7 +510,12 @@ export async function executeAppConfigPullWrites(
     }
 
     if (failed.length > 0) {
-      throw new Error(`Pull write failed for ${failed.length} file(s)`);
+      const fatal = failed.some((line) => !line.startsWith(POST_RENAME_HELD_PREFIX));
+      if (fatal) {
+        throw new Error(`Pull write failed for ${failed.length} file(s)`);
+      }
+      await writePullJournal(context, journal);
+      return { updated, failed };
     }
 
     journal.phase = "complete";
@@ -502,9 +534,12 @@ export async function executeAppConfigPullWrites(
       rollbackOk = false;
     }
     if (rollbackOk) {
-      journal.phase = "complete";
-      await writePullJournal(context, journal);
-      await deletePullJournal(context, journal.id);
+      const hasRenameCompleted = journal.entries.some((e) => e.renameCompleted);
+      if (!hasRenameCompleted) {
+        journal.phase = "complete";
+        await writePullJournal(context, journal);
+        await deletePullJournal(context, journal.id);
+      }
     }
     throw err;
   }

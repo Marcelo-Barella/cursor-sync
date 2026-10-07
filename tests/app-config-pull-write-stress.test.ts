@@ -70,7 +70,7 @@ async function countEscapeArtifacts(root: string, syncRoot: string): Promise<num
   return escapes;
 }
 
-describe("pull write stress (post staging.12 guards)", () => {
+describe("pull write stress (post staging.13 guards)", () => {
   let root = "";
 
   afterEach(async () => {
@@ -143,8 +143,98 @@ describe("pull write stress (post staging.12 guards)", () => {
     // After guards: expect zero orphaned .tmp / remote files outside cursor-user.
     expect(escapes).toBe(0);
     // eslint-disable-next-line no-console
-    console.log(`pull write stress: escapes=${escapes} per ${STRESS_RUNS} runs (expected 0 after staging.12)`);
+    console.log(
+      `pull write stress (sequential): escapes=${escapes} per ${STRESS_RUNS} runs (expected 0)`
+    );
     },
     60_000
+  );
+
+  it(
+    "concurrent parent-swap adversary reports zero escape artifacts",
+    async () => {
+      root = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-stress-concurrent-"));
+      const outside = path.join(root, "outside");
+      const cursorUser = path.join(root, "cursor-user");
+      await fs.mkdir(outside, { recursive: true });
+      await fs.mkdir(cursorUser, { recursive: true });
+      mockRoots.cursorUser = cursorUser;
+      mockRoots.dotCursor = path.join(root, "dot-cursor");
+      await fs.mkdir(mockRoots.dotCursor, { recursive: true });
+
+      const storage = path.join(root, "storage");
+      await fs.mkdir(storage, { recursive: true });
+      const ctx = {
+        globalStorageUri: { fsPath: storage },
+        globalState: { get: () => undefined, update: async () => {} },
+      } as never;
+
+      const resolved = {
+        cursorUser,
+        dotCursor: mockRoots.dotCursor,
+        cursorUserReal: await fs.realpath(cursorUser),
+        dotCursorReal: await fs.realpath(mockRoots.dotCursor),
+      };
+
+      const { executeAppConfigPullWrites } = await import("../src/app-config-pull-files.js");
+      const { beginAppConfigsRun } = await import("../src/app-session-coordination.js");
+
+      const CONCURRENT = 40;
+      let adversaryRunning = true;
+      const adversary = (async () => {
+        while (adversaryRunning) {
+          const trap = path.join(cursorUser, "trap");
+          try {
+            await fs.rm(trap, { force: true, recursive: true });
+            await fs.symlink(outside, trap);
+            await fs.rm(trap, { force: true });
+            await fs.mkdir(trap, { recursive: true });
+          } catch {
+            // race with writers
+          }
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      })();
+
+      let escapes = 0;
+      const workers = Array.from({ length: CONCURRENT }, async (_, i) => {
+        const sub = path.join(cursorUser, `concurrent-${i % 4}`);
+        await fs.mkdir(sub, { recursive: true });
+        const target = path.join(sub, `file-${i}.json`);
+        const content = Buffer.from(`{"c":${i}}`, "utf-8");
+        const run = beginAppConfigsRun("pull");
+        try {
+          await executeAppConfigPullWrites(
+            ctx,
+            run,
+            [
+              {
+                syncKey: `cursor-user/concurrent-${i % 4}/file-${i}.json`,
+                absolutePath: target,
+                content,
+                expectedChecksum: computeChecksum(content),
+              },
+            ],
+            resolved
+          );
+        } catch {
+          // fail closed
+        } finally {
+          run.end();
+        }
+      });
+
+      await Promise.all(workers);
+      adversaryRunning = false;
+      await adversary;
+      escapes = await countEscapeArtifacts(root, cursorUser);
+
+      expect(escapes).toBe(0);
+      // eslint-disable-next-line no-console
+      console.log(
+        `pull write stress (concurrent parent-swap adversary): escapes=${escapes} per ${CONCURRENT} runs (expected 0)`
+      );
+    },
+    120_000
   );
 });
