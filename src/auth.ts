@@ -129,7 +129,9 @@ export async function validateStoredToken(
       "Stored GitHub token is no longer valid. Please reconfigure."
     );
     await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-    updateStatusBar("unconfigured");
+    updateStatusBar("unconfigured", undefined, {
+      setupCommand: "cursorSync.configureGithub",
+    });
     return false;
   }
 

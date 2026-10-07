@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.17-logout
+
+### Fixed
+- Status bar **Sync: Setup** defaults to `cursorSync.loginToApp` on initialize and activate; invalid PAT reconfigure still passes `configureGithub` explicitly.
+
 ## v0.8.4-staging.16-logout
 
 ### Fixed
