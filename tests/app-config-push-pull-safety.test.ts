@@ -441,6 +441,56 @@ describe("executeAppConfigPullWrites safety", () => {
     vi.restoreAllMocks();
   });
 
+  it("rollback does not write through symlink destination pointing outside sync root", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-rollback-symlink-"));
+    const outside = path.join(root, "outside");
+    const victim = path.join(outside, "victim.json");
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(victim, "victim-safe", "utf-8");
+    const cursorUser = path.join(root, "cursor-user");
+    await fs.mkdir(cursorUser, { recursive: true });
+    mockRoots.cursorUser = cursorUser;
+    mockRoots.dotCursor = path.join(root, "dot-cursor");
+    const target = path.join(cursorUser, "settings.json");
+    await fs.symlink(victim, target);
+    const journalId = "symlinkvictim01ab";
+    const storage = path.join(root, "storage");
+    const backupDir = path.join(storage, "backups", `app-config-pull-${journalId}`);
+    await fs.mkdir(backupDir, { recursive: true });
+    const backupPath = path.join(backupDir, "settings.backup");
+    await fs.writeFile(backupPath, "backup-content", "utf-8");
+    const ctx = {
+      globalStorageUri: { fsPath: storage },
+      globalState: { get: () => undefined, update: async () => {} },
+    } as never;
+    const { rollbackPullJournal } = await import("../src/app-config-pull-files.js");
+    await rollbackPullJournal(ctx, {
+      id: journalId,
+      startedAt: new Date().toISOString(),
+      backupDir,
+      phase: "rollback",
+      resolvedRoots: {
+        cursorUser,
+        dotCursor: mockRoots.dotCursor,
+        cursorUserReal: await fs.realpath(cursorUser),
+        dotCursorReal: path.join(root, "dot-cursor"),
+      },
+      entries: [
+        {
+          syncKey: "cursor-user/settings.json",
+          absolutePath: target,
+          backupPath,
+          createdByPull: false,
+          expectedChecksum: computeChecksum(Buffer.from("backup-content", "utf-8")),
+          kind: "file",
+          wroteChecksum: computeChecksum(Buffer.from("pulled", "utf-8")),
+          renameCompleted: true,
+        },
+      ],
+    });
+    expect(await fs.readFile(victim, "utf-8")).toBe("victim-safe");
+  });
+
   it("removes only files created by the pull on abort rollback", async () => {
     const { cursorUser, ctx } = await makePullFixture();
     const journalId = "cafebabedeadbeef";

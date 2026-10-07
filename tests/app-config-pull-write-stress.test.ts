@@ -32,8 +32,10 @@ vi.mock("../src/diagnostics.js", () => ({
 
 const STRESS_RUNS = 80;
 
+/** Orphan pull temps or pulled file payloads outside the verified sync root. */
 async function countEscapeArtifacts(root: string, syncRoot: string): Promise<number> {
   let escapes = 0;
+  const syncRootResolved = path.resolve(syncRoot);
   async function walk(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
@@ -42,29 +44,16 @@ async function countEscapeArtifacts(root: string, syncRoot: string): Promise<num
         await walk(full);
         continue;
       }
-      const rel = path.relative(syncRoot, full);
-      const outsideSync =
-        rel.startsWith("..") || path.isAbsolute(rel) || dir === root && !full.startsWith(syncRoot);
+      const rel = path.relative(syncRootResolved, full);
+      const outsideSync = rel.startsWith("..") || path.isAbsolute(rel);
       const isOurTmp =
         entry.name.startsWith(".cursor-sync-pull-") && entry.name.endsWith(".tmp");
-      if (outsideSync || (isOurTmp && dir !== path.dirname(full))) {
-        escapes += 1;
-      }
-      if (isOurTmp && !full.startsWith(syncRoot)) {
-        escapes += 1;
-      }
-    }
-  }
-  const parentOfSync = path.dirname(syncRoot);
-  try {
-    const siblings = await fs.readdir(parentOfSync, { withFileTypes: true });
-    for (const s of siblings) {
-      if (s.name.startsWith(".cursor-sync-pull-") && s.name.endsWith(".tmp")) {
+      const looksLikePulledPayload =
+        entry.name.startsWith("file-") && entry.name.endsWith(".json");
+      if (outsideSync && (isOurTmp || looksLikePulledPayload)) {
         escapes += 1;
       }
     }
-  } catch {
-    // ignore
   }
   await walk(root);
   return escapes;
@@ -183,14 +172,19 @@ describe("pull write stress (post staging.13 guards)", () => {
       let adversaryRunning = true;
       const adversary = (async () => {
         while (adversaryRunning) {
-          const trap = path.join(cursorUser, "trap");
-          try {
-            await fs.rm(trap, { force: true, recursive: true });
-            await fs.symlink(outside, trap);
-            await fs.rm(trap, { force: true });
-            await fs.mkdir(trap, { recursive: true });
-          } catch {
-            // race with writers
+          for (let bucket = 0; bucket < 4; bucket += 1) {
+            const parent = path.join(cursorUser, `concurrent-${bucket}`);
+            const escapeParent = path.join(outside, `escape-${bucket}`);
+            try {
+              await fs.mkdir(escapeParent, { recursive: true });
+              await fs.rm(parent, { force: true, recursive: true });
+              await fs.symlink(escapeParent, parent);
+              await new Promise((r) => setTimeout(r, 0));
+              await fs.rm(parent, { force: true });
+              await fs.mkdir(parent, { recursive: true });
+            } catch {
+              // race writers between open and rename
+            }
           }
           await new Promise((r) => setTimeout(r, 0));
         }

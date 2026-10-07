@@ -2,6 +2,14 @@ import { AwsClient } from "aws4fetch";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { isAbortLikeError } from "./app-config-errors.js";
+import { AppConfigsAbortedError } from "./app-session-coordination.js";
+
+function throwIfR2RequestAborted(error: unknown, signal?: AbortSignal): void {
+  if (signal?.aborted || isAbortLikeError(error)) {
+    throw new AppConfigsAbortedError("logout");
+  }
+}
 
 export interface R2StorageCredentials {
   endpoint: string;
@@ -180,14 +188,20 @@ export async function putR2Object(
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
 
-  const response = await client.fetch(url, {
-    method: "PUT",
-    body,
-    headers: {
-      "Content-Type": "application/octet-stream",
-    },
-    signal: options?.signal,
-  });
+  let response: Awaited<ReturnType<AwsClient["fetch"]>>;
+  try {
+    response = await client.fetch(url, {
+      method: "PUT",
+      body,
+      headers: {
+        "Content-Type": "application/octet-stream",
+      },
+      signal: options?.signal,
+    });
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -206,7 +220,13 @@ export async function getR2Object(
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
 
-  const response = await client.fetch(url, { method: "GET", signal: options?.signal });
+  let response: Awaited<ReturnType<AwsClient["fetch"]>>;
+  try {
+    response = await client.fetch(url, { method: "GET", signal: options?.signal });
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
 
   if (response.status === 404) {
     return undefined;
@@ -219,6 +239,12 @@ export async function getR2Object(
     );
   }
 
-  const arrayBuffer = await response.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await response.arrayBuffer();
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
   return Buffer.from(arrayBuffer);
 }

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.14-logout
+
+### Fixed
+- `isAbortLikeError` accepts bare abort reason strings (e.g. Node fetch `"logout"`); R2 GET/PUT map aborts to cancel flow.
+- Pull rollback restores via `O_NOFOLLOW` opens (no `writeFile` through symlinks).
+- Concurrent pull-write stress adversary races writer parent directories.
+
 ## v0.8.4-staging.13-logout
 
 ### Fixed

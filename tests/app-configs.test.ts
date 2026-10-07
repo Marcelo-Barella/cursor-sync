@@ -470,4 +470,62 @@ describe("app-configs R2 sync", () => {
     expect(capturedSignal?.aborted).toBe(true);
     __resetAppSessionCoordinationForTests();
   });
+
+  it("pull shows cancel toast when R2 GET rejects bare logout string", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-token");
+    getR2ObjectMock.mockImplementation((_c, _k, opts) => {
+      return new Promise((_resolve, reject) => {
+        opts?.signal?.addEventListener("abort", () => reject("logout"), { once: true });
+      });
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        payload: {
+          schemaVersion: 1,
+          manifest: {
+            schemaVersion: 1,
+            syncProfileName: "default",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            sourceMachineId: "machine",
+            sourceOS: "linux",
+            files: {
+              "cursor-user/settings.json": {
+                checksum:
+                  "600bfa81b1561fa6281505a8630327ec94da208976f36c142c781b0b46a95725",
+                sizeBytes: 15,
+              },
+            },
+          },
+          files: {
+            "cursor-user/settings.json": {
+              content: '{"legacy":true}',
+              checksum:
+                "600bfa81b1561fa6281505a8630327ec94da208976f36c142c781b0b46a95725",
+              sizeBytes: 15,
+            },
+          },
+        },
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { executePullAppConfigs } = await import("../src/app-configs.js");
+    const { bumpSessionEpoch, __resetAppSessionCoordinationForTests } = await import(
+      "../src/app-session-coordination.js"
+    );
+
+    const pullPromise = executePullAppConfigs(makeContext());
+    await vi.waitFor(() => expect(getR2ObjectMock).toHaveBeenCalled());
+    bumpSessionEpoch();
+    await expect(pullPromise).resolves.toBe(false);
+    expect(showInformationMessageMock).toHaveBeenCalledWith("Logged out, pull cancelled.");
+    expect(showErrorMessageMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/failed:.*logout/i)
+    );
+    __resetAppSessionCoordinationForTests();
+  });
 });

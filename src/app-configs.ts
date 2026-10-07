@@ -407,9 +407,17 @@ async function resolveRemoteFileContent(
     options?.credentials ??
     (await getR2StorageCredentials(context, { silent: options?.silentCredentials }));
   if (credentials) {
-    const remote = await getR2Object(credentials, syncKey, {
-      signal: options?.run?.signal,
-    });
+    let remote: Buffer | undefined;
+    try {
+      remote = await getR2Object(credentials, syncKey, {
+        signal: options?.run?.signal,
+      });
+    } catch (err) {
+      if (isAppConfigsAbortedError(err) || isAbortLikeError(err)) {
+        throw new AppConfigsAbortedError("logout");
+      }
+      throw err;
+    }
     if (remote) {
       const checksum = computeChecksum(remote);
       if (checksum !== manifestEntry.checksum) {
@@ -573,7 +581,14 @@ export async function executePushAppConfigs(
       ) {
         continue;
       }
-      await putR2Object(credentials, syncKey, body, { signal: run.signal });
+      try {
+        await putR2Object(credentials, syncKey, body, { signal: run.signal });
+      } catch (err) {
+        if (isAppConfigsAbortedError(err) || isAbortLikeError(err)) {
+          throw new AppConfigsAbortedError("logout");
+        }
+        throw err;
+      }
       uploadedKeys.push(syncKey);
     }
 

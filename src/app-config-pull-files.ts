@@ -174,6 +174,38 @@ function isPathVerificationError(error: unknown): error is PathVerificationError
   return error instanceof PathVerificationError;
 }
 
+async function restoreBackedUpFileNoFollow(
+  entry: PullJournalEntry,
+  data: Buffer,
+  snapshot: PathInodeSnapshot,
+  resolved: ResolvedSyncRoots
+): Promise<void> {
+  const destStat = await fs.lstat(entry.absolutePath).catch(() => undefined);
+  if (destStat?.isSymbolicLink()) {
+    throw new PathVerificationError(
+      `Rollback refused symlink destination: ${entry.absolutePath}`
+    );
+  }
+  await assertPathInodeSnapshotFresh(snapshot);
+  await assertRealpathContainedInSyncRoot(entry.absolutePath, entry.syncKey, resolved);
+
+  const destHandle =
+    destStat && destStat.isFile()
+      ? await openFileNoFollow(
+          entry.absolutePath,
+          fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW
+        )
+      : await fs.open(
+          entry.absolutePath,
+          fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW
+        );
+  try {
+    await destHandle.writeFile(data);
+  } finally {
+    await destHandle.close();
+  }
+}
+
 async function cleanupPullTempsAndEmptyDirs(entry: PullJournalEntry): Promise<void> {
   if (entry.tmpPath && (await pathExists(entry.tmpPath))) {
     try {
@@ -276,9 +308,7 @@ export async function rollbackPullJournal(
         const src = await openFileNoFollow(entry.backupPath, fsConstants.O_RDONLY);
         try {
           const data = await src.readFile();
-          await assertPathInodeSnapshotFresh(snapshot);
-          await assertPathInodeSnapshotFresh(snapshot);
-          await fs.writeFile(entry.absolutePath, data);
+          await restoreBackedUpFileNoFollow(entry, data, snapshot, resolved);
         } finally {
           await src.close();
         }
