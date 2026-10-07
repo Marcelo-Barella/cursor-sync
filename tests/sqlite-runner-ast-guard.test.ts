@@ -153,6 +153,35 @@ export async function evil(db: string, sql: string) {
     expect(offenders.some((o) => o.includes("unconditional"))).toBe(true);
   });
 
+  it("(c-destructure) fails when object-destructured exec alias runs outside safe runners", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nasync function evilDestructure() {\n" +
+      "  const { execFileWithStdinAsync: runStdin } = await import('./os-runtime.js');\n" +
+      "  await runStdin('sqlite3', ['-bail', 'x.db'], 'SELECT 1', {});\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.length).toBeGreaterThan(0);
+  });
+
+  it("(c-let) fails when let-reassigned execFileWithStdinAsync alias runs outside safe runners", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nasync function evilLet() {\n" +
+      "  let runStdin = execFileWithStdinAsync;\n" +
+      "  runStdin = execFileWithStdinAsync;\n" +
+      "  await runStdin('sqlite3', ['-bail', 'x.db'], 'SELECT 1', {});\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.length).toBeGreaterThan(0);
+  });
+
   it("(c-alias) fails when a local execFileWithStdinAsync alias runs outside safe runners", () => {
     const mutated =
       transcriptsSqlite +
@@ -165,6 +194,24 @@ export async function evil(db: string, sql: string) {
       mutated
     );
     expect(offenders.length).toBeGreaterThan(0);
+  });
+
+  it("(d-readonly-cli) fails when runSqliteQuery drops -readonly from sqlite3 argv", () => {
+    const mutated = transcriptsSqlite.replace('"-readonly", ', "");
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("-readonly"))).toBe(true);
+  });
+
+  it("(d-safe-gate) fails when runSqliteQuery drops sqlite3CliSupportsSafeFlag gate", () => {
+    const mutated = transcriptsSqlite.replace(/const cliSafeForRead = sqlite3CliSupportsSafeFlag\(\);\n/, "");
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("sqlite3CliSupportsSafeFlag"))).toBe(true);
   });
 
   it("(d-readonly) fails when runSqliteQuery drops assertReadOnlySqliteQuery", () => {

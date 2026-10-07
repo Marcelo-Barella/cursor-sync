@@ -401,6 +401,11 @@ function sqlite3SupportsSafeFlag(): boolean {
   return sqlite3SafeFlagSupported;
 }
 
+/** True when the installed sqlite3 CLI accepts `-safe` (cached after first probe). */
+export function sqlite3CliSupportsSafeFlag(): boolean {
+  return sqlite3SupportsSafeFlag();
+}
+
 /** Prefix sqlite3 CLI args with -safe when supported (.shell / .system disabled). */
 export function sqlite3CliArgs(userArgs: readonly string[]): string[] {
   if (sqlite3SupportsSafeFlag()) {

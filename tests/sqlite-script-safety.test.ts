@@ -19,13 +19,44 @@ const FUZZ_ESCAPE_FIXTURE = path.join(
 );
 
 describe("assertReadOnlySqliteQuery", () => {
-  it("allows SELECT and introspection PRAGMA", () => {
+  it("allows SELECT and caller PRAGMA forms", () => {
     expect(() => assertReadOnlySqliteQuery("SELECT 1;")).not.toThrow();
     expect(() => assertReadOnlySqliteQuery("PRAGMA table_info(blobs);")).not.toThrow();
+    expect(() => assertReadOnlySqliteQuery("PRAGMA user_version;")).not.toThrow();
   });
 
   it("rejects write statements", () => {
     expect(() => assertReadOnlySqliteQuery("INSERT INTO t VALUES (1);")).toThrow(
+      UnsafeSqlScriptError
+    );
+  });
+
+  it("rejects quoted-identifier shell function calls", () => {
+    expect(() =>
+      assertReadOnlySqliteQuery(`SELECT "writefile"('/tmp/pwn','x')`)
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertReadOnlySqliteQuery("SELECT [writefile]('/tmp/pwn','x')")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertReadOnlySqliteQuery("SELECT `writefile`('/tmp/pwn','x')")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertReadOnlySqliteQuery("SELECT \"WriteFile\"('/tmp/pwn','x')")
+    ).toThrow(UnsafeSqlScriptError);
+    expect(() =>
+      assertReadOnlySqliteQuery("SELECT writefile/**/('/tmp/pwn','x')")
+    ).toThrow(UnsafeSqlScriptError);
+  });
+
+  it("rejects write PRAGMA assignments", () => {
+    expect(() => assertReadOnlySqliteQuery("PRAGMA journal_mode=DELETE;")).toThrow(
+      UnsafeSqlScriptError
+    );
+    expect(() => assertReadOnlySqliteQuery("PRAGMA user_version=5;")).toThrow(
+      UnsafeSqlScriptError
+    );
+    expect(() => assertReadOnlySqliteQuery("PRAGMA encoding='UTF-8';")).toThrow(
       UnsafeSqlScriptError
     );
   });

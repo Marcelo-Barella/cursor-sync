@@ -5,6 +5,7 @@ import {
   execFileWithStdinAsync,
   isWin32Platform,
   sqlite3CliArgs,
+  sqlite3CliSupportsSafeFlag,
   subprocessCommandBasename,
   systemTmpDir,
 } from "./os-runtime.js";
@@ -524,7 +525,8 @@ export async function runSqliteQuery(
 ): Promise<{ stdout: string; stderr: string }> {
   assertReadOnlySqliteQuery(sql);
   const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
-  if (await preferPythonForDbFile(dbPath)) {
+  const cliSafeForRead = sqlite3CliSupportsSafeFlag();
+  if (await preferPythonForDbFile(dbPath) || !cliSafeForRead) {
     return runPythonSqliteQuery(dbPath, sql, execOpts);
   }
   try {

@@ -558,15 +558,127 @@ export function assertSafeSqlScript(script: string): void {
 
 const READ_ONLY_QUERY_KEYWORDS = new Set(["select", "pragma"]);
 
-const READ_ONLY_PRAGMA_NAMES = new Set([
-  ...ALLOWED_PRAGMA_NAMES,
-  "table_info",
-  "table_list",
-  "database_list",
-  "index_list",
-  "index_info",
-  "compile_options",
+/** PRAGMA forms used by querySqliteRows callers (store-template-hydrate, sqlite-helpers tests). */
+const READ_ONLY_PRAGMA_NAMES_CALLERS = new Set(["user_version", "table_info"]);
+
+const READ_ONLY_FORBIDDEN_FUNCTIONS = new Set([
+  "writefile",
+  "readfile",
+  "edit",
+  "load_extension",
+  "fts3_tokenizer",
+  "sqlite_dbpage",
+  "lsdir",
+  "zipfile",
+  "sqlar",
+  "fsdir",
+  "uintreg",
+  "intreg",
+  "series",
+  "generate_series",
 ]);
+
+function extractQuotedIdentifier(sql: string, token: SqlToken): string | undefined {
+  const slice = sql.slice(token.start, token.end);
+  const first = slice[0];
+  if (first === '"') {
+    return slice.slice(1, -1).replace(/""/g, '"');
+  }
+  if (first === "`") {
+    return slice.slice(1, -1).replace(/``/g, "`");
+  }
+  if (first === "[") {
+    return slice.slice(1, -1);
+  }
+  return undefined;
+}
+
+function isForbiddenReadOnlyFunction(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (READ_ONLY_FORBIDDEN_FUNCTIONS.has(lower)) {
+    return true;
+  }
+  return lower.startsWith("sqlar_");
+}
+
+function indexOfNextOpenParen(tokens: SqlToken[], from: number): number {
+  for (let k = from; k < tokens.length; k++) {
+    const tok = tokens[k]!;
+    if (tok.kind === "comment") {
+      continue;
+    }
+    if (tok.kind === "other" && tok.text === "(") {
+      return k;
+    }
+    if (tok.kind === "word" || tok.kind === "literal" || tok.kind === "semicolon") {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+function assertNoForbiddenReadOnlyCalls(sql: string, tokens: SqlToken[]): void {
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (t.kind === "comment" || t.kind === "semicolon") {
+      continue;
+    }
+    let callee: string | undefined;
+    if (t.kind === "word") {
+      callee = t.text ?? "";
+    } else if (t.kind === "literal") {
+      callee = extractQuotedIdentifier(sql, t);
+    } else {
+      continue;
+    }
+    if (!callee) {
+      continue;
+    }
+    if (indexOfNextOpenParen(tokens, i + 1) < 0) {
+      continue;
+    }
+    if (isForbiddenReadOnlyFunction(callee)) {
+      throw new UnsafeSqlScriptError(
+        `read-only query cannot call shell function ${callee.toLowerCase()}`
+      );
+    }
+  }
+}
+
+function assertReadOnlyPragma(sql: string, tokens: SqlToken[], statement: string): void {
+  if (statement.includes("=")) {
+    throw new UnsafeSqlScriptError("read-only PRAGMA cannot assign values");
+  }
+  let i = 0;
+  while (
+    i < tokens.length &&
+    !(tokens[i]!.kind === "word" && tokens[i]!.text?.toLowerCase() === "pragma")
+  ) {
+    i++;
+  }
+  if (i >= tokens.length) {
+    throw new UnsafeSqlScriptError("read-only PRAGMA statement is malformed");
+  }
+  i++;
+  while (i < tokens.length && tokens[i]!.kind === "comment") {
+    i++;
+  }
+  const nameTok = tokens[i];
+  let name: string | undefined;
+  if (nameTok?.kind === "word") {
+    name = nameTok.text?.toLowerCase();
+  } else if (nameTok?.kind === "literal") {
+    name = extractQuotedIdentifier(sql, nameTok)?.toLowerCase();
+  }
+  if (!name || !READ_ONLY_PRAGMA_NAMES_CALLERS.has(name)) {
+    throw new UnsafeSqlScriptError(
+      `PRAGMA ${name ?? "(unknown)"} is not allowlisted for read-only query`
+    );
+  }
+  if (name === "user_version" && /\buser_version\s*\(/i.test(statement)) {
+    throw new UnsafeSqlScriptError("read-only PRAGMA user_version cannot use call syntax");
+  }
+}
 
 /**
  * Enforce read-only sqlite3 / Python query helpers (single SELECT or allowlisted PRAGMA only).
@@ -583,6 +695,7 @@ export function assertReadOnlySqliteQuery(sql: string): void {
   }
   const statement = statements[0]!;
   assertNormalizedForbiddenTokens(statement);
+  assertNoForbiddenReadOnlyCalls(sql, tokens);
   const keyword = leadingStatementKeyword(statement);
   if (!keyword || !READ_ONLY_QUERY_KEYWORDS.has(keyword)) {
     throw new UnsafeSqlScriptError(
@@ -590,13 +703,7 @@ export function assertReadOnlySqliteQuery(sql: string): void {
     );
   }
   if (keyword === "pragma") {
-    const pragmaMatch = statement.match(/\bpragma\s+([a-z_]+)/i);
-    const name = pragmaMatch?.[1]?.toLowerCase();
-    if (!name || !READ_ONLY_PRAGMA_NAMES.has(name)) {
-      throw new UnsafeSqlScriptError(
-        `PRAGMA ${name ?? "(unknown)"} is not allowlisted for read-only query`
-      );
-    }
+    assertReadOnlyPragma(sql, tokens, statement);
   }
 }
 

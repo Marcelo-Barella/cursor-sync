@@ -81,7 +81,7 @@ function collectExecStdinLocalNames(source: ts.SourceFile): Set<string> {
             grew = true;
           }
         }
-        if (ts.isObjectBindingPattern(node.name) && node.initializer) {
+        if (ts.isObjectBindingPattern(node.name)) {
           for (const el of node.name.elements) {
             const prop = el.propertyName ?? el.name;
             if (ts.isIdentifier(prop) && prop.text === EXEC_STDIN && ts.isIdentifier(el.name)) {
@@ -92,6 +92,16 @@ function collectExecStdinLocalNames(source: ts.SourceFile): Set<string> {
             }
           }
         }
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left) &&
+        expressionUsesExecStdin(node.right, names) &&
+        !names.has(node.left.text)
+      ) {
+        names.add(node.left.text);
+        grew = true;
       }
       ts.forEachChild(node, visit);
     };
@@ -118,15 +128,39 @@ function collectExecFileAsyncLocalNames(source: ts.SourceFile): Set<string> {
           }
         }
       }
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        if (
-          ts.isIdentifier(node.initializer) &&
-          names.has(node.initializer.text) &&
-          !names.has(node.name.text)
-        ) {
-          names.add(node.name.text);
-          grew = true;
+      if (ts.isVariableDeclaration(node)) {
+        if (ts.isIdentifier(node.name) && node.initializer) {
+          if (
+            ts.isIdentifier(node.initializer) &&
+            names.has(node.initializer.text) &&
+            !names.has(node.name.text)
+          ) {
+            names.add(node.name.text);
+            grew = true;
+          }
         }
+        if (ts.isObjectBindingPattern(node.name)) {
+          for (const el of node.name.elements) {
+            const prop = el.propertyName ?? el.name;
+            if (ts.isIdentifier(prop) && prop.text === EXEC_FILE && ts.isIdentifier(el.name)) {
+              if (!names.has(el.name.text)) {
+                names.add(el.name.text);
+                grew = true;
+              }
+            }
+          }
+        }
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(node.left) &&
+        ts.isIdentifier(node.right) &&
+        names.has(node.right.text) &&
+        !names.has(node.left.text)
+      ) {
+        names.add(node.left.text);
+        grew = true;
       }
       ts.forEachChild(node, visit);
     };
@@ -315,6 +349,37 @@ function scanExportedWritersWithoutAssert(source: ts.SourceFile, rel: string, of
   visit(source);
 }
 
+function verifyRunSqliteQueryReadPathDefense(
+  source: ts.SourceFile,
+  rel: string,
+  offenders: string[]
+): void {
+  let fnBody: ts.ConciseBody | undefined;
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === RUN_SQLITE_QUERY && node.body) {
+      fnBody = node.body;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (!fnBody) {
+    offenders.push(`${rel}: ${RUN_SQLITE_QUERY} not found`);
+    return;
+  }
+  const text = fnBody.getText(source);
+  if (!text.includes('"-readonly"') && !text.includes("'-readonly'")) {
+    offenders.push(`${rel}: ${RUN_SQLITE_QUERY} must pass -readonly to sqlite3 CLI`);
+  }
+  if (!text.includes("sqlite3CliSupportsSafeFlag")) {
+    offenders.push(
+      `${rel}: ${RUN_SQLITE_QUERY} must gate CLI use on sqlite3CliSupportsSafeFlag`
+    );
+  }
+  if (!text.includes("runPythonSqliteQuery")) {
+    offenders.push(`${rel}: ${RUN_SQLITE_QUERY} must fall back to runPythonSqliteQuery`);
+  }
+}
+
 function hasExportModifier(node: ts.FunctionDeclaration): boolean {
   return (
     node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
@@ -353,6 +418,7 @@ function scanSourceFile(rel: string, content: string, offenders: string[]): void
       },
     ]);
     scanExportedWritersWithoutAssert(source, rel, offenders);
+    verifyRunSqliteQueryReadPathDefense(source, rel, offenders);
   }
 
   const visit = (node: ts.Node): void => {

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.39
+
+### Security
+- `assertReadOnlySqliteQuery`: token-aware refusal of quoted shell functions (`writefile`, `readfile`, extension tables, etc.); PRAGMA limited to caller forms (`user_version;`, `table_info(...)`) with no `=` assignments (`src/sqlite-script-safety.ts:559-701`).
+- `runSqliteQuery`: requires sqlite3 `-safe` for CLI reads; otherwise Python `mode=ro` only; keeps `-readonly` (`src/transcripts-sqlite.ts:521-543`, `src/os-runtime.ts:404-407`).
+- AST guard: object destructure / `let` reassignment aliases for exec helpers; `runSqliteQuery` must retain `-readonly` and safe-or-Python gate (`tests/sqlite-runner-ast-guard.ts`).
+
 ## v0.8.4-staging.38
 
 ### Fixed
