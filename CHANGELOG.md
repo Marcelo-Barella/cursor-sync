@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.38
+
+### Fixed
+- Scheduler: `none` / baseline refresh no longer clears held markers until `appStorageSyncRootsHealthyForHeldRecovery` passes (roots present, writable, scan not blocked).
+- Show Status: the “last direction” app-storage line follows `deriveStorageSyncPresentation` (held/partial/failed vs misleading succeeded).
+
+### Security
+- `runSqliteQuery`: `assertReadOnlySqliteQuery` plus sqlite3 `-readonly` and Python `mode=ro` URI (`src/transcripts-sqlite.ts:524-534`, `354-360`).
+- SQLite AST guard: unconditional `assertSafeSqlScript` / swallowed-try / `execFileWithStdinAsync` local aliases / `runSqliteQuery` read-only assert ordering.
+
 ## v0.8.4-staging.37
 
 ### Fixed

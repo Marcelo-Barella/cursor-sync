@@ -7,7 +7,10 @@ const SQLITE_SCRIPT = "SQLITE_PYTHON_EXECUTESCRIPT";
 const RUN_SQLITE_SCRIPT = "runSqliteScript";
 const EXEC_STDIN = "execFileWithStdinAsync";
 const SAFE_ASSERT = "assertSafeSqlScript";
+const READ_ONLY_ASSERT = "assertReadOnlySqliteQuery";
 const CLI_SAFE_STDIN = "runSqliteCliSafeStdin";
+const RUN_SQLITE_QUERY = "runSqliteQuery";
+const EXEC_FILE = "execFileAsync";
 
 function isInsideNamedFunction(node: ts.Node, name: string): boolean {
   let current: ts.Node | undefined = node;
@@ -42,24 +45,144 @@ function execCalleeName(node: ts.CallExpression): string | undefined {
   return undefined;
 }
 
+function expressionUsesExecStdin(expr: ts.Expression, known: Set<string>): boolean {
+  if (ts.isIdentifier(expr) && (known.has(expr.text) || expr.text === EXEC_STDIN)) {
+    return true;
+  }
+  return (
+    ts.isPropertyAccessExpression(expr) &&
+    ts.isIdentifier(expr.name) &&
+    expr.name.text === EXEC_STDIN
+  );
+}
+
 function collectExecStdinLocalNames(source: ts.SourceFile): Set<string> {
   const names = new Set<string>([EXEC_STDIN]);
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      const clause = node.importClause;
-      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-        for (const el of clause.namedBindings.elements) {
-          const imported = (el.propertyName ?? el.name).text;
-          if (imported === EXEC_STDIN) {
-            names.add(el.name.text);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        const clause = node.importClause;
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const el of clause.namedBindings.elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (imported === EXEC_STDIN && !names.has(el.name.text)) {
+              names.add(el.name.text);
+              grew = true;
+            }
+          }
+        }
+      }
+      if (ts.isVariableDeclaration(node)) {
+        if (ts.isIdentifier(node.name) && node.initializer) {
+          if (expressionUsesExecStdin(node.initializer, names) && !names.has(node.name.text)) {
+            names.add(node.name.text);
+            grew = true;
+          }
+        }
+        if (ts.isObjectBindingPattern(node.name) && node.initializer) {
+          for (const el of node.name.elements) {
+            const prop = el.propertyName ?? el.name;
+            if (ts.isIdentifier(prop) && prop.text === EXEC_STDIN && ts.isIdentifier(el.name)) {
+              if (!names.has(el.name.text)) {
+                names.add(el.name.text);
+                grew = true;
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return names;
+}
+
+function collectExecFileAsyncLocalNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>([EXEC_FILE]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        const clause = node.importClause;
+        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const el of clause.namedBindings.elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (imported === EXEC_FILE && !names.has(el.name.text)) {
+              names.add(el.name.text);
+              grew = true;
+            }
+          }
+        }
+      }
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        if (
+          ts.isIdentifier(node.initializer) &&
+          names.has(node.initializer.text) &&
+          !names.has(node.name.text)
+        ) {
+          names.add(node.name.text);
+          grew = true;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return names;
+}
+
+function catchClauseRethrows(clause: ts.CatchClause): boolean {
+  if (!clause.block) {
+    return false;
+  }
+  let rethrows = false;
+  const walk = (node: ts.Node): void => {
+    if (ts.isThrowStatement(node)) {
+      rethrows = true;
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(clause.block);
+  return rethrows;
+}
+
+function assertCallIsUnconditional(assertCall: ts.CallExpression, fnBody: ts.Node): boolean {
+  let current: ts.Node | undefined = assertCall.parent;
+  while (current && current !== fnBody) {
+    if (
+      ts.isIfStatement(current) ||
+      ts.isConditionalExpression(current) ||
+      ts.isForStatement(current) ||
+      ts.isForInStatement(current) ||
+      ts.isForOfStatement(current) ||
+      ts.isWhileStatement(current) ||
+      ts.isDoStatement(current) ||
+      ts.isSwitchStatement(current) ||
+      ts.isCaseClause(current)
+    ) {
+      return false;
+    }
+    if (ts.isTryStatement(current)) {
+      const tryBlock = current.tryBlock;
+      if (assertCall.getStart() >= tryBlock.getStart() && assertCall.getEnd() <= tryBlock.getEnd()) {
+        for (const clause of current.catchClause ? [current.catchClause] : []) {
+          if (clause && !catchClauseRethrows(clause)) {
+            return false;
           }
         }
       }
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return names;
+    current = current.parent;
+  }
+  return true;
+}
+
+function isExecFileAsyncCall(node: ts.CallExpression, localNames: Set<string>): boolean {
+  return ts.isIdentifier(node.expression) && localNames.has(node.expression.text);
 }
 
 function isExecStdinCall(node: ts.CallExpression, localNames: Set<string>): boolean {
@@ -72,50 +195,67 @@ function isExecStdinCall(node: ts.CallExpression, localNames: Set<string>): bool
   return false;
 }
 
-function functionHasAssertBeforeExec(
+function functionHasUnconditionalAssertBeforeExec(
   body: ts.ConciseBody,
-  localNames: Set<string>
-): boolean {
-  const marks: Array<{ kind: "assert" | "exec"; pos: number }> = [];
+  localNames: Set<string>,
+  assertName: string,
+  isExec: (node: ts.CallExpression) => boolean
+): { ok: boolean; reason?: string } {
+  const marks: Array<{ kind: "assert" | "exec"; pos: number; node?: ts.CallExpression }> = [];
   const walk = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === SAFE_ASSERT
+      node.expression.text === assertName
     ) {
-      marks.push({ kind: "assert", pos: node.getStart() });
+      if (!assertCallIsUnconditional(node, body)) {
+        marks.push({ kind: "assert", pos: node.getStart(), node });
+      } else {
+        marks.push({ kind: "assert", pos: node.getStart(), node });
+      }
     }
-    if (ts.isCallExpression(node) && isExecStdinCall(node, localNames)) {
+    if (ts.isCallExpression(node) && isExec(node)) {
       marks.push({ kind: "exec", pos: node.getStart() });
     }
     ts.forEachChild(node, walk);
   };
-  if (ts.isBlock(body)) {
-    walk(body);
-  } else {
-    walk(body);
+  walk(body);
+  for (const m of marks) {
+    if (m.kind === "assert" && m.node && !assertCallIsUnconditional(m.node, body)) {
+      return { ok: false, reason: `${assertName} must be unconditional before subprocess SQL` };
+    }
   }
   const firstExec = marks.find((m) => m.kind === "exec");
   const firstAssert = marks.find((m) => m.kind === "assert");
   if (firstExec && (!firstAssert || firstAssert.pos > firstExec.pos)) {
-    return false;
+    return { ok: false, reason: `must call ${assertName} before exec` };
   }
-  return true;
+  if (firstExec && !firstAssert) {
+    return { ok: false, reason: `must call ${assertName} before exec` };
+  }
+  return { ok: true };
 }
 
 function namedFunctionsRequireAssertBeforeExec(
   source: ts.SourceFile,
   rel: string,
   offenders: string[],
-  names: string[]
+  specs: Array<{ name: string; assertName: string; isExec: (n: ts.CallExpression) => boolean }>
 ): void {
-  const localNames = collectExecStdinLocalNames(source);
   const visit = (node: ts.Node): void => {
-    if (ts.isFunctionDeclaration(node) && node.name && names.includes(node.name.text)) {
-      if (node.body && !functionHasAssertBeforeExec(node.body, localNames)) {
-        offenders.push(
-          `${rel}: ${node.name.text} must call ${SAFE_ASSERT} before ${EXEC_STDIN}`
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      const fnName = node.name.text;
+      const spec = specs.find((s) => s.name === fnName);
+      if (spec && node.body) {
+        const result = functionHasUnconditionalAssertBeforeExec(
+          node.body,
+          new Set(),
+          spec.assertName,
+          spec.isExec
         );
+        if (!result.ok) {
+          offenders.push(`${rel}: ${fnName} ${result.reason}`);
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -193,9 +333,24 @@ function scanSourceFile(rel: string, content: string, offenders: string[]): void
   const localNames = collectExecStdinLocalNames(source);
 
   if (rel === "src/transcripts-sqlite.ts") {
+    const stdinNames = collectExecStdinLocalNames(source);
+    const fileNames = collectExecFileAsyncLocalNames(source);
     namedFunctionsRequireAssertBeforeExec(source, rel, offenders, [
-      RUN_SQLITE_SCRIPT,
-      CLI_SAFE_STDIN,
+      {
+        name: RUN_SQLITE_SCRIPT,
+        assertName: SAFE_ASSERT,
+        isExec: (n) => isExecStdinCall(n, stdinNames),
+      },
+      {
+        name: CLI_SAFE_STDIN,
+        assertName: SAFE_ASSERT,
+        isExec: (n) => isExecStdinCall(n, stdinNames),
+      },
+      {
+        name: RUN_SQLITE_QUERY,
+        assertName: READ_ONLY_ASSERT,
+        isExec: (n) => isExecFileAsyncCall(n, fileNames),
+      },
     ]);
     scanExportedWritersWithoutAssert(source, rel, offenders);
   }

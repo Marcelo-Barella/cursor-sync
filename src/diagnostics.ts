@@ -6,7 +6,7 @@ import { syncDestinationLabel } from "./sync-destination.js";
 import type { SyncDestinationId } from "./sync-destination.js";
 import {
   deriveStorageSyncPresentation,
-  formatStorageHistoryQuickPickLine,
+  formatAppStorageLastDirectionDescription,
   latestStorageHistoryEntry,
   storageSyncSidebarStatusDetail,
 } from "./storage-sync-ui-status.js";
@@ -51,9 +51,16 @@ function formatAppStorageStatusDescription(
   return storageSyncSidebarStatusDetail(presentation, entry);
 }
 
-function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
-  if (entry.destination === "cursor-sync-storage") {
-    return formatStorageHistoryQuickPickLine(entry);
+function formatHistoryAttemptDescription(
+  entry: SyncHistoryEntry,
+  options?: { history?: SyncHistoryEntry[]; activeHeldFingerprint?: string }
+): string {
+  if (entry.destination === "cursor-sync-storage" && options?.history) {
+    return formatAppStorageLastDirectionDescription(
+      entry,
+      options.history,
+      options.activeHeldFingerprint
+    );
   }
   const when = formatStatusTimestamp(entry.timestamp);
   if (entry.success) {
@@ -121,7 +128,10 @@ export function buildStatusQuickPickItems(
     });
     items.push({
       label: `Cursor Sync storage — last ${appAttempt.direction}`,
-      description: formatHistoryAttemptDescription(appAttempt),
+      description: formatHistoryAttemptDescription(appAttempt, {
+        history,
+        activeHeldFingerprint: options?.activeHeldFingerprint,
+      }),
     });
     items.push({
       label: "Cursor Sync storage — destination",
@@ -251,6 +261,16 @@ export async function maybeFinalizeAppStorageRecovery(
 
   if (!wasDegraded) {
     return;
+  }
+
+  if (heldFp) {
+    const { appStorageSyncRootsHealthyForHeldRecovery } = await import(
+      "./app-config-local-scan.js"
+    );
+    const rootsHealthy = await appStorageSyncRootsHealthyForHeldRecovery(context);
+    if (!rootsHealthy) {
+      return;
+    }
   }
 
   const { clearScheduledRootHeldMarkers } = await import("./app-configs.js");

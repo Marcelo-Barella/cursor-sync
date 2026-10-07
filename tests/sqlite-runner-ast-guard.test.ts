@@ -129,6 +129,56 @@ export async function evil(db: string, sql: string) {
     expect(offenders.some((o) => o.includes("runSqliteCliWrites"))).toBe(true);
   });
 
+  it("(a-env) fails when assertSafeSqlScript is env-gated inside runSqliteScript", () => {
+    const mutated = transcriptsSqlite.replace(
+      "assertSafeSqlScript(sanitized);",
+      "if (!process.env.SKIP) { assertSafeSqlScript(sanitized); }"
+    );
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("unconditional"))).toBe(true);
+  });
+
+  it("(b-swallow) fails when assertSafeSqlScript is try-swallowed in runSqliteScript", () => {
+    const mutated = transcriptsSqlite.replace(
+      "assertSafeSqlScript(sanitized);",
+      "try { assertSafeSqlScript(sanitized); } catch {}"
+    );
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("unconditional"))).toBe(true);
+  });
+
+  it("(c-alias) fails when a local execFileWithStdinAsync alias runs outside safe runners", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nconst runStdin = execFileWithStdinAsync;\n" +
+      "async function evilAlias(db: string, script: string) {\n" +
+      "  await runStdin('sqlite3', ['-bail', db], script, {});\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.length).toBeGreaterThan(0);
+  });
+
+  it("(d-readonly) fails when runSqliteQuery drops assertReadOnlySqliteQuery", () => {
+    const mutated = transcriptsSqlite.replace(
+      "assertReadOnlySqliteQuery(sql);",
+      "// read-only assert removed"
+    );
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("runSqliteQuery"))).toBe(true);
+  });
+
   it("(d) fails when runSqliteScript bypasses assertSafeSqlScript", () => {
     const withoutAssert = transcriptsSqlite.replace(
       "assertSafeSqlScript(sanitized);",

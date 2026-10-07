@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertReadOnlySqliteQuery,
   assertSafeSqlScript,
   buildStatementSecuritySurfaces,
   tokenizeSqlScript,
@@ -16,6 +17,19 @@ const FUZZ_ESCAPE_FIXTURE = path.join(
   "fixtures",
   "sql-fuzz-escapes.txt"
 );
+
+describe("assertReadOnlySqliteQuery", () => {
+  it("allows SELECT and introspection PRAGMA", () => {
+    expect(() => assertReadOnlySqliteQuery("SELECT 1;")).not.toThrow();
+    expect(() => assertReadOnlySqliteQuery("PRAGMA table_info(blobs);")).not.toThrow();
+  });
+
+  it("rejects write statements", () => {
+    expect(() => assertReadOnlySqliteQuery("INSERT INTO t VALUES (1);")).toThrow(
+      UnsafeSqlScriptError
+    );
+  });
+});
 
 describe("assertSafeSqlScript", () => {
   it("rejects dot-commands", () => {

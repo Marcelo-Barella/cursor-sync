@@ -167,6 +167,34 @@ export function storageSyncSidebarStatusDetail(
   return presentation.detail;
 }
 
+export function formatAppStorageLastDirectionDescription(
+  entry: SyncHistoryEntry,
+  history: SyncHistoryEntry[],
+  activeHeldFingerprint?: string
+): string {
+  const presentation = deriveStorageSyncPresentation({
+    history,
+    activeHeldFingerprint,
+  });
+  const when = formatStatusTimestamp(entry.timestamp);
+  const dir = entry.direction;
+
+  if (presentation.warningKind === "held" || entry.held || entry.error?.startsWith("held:")) {
+    const heldMsg =
+      entry.error?.replace(/^held:\s*/, "") ??
+      presentation.detail.replace(/^pull held at [^:]+: /, "");
+    return `${when} — last ${dir}: held — ${heldMsg}`;
+  }
+  if (presentation.warningKind === "partial" || entry.partial) {
+    return `${when} — last ${dir}: partial — ${presentation.detail}`;
+  }
+  if (presentation.level === "error" || presentation.level === "conflict") {
+    return `${when} — last ${dir}: failed — ${presentation.detail}`;
+  }
+  const summary = entry.error ? ` — ${entry.error}` : "";
+  return `${when} — last ${dir}: succeeded (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})${summary}`;
+}
+
 export function formatStorageHistoryQuickPickLine(entry: SyncHistoryEntry): string {
   const when = formatStatusTimestamp(entry.timestamp);
   if (entry.held || entry.error?.startsWith("held:")) {

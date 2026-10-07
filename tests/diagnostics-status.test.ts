@@ -53,6 +53,37 @@ describe("buildStatusQuickPickItems", () => {
     expect(statusLine?.description).not.toContain("failed");
   });
 
+  it("last direction line matches derived held state (not raw succeeded)", () => {
+    const history: SyncHistoryEntry[] = [
+      {
+        timestamp: "2026-06-02T00:00:00.000Z",
+        direction: "push",
+        trigger: "scheduled",
+        fileCount: 1,
+        success: true,
+        destination: "cursor-sync-storage",
+      },
+      {
+        timestamp: "2026-06-01T12:00:00.000Z",
+        direction: "pull",
+        trigger: "scheduled",
+        fileCount: 0,
+        success: false,
+        held: true,
+        destination: "cursor-sync-storage",
+        error: "held: root blocked",
+      },
+    ];
+    const items = buildStatusQuickPickItems(undefined, history, {
+      activeHeldFingerprint: "blocked:root",
+    });
+    const lastLine = items.find((item) =>
+      item.label.startsWith("Cursor Sync storage — last")
+    );
+    expect(lastLine?.description).toContain("last push: held");
+    expect(lastLine?.description).not.toContain("succeeded");
+  });
+
   it("uses derived presentation for partial storage", () => {
     const history: SyncHistoryEntry[] = [
       {

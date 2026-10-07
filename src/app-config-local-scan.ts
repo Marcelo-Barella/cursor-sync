@@ -16,8 +16,15 @@ import {
   classifyLocalPath,
   resolveSyncRootsRealpaths,
 } from "./app-config-disk-probe.js";
-import { pathHasUnsafeComponentBelowRoot } from "./app-config-sync-path-safety.js";
+import {
+  ensureSyncRootDirectory,
+  pathHasUnsafeComponentBelowRoot,
+} from "./app-config-sync-path-safety.js";
 import { nodePlatform } from "./os-runtime.js";
+import { getAppSession } from "./app-auth.js";
+import { loadAppStorageBaseline } from "./app-storage-baseline.js";
+import { appStorageAccountKey } from "./app-session-identity.js";
+import { getAppApiUrl } from "./config/urls.js";
 
 export type BaselineKeyPresence = "present" | "provably_absent" | "skipped_unknown";
 
@@ -355,4 +362,35 @@ export function localFileMissingFromBaseline(
   scan: LocalConfigFileScan
 ): boolean {
   return scan.provablyAbsentKeys.has(key);
+}
+
+/** True when sync roots are present, writable, and not blocked for scheduled held recovery. */
+export async function appStorageSyncRootsHealthyForHeldRecovery(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  const session = await getAppSession(context);
+  if (!session) {
+    return false;
+  }
+  const destination = "cursor-sync-storage" as const;
+  const baseline = await loadAppStorageBaseline(
+    context,
+    appStorageAccountKey(session, getAppApiUrl()),
+    destination,
+    session
+  );
+  const scan = await scanLocalAppConfigFiles(context, baseline);
+  if (!scan.rootsHealthy || scan.deleteBlockedRootPrefixes.size > 0) {
+    return false;
+  }
+  const roots = resolveSyncRoots(nodePlatform(), context);
+  for (const rootPath of [roots.cursorUser, roots.dotCursor]) {
+    try {
+      await ensureSyncRootDirectory(rootPath);
+      await fs.access(rootPath, fs.constants.R_OK | fs.constants.W_OK);
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }

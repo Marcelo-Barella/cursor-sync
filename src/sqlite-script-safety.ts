@@ -556,4 +556,48 @@ export function assertSafeSqlScript(script: string): void {
   }
 }
 
+const READ_ONLY_QUERY_KEYWORDS = new Set(["select", "pragma"]);
+
+const READ_ONLY_PRAGMA_NAMES = new Set([
+  ...ALLOWED_PRAGMA_NAMES,
+  "table_info",
+  "table_list",
+  "database_list",
+  "index_list",
+  "index_info",
+  "compile_options",
+]);
+
+/**
+ * Enforce read-only sqlite3 / Python query helpers (single SELECT or allowlisted PRAGMA only).
+ */
+export function assertReadOnlySqliteQuery(sql: string): void {
+  assertValidSqlScriptUnicode(sql);
+  const tokens = tokenizeSqlScript(sql);
+  const statements = buildStatementSecuritySurfaces(sql, tokens);
+  if (statements.length === 0) {
+    throw new UnsafeSqlScriptError("read-only SQLite query is empty");
+  }
+  if (statements.length > 1) {
+    throw new UnsafeSqlScriptError("read-only SQLite query must be a single statement");
+  }
+  const statement = statements[0]!;
+  assertNormalizedForbiddenTokens(statement);
+  const keyword = leadingStatementKeyword(statement);
+  if (!keyword || !READ_ONLY_QUERY_KEYWORDS.has(keyword)) {
+    throw new UnsafeSqlScriptError(
+      `read-only SQLite query must be SELECT or allowlisted PRAGMA (got ${keyword ?? "unknown"})`
+    );
+  }
+  if (keyword === "pragma") {
+    const pragmaMatch = statement.match(/\bpragma\s+([a-z_]+)/i);
+    const name = pragmaMatch?.[1]?.toLowerCase();
+    if (!name || !READ_ONLY_PRAGMA_NAMES.has(name)) {
+      throw new UnsafeSqlScriptError(
+        `PRAGMA ${name ?? "(unknown)"} is not allowlisted for read-only query`
+      );
+    }
+  }
+}
+
 

@@ -13,6 +13,7 @@ import {
   SubprocessCommandNotFoundError,
 } from "./subprocess-errors.js";
 import {
+  assertReadOnlySqliteQuery,
   assertSafeSqlScript,
   assertValidSqlScriptUnicode,
 } from "./sqlite-script-safety.js";
@@ -352,10 +353,11 @@ const SQLITE_PYTHON_EXECUTESCRIPT = [
 ].join("\n");
 
 export const SQLITE_PYTHON_FALLBACK_SCRIPT = [
-  "import json, sqlite3, sys",
+  "import json, sqlite3, sys, urllib.parse",
   "db_path = sys.argv[1]",
   "sql = sys.argv[2]",
-  `conn = sqlite3.connect(db_path, timeout=${Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000)})`,
+  "uri_path = urllib.parse.quote(db_path, safe='/')",
+  `conn = sqlite3.connect(f'file:{uri_path}?mode=ro', uri=True, timeout=${Math.ceil(SQLITE_SUBPROCESS_TIMEOUT_MS / 1000)})`,
   `conn.execute('PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}')`,
   "conn.row_factory = sqlite3.Row",
   "cur = conn.cursor()",
@@ -520,12 +522,17 @@ export async function runSqliteQuery(
   dbPath: string,
   sql: string
 ): Promise<{ stdout: string; stderr: string }> {
+  assertReadOnlySqliteQuery(sql);
   const execOpts = { maxBuffer: 64 * 1024 * 1024, timeout: SQLITE_SUBPROCESS_TIMEOUT_MS };
   if (await preferPythonForDbFile(dbPath)) {
     return runPythonSqliteQuery(dbPath, sql, execOpts);
   }
   try {
-    return await execFileAsync("sqlite3", sqlite3CliArgs(["-json", dbPath, sql]), execOpts);
+    return await execFileAsync(
+      "sqlite3",
+      sqlite3CliArgs(["-readonly", "-json", dbPath, sql]),
+      execOpts
+    );
   } catch (error) {
     if (!isSqlite3UnavailableError(error)) {
       throw error;
