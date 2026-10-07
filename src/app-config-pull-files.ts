@@ -18,6 +18,7 @@ import {
   inodeOfHandle,
   inodeOfParentDirHandle,
   openFileNoFollow,
+  ensureVerifiedIntermediateParents,
   openVerifiedDirChain,
   PathVerificationError,
   safeUnlinkTemp,
@@ -367,6 +368,11 @@ export async function executeAppConfigPullWrites(
       let chain: Awaited<ReturnType<typeof openVerifiedDirChain>> | undefined;
       let orphanTmp: string | undefined;
       try {
+        const createdDirs = await ensureVerifiedIntermediateParents(
+          target.absolutePath,
+          target.syncKey,
+          resolved
+        );
         chain = await openVerifiedDirChain(target.absolutePath, target.syncKey, resolved);
 
         const backupEntry = await backupExistingSafe(
@@ -386,12 +392,6 @@ export async function executeAppConfigPullWrites(
           if (st.isFile()) {
             priorMode = st.mode & 0o777;
           }
-        }
-
-        const createdDirs: string[] = [];
-        if (!(await pathExists(chain.parentDirPath))) {
-          await fs.mkdir(chain.parentDirPath, { recursive: true });
-          createdDirs.push(chain.parentDirPath);
         }
 
         const parentInode = await inodeOfParentDirHandle(chain);

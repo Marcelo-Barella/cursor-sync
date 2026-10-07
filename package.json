@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.8.4-staging.14-logout",
+  "version": "0.8.4-staging.15-logout",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {

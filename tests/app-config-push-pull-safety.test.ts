@@ -241,6 +241,103 @@ describe("executeAppConfigPullWrites safety", () => {
     return { root, cursorUser, ctx, resolved, run };
   }
 
+  it("pulls nested files when intermediate parent directories are missing", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-pull-nested-"));
+    const dotCursor = path.join(root, "dot-cursor");
+    await fs.mkdir(dotCursor, { recursive: true });
+    const storage = path.join(root, "storage");
+    await fs.mkdir(storage, { recursive: true });
+    mockRoots.cursorUser = path.join(root, "cursor-user");
+    mockRoots.dotCursor = dotCursor;
+    await fs.mkdir(mockRoots.cursorUser, { recursive: true });
+    const ctx = {
+      globalStorageUri: { fsPath: storage },
+      globalState: { get: () => undefined, update: async () => {} },
+    } as never;
+    const resolved = {
+      cursorUser: mockRoots.cursorUser,
+      dotCursor,
+      cursorUserReal: await fs.realpath(mockRoots.cursorUser),
+      dotCursorReal: await fs.realpath(dotCursor),
+    };
+    const target = path.join(dotCursor, "commands", "a", "b.md");
+    const content = Buffer.from("# nested", "utf-8");
+    const { beginAppConfigsRun } = await import("../src/app-session-coordination.js");
+    const run = beginAppConfigsRun("pull");
+    const { executeAppConfigPullWrites } = await import("../src/app-config-pull-files.js");
+    const result = await executeAppConfigPullWrites(
+      ctx,
+      run,
+      [
+        {
+          syncKey: "dot-cursor/commands/a/b.md",
+          absolutePath: target,
+          content,
+          expectedChecksum: computeChecksum(content),
+        },
+        {
+          syncKey: "dot-cursor/commands/newdir/new.md",
+          absolutePath: path.join(dotCursor, "commands", "newdir", "new.md"),
+          content: Buffer.from("# new", "utf-8"),
+          expectedChecksum: computeChecksum(Buffer.from("# new", "utf-8")),
+        },
+      ],
+      resolved
+    );
+    run.end();
+    expect(result.failed).toHaveLength(0);
+    expect(await fs.readFile(target, "utf-8")).toBe("# nested");
+    expect(
+      await fs.readFile(path.join(dotCursor, "commands", "newdir", "new.md"), "utf-8")
+    ).toBe("# new");
+  });
+
+  it("refuses pull write when an intermediate parent path component is a symlink", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-pull-symlink-parent-"));
+    const dotCursor = path.join(root, "dot-cursor");
+    const outside = path.join(root, "outside");
+    await fs.mkdir(dotCursor, { recursive: true });
+    await fs.mkdir(outside, { recursive: true });
+    await fs.symlink(outside, path.join(dotCursor, "commands"));
+    const storage = path.join(root, "storage");
+    await fs.mkdir(storage, { recursive: true });
+    mockRoots.cursorUser = path.join(root, "cursor-user");
+    mockRoots.dotCursor = dotCursor;
+    await fs.mkdir(mockRoots.cursorUser, { recursive: true });
+    const ctx = {
+      globalStorageUri: { fsPath: storage },
+      globalState: { get: () => undefined, update: async () => {} },
+    } as never;
+    const resolved = {
+      cursorUser: mockRoots.cursorUser,
+      dotCursor,
+      cursorUserReal: await fs.realpath(mockRoots.cursorUser),
+      dotCursorReal: await fs.realpath(dotCursor),
+    };
+    const target = path.join(dotCursor, "commands", "a", "b.md");
+    const content = Buffer.from("blocked", "utf-8");
+    const { beginAppConfigsRun } = await import("../src/app-session-coordination.js");
+    const run = beginAppConfigsRun("pull");
+    const { executeAppConfigPullWrites } = await import("../src/app-config-pull-files.js");
+    await expect(
+      executeAppConfigPullWrites(
+        ctx,
+        run,
+        [
+          {
+            syncKey: "dot-cursor/commands/a/b.md",
+            absolutePath: target,
+            content,
+            expectedChecksum: computeChecksum(content),
+          },
+        ],
+        resolved
+      )
+    ).rejects.toThrow(/Pull write failed/);
+    run.end();
+    await expect(fs.access(target)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("preserves a pre-existing unrelated .tmp file", async () => {
     const { cursorUser, ctx, resolved, run } = await makePullFixture();
     const target = path.join(cursorUser, "settings.json");

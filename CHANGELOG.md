@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.15-logout
+
+### Fixed
+- Pull writes create missing intermediate parent directories (verified, one segment at a time, no symlink follow) before `openVerifiedDirChain`.
+
 ## v0.8.4-staging.14-logout
 
 ### Fixed

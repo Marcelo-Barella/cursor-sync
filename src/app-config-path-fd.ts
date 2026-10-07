@@ -113,6 +113,61 @@ export interface OpenDirChain {
   snapshot: PathInodeSnapshot;
 }
 
+/**
+ * Create missing intermediate parent directories under a verified sync-root ancestor.
+ * Walks one segment at a time (no recursive mkdir on the full path). Refuses symlinks.
+ */
+export async function ensureVerifiedIntermediateParents(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<string[]> {
+  await assertContainedSyncPath(absolutePath, syncKey, resolved);
+  const rootInfo = syncRootRealForKey(syncKey, resolved);
+  if (!rootInfo) {
+    throw new PathVerificationError(`Unsupported sync key: ${syncKey}`);
+  }
+
+  const normalized = path.resolve(absolutePath);
+  const parentDirPath = path.dirname(normalized);
+  const rootResolved = path.resolve(rootInfo.rootPath);
+  const relative = path.relative(rootResolved, parentDirPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new PathVerificationError(`Refusing path outside sync root: ${absolutePath}`);
+  }
+  if (relative === "") {
+    return [];
+  }
+
+  const created: string[] = [];
+  const parts = relative.split(path.sep).filter(Boolean);
+  let current = rootResolved;
+
+  for (const part of parts) {
+    const next = path.join(current, part);
+    try {
+      const st = await fs.lstat(next);
+      if (st.isSymbolicLink()) {
+        throw new PathVerificationError(`Refusing symlink in pull parent path: ${next}`);
+      }
+      if (!st.isDirectory()) {
+        throw new PathVerificationError(`Refusing non-directory in pull parent path: ${next}`);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        await fs.mkdir(next);
+        created.push(next);
+      } else {
+        throw err;
+      }
+    }
+    await assertRealpathContainedInSyncRoot(next, syncKey, resolved);
+    current = next;
+  }
+
+  return created;
+}
+
 export async function openVerifiedDirChain(
   absolutePath: string,
   syncKey: string,
