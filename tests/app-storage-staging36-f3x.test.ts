@@ -91,6 +91,18 @@ vi.mock("../src/app-config-disk-probe.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/app-config-sync-path-safety.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-config-sync-path-safety.js")>();
+  return {
+    ...actual,
+    assertSafePullTarget: vi.fn().mockResolvedValue(undefined),
+    resolveSyncRootsRealpaths: vi.fn().mockImplementation(async (roots: { cursorUser: string; dotCursor: string }) => ({
+      cursorUser: { rootPath: roots.cursorUser, rootReal: roots.cursorUser },
+      dotCursor: { rootPath: roots.dotCursor, rootReal: roots.dotCursor },
+    })),
+  };
+});
+
 vi.mock("../src/rollback.js", () => ({
   createBackup: async () => ({ entries: [], failedPaths: [] }),
   rollbackFromBackup: async () => {},
@@ -159,7 +171,12 @@ function remotePayload(checksum: string) {
         [SYNC_KEY]: { checksum, sizeBytes: REMOTE_BODY.length },
       },
     },
-    files: {},
+    files: {
+      [SYNC_KEY]: {
+        content: REMOTE_BODY.toString("base64"),
+        encoding: "base64",
+      },
+    },
   };
 }
 
@@ -361,11 +378,18 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
     expect(classified.conflictKeys).toContain(SYNC_KEY);
   });
 
-  it("safeMode false: manual pull does not show the overwrite picker", async () => {
+  it("safeMode false: manual pull overwrites without picker", async () => {
     vi.resetModules();
     safeModeRef.value = false;
     const ctx = makeContext();
-    await seedBaseline(ctx);
+    await saveAppStorageBaseline(ctx, {
+      schemaVersion: APP_STORAGE_BASELINE_SCHEMA_VERSION,
+      accountKey: "acct-test",
+      destination: "cursor-sync-storage",
+      remoteUpdatedAt: "2026-01-01T00:00:00.000Z",
+      localChecksums: { [SYNC_KEY]: EDITED_CHK },
+      remoteChecksums: { [SYNC_KEY]: EDITED_CHK },
+    });
 
     const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
@@ -373,7 +397,7 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
       vi.fn().mockResolvedValue(
         mockFetchJsonResponse({
           payload: remotePayload(REMOTE_CHK),
-          updated_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-02T00:00:00.000Z",
         })
       )
     );
@@ -381,7 +405,15 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
     writeWithoutFollowMock.mockClear();
     const { executePullAppConfigs } = await import("../src/app-configs.js");
     const status = await executePullAppConfigs(ctx, { trigger: "manual" });
-    expect(status).not.toBe("failure");
+    expect(status).toBe("success");
     expect(showQuickPickMock).not.toHaveBeenCalled();
+    expect(writeWithoutFollowMock).toHaveBeenCalledWith(
+      "/tmp/cursor-user/settings.json",
+      REMOTE_BODY,
+      expect.objectContaining({ syncKey: SYNC_KEY })
+    );
+    expect(diskStore.get("/tmp/cursor-user/settings.json")?.equals(REMOTE_BODY)).toBe(true);
+    const afterPull = await loadAppStorageBaseline(ctx, "acct-test", "cursor-sync-storage");
+    expect(afterPull?.remoteChecksums[SYNC_KEY]).toBe(REMOTE_CHK);
   });
 });

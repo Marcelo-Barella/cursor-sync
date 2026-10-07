@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.37
+
+### Fixed
+- Show Status: app storage line uses `deriveStorageSyncPresentation` (same as status bar/sidebar) so held/partial are not shown as failed/synced from a stale push entry.
+- Scheduler: scheduled push success no longer clears pull-held markers; recovery history is written at most once when leaving held/partial/error, not on every idle tick; gist-only ticks skip app-storage recovery.
+
+### Tests
+- SQLite AST guard: nested `runSqliteScript`, aliased/env-gated/try-swallowed stdin, `os.execFileWithStdinAsync` inline `-c`, exported CLI writers without `assertSafeSqlScript`, and `runSqliteCliSafeStdin` assert ordering; production script bytes match test fixture.
+- F3-X safeMode false asserts overwrite via `writeFileWithoutFollow`; held/partial tests assert pull ran and push did not.
+
 ## v0.8.4-staging.36
 
 ### Tests

@@ -14,7 +14,7 @@ import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
-import { loadSyncState, getLogger, recordStorageSyncRecovery } from "./diagnostics.js";
+import { loadSyncState, getLogger, maybeFinalizeAppStorageRecovery } from "./diagnostics.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { executePullSucceeded } from "./pull.js";
@@ -229,8 +229,9 @@ export async function scheduledTick(
 
     switch (result.action) {
       case "none":
-        await clearScheduledRootHeldMarkers(context);
-        await recordStorageSyncRecovery(context, "scheduled");
+        if (appSessionActive) {
+          await maybeFinalizeAppStorageRecovery(context, "scheduled");
+        }
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: already in sync, skipping`
         );
@@ -246,8 +247,9 @@ export async function scheduledTick(
             remote.updated_at
           );
         }
-        await clearScheduledRootHeldMarkers(context);
-        await recordStorageSyncRecovery(context, "scheduled");
+        if (appSessionActive) {
+          await maybeFinalizeAppStorageRecovery(context, "scheduled");
+        }
         break;
       }
 
@@ -278,9 +280,6 @@ export async function scheduledTick(
           keys: "keys" in result ? (result.keys as string[]) : undefined,
           deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
         });
-        if (pushOk) {
-          await clearScheduledRootHeldMarkers(context);
-        }
         break;
       }
 
@@ -305,7 +304,7 @@ export async function scheduledTick(
           deletions:
             "deletions" in result ? (result.deletions as string[]) : undefined,
         });
-        if (pushOk) {
+        if (pullResult.status === "success" && pushOk) {
           await clearScheduledRootHeldMarkers(context);
         }
         break;

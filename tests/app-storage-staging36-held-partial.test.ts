@@ -71,6 +71,7 @@ describe("staging.36 held/partial routing", () => {
       globalState: { get: () => undefined, update: async () => {} },
       subscriptions: [],
     } as unknown as vscode.ExtensionContext);
+    expect(executePullMock).toHaveBeenCalled();
     expect(executePushMock).not.toHaveBeenCalled();
   });
 
@@ -81,6 +82,7 @@ describe("staging.36 held/partial routing", () => {
       globalState: { get: () => undefined, update: async () => {} },
       subscriptions: [],
     } as unknown as vscode.ExtensionContext);
+    expect(executePullMock).toHaveBeenCalled();
     expect(executePushMock).not.toHaveBeenCalled();
   });
 
@@ -91,6 +93,7 @@ describe("staging.36 held/partial routing", () => {
       globalState: { get: () => undefined, update: async () => {} },
       subscriptions: [],
     } as unknown as vscode.ExtensionContext);
+    expect(executePullMock).toHaveBeenCalled();
     expect(executePushMock).not.toHaveBeenCalled();
   });
 

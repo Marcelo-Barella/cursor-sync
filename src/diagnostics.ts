@@ -4,7 +4,12 @@ import * as path from "node:path";
 import type { SyncState, SyncHistoryEntry } from "./types.js";
 import { syncDestinationLabel } from "./sync-destination.js";
 import type { SyncDestinationId } from "./sync-destination.js";
-import { formatStorageHistoryQuickPickLine } from "./storage-sync-ui-status.js";
+import {
+  deriveStorageSyncPresentation,
+  formatStorageHistoryQuickPickLine,
+  latestStorageHistoryEntry,
+  storageSyncSidebarStatusDetail,
+} from "./storage-sync-ui-status.js";
 
 const MAX_HISTORY_ENTRIES = 50;
 
@@ -34,6 +39,18 @@ export function formatStatusTimestamp(iso: string): string {
   return parsed.toLocaleString();
 }
 
+function formatAppStorageStatusDescription(
+  history: SyncHistoryEntry[],
+  activeHeldFingerprint?: string
+): string {
+  const presentation = deriveStorageSyncPresentation({
+    history,
+    activeHeldFingerprint,
+  });
+  const entry = latestStorageHistoryEntry(history);
+  return storageSyncSidebarStatusDetail(presentation, entry);
+}
+
 function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
   if (entry.destination === "cursor-sync-storage") {
     return formatStorageHistoryQuickPickLine(entry);
@@ -48,7 +65,8 @@ function formatHistoryAttemptDescription(entry: SyncHistoryEntry): string {
 
 export function buildStatusQuickPickItems(
   syncState: SyncState | undefined,
-  history: SyncHistoryEntry[]
+  history: SyncHistoryEntry[],
+  options?: { activeHeldFingerprint?: string }
 ): vscode.QuickPickItem[] {
   const items: vscode.QuickPickItem[] = [];
 
@@ -93,6 +111,14 @@ export function buildStatusQuickPickItems(
   }
 
   if (appAttempt) {
+    const storageDetail = formatAppStorageStatusDescription(
+      history,
+      options?.activeHeldFingerprint
+    );
+    items.push({
+      label: "Cursor Sync storage — status",
+      description: storageDetail,
+    });
     items.push({
       label: `Cursor Sync storage — last ${appAttempt.direction}`,
       description: formatHistoryAttemptDescription(appAttempt),
@@ -111,7 +137,12 @@ export async function showStatus(
 ): Promise<void> {
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
-  const items = buildStatusQuickPickItems(syncState, history);
+  const { activeScheduledRootHeldFingerprint } = await import(
+    "./storage-sync-ui-status.js"
+  );
+  const items = buildStatusQuickPickItems(syncState, history, {
+    activeHeldFingerprint: activeScheduledRootHeldFingerprint(context),
+  });
   vscode.window.showQuickPick(items, { title: "Cursor Sync Status" });
 }
 
@@ -171,10 +202,19 @@ export async function loadSyncHistory(
   }
 }
 
+const STORAGE_RECOVERY_HISTORY_MESSAGE = "Recovered — already in sync";
+
 export async function recordStorageSyncRecovery(
   context: vscode.ExtensionContext,
   trigger: SyncHistoryEntry["trigger"]
 ): Promise<void> {
+  const history = await loadSyncHistory(context);
+  const latestStorage = history.find(
+    (entry) => entry.destination === "cursor-sync-storage"
+  );
+  if (latestStorage?.error === STORAGE_RECOVERY_HISTORY_MESSAGE) {
+    return;
+  }
   await addSyncHistoryEntry(context, {
     timestamp: new Date().toISOString(),
     direction: "pull",
@@ -182,8 +222,40 @@ export async function recordStorageSyncRecovery(
     fileCount: 0,
     success: true,
     destination: "cursor-sync-storage",
-    error: "Recovered — already in sync",
+    error: STORAGE_RECOVERY_HISTORY_MESSAGE,
   });
+}
+
+export async function maybeFinalizeAppStorageRecovery(
+  context: vscode.ExtensionContext,
+  trigger: SyncHistoryEntry["trigger"]
+): Promise<void> {
+  const { activeScheduledRootHeldFingerprint } = await import(
+    "./storage-sync-ui-status.js"
+  );
+  const heldFp = activeScheduledRootHeldFingerprint(context);
+  const history = await loadSyncHistory(context);
+  const latest = latestStorageHistoryEntry(history);
+  const wasDegraded =
+    Boolean(heldFp) ||
+    Boolean(latest?.held) ||
+    Boolean(latest?.error?.startsWith("held:")) ||
+    Boolean(latest?.partial) ||
+    Boolean(
+      latest &&
+        !latest.success &&
+        !latest.held &&
+        !latest.partial &&
+        !latest.conflict
+    );
+
+  if (!wasDegraded) {
+    return;
+  }
+
+  const { clearScheduledRootHeldMarkers } = await import("./app-configs.js");
+  await clearScheduledRootHeldMarkers(context);
+  await recordStorageSyncRecovery(context, trigger);
 }
 
 export async function addSyncHistoryEntry(

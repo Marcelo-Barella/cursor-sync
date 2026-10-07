@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scanSourceText } from "./sync-path-ast-guard.js";
+import { SQLITE_PYTHON_EXECUTESCRIPT } from "./fixtures/sqlite-python-executescript-constant.js";
 import {
+  extractSqlitePythonExecutescriptFromTranscriptsSource,
   scanSqliteRunnerViolations,
   scanSqliteRunnerViolationsFromText,
 } from "./sqlite-runner-ast-guard.js";
@@ -27,11 +28,67 @@ describe("sqlite-runner AST guard mutations", () => {
     expect(offenders.length).toBeGreaterThan(0);
   });
 
+  it("(a2) fails when a nested runSqliteScript runs unchecked stdin", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nfunction outer() {\n" +
+      "  async function runSqliteScript(db: string, script: string) {\n" +
+      "    await execFileWithStdinAsync('python3', ['-c', SQLITE_PYTHON_EXECUTESCRIPT, db, '20'], script, {});\n" +
+      "  }\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("runSqliteScript"))).toBe(true);
+  });
+
   it("(b) fails on alias re-export of the script constant", () => {
     const mutated =
       "export { SQLITE_PYTHON_EXECUTESCRIPT } from './transcripts-sqlite.js';\n";
     const offenders = scanSqliteRunnerViolationsFromText("src/evil-reexport.ts", mutated);
     expect(offenders.some((o) => o.includes("re-export"))).toBe(true);
+  });
+
+  it("(b2) fails when execFileWithStdinAsync is env-gated outside safe runners", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nasync function envGated(db: string, script: string) {\n" +
+      "  if (process.env.ALLOW) {\n" +
+      "    await execFileWithStdinAsync('sqlite3', ['-bail', db], script, {});\n" +
+      "  }\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes(EXEC_STDIN))).toBe(true);
+  });
+
+  it("(b3) fails when execFileWithStdinAsync is try-swallowed outside safe runners", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nasync function swallowed(db: string, script: string) {\n" +
+      "  try {\n" +
+      "    await execFileWithStdinAsync('sqlite3', ['-bail', db], script, {});\n" +
+      "  } catch {}\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes(EXEC_STDIN))).toBe(true);
+  });
+
+  it("(b4) fails when aliased execFileWithStdinAsync runs outside safe runners", () => {
+    const mutated = `import { execFileWithStdinAsync as runStdin } from "./os-runtime.js";
+import { SQLITE_PYTHON_EXECUTESCRIPT } from "./sqlite-script-safety.js";
+export async function evil(db: string, sql: string) {
+  await runStdin("python3", ["-c", SQLITE_PYTHON_EXECUTESCRIPT, db, "20"], sql, {});
+}
+`;
+    const offenders = scanSqliteRunnerViolationsFromText("src/evil-compose.ts", mutated);
+    expect(offenders.length).toBeGreaterThan(0);
   });
 
   it("(c) fails when a new src file composes execFileWithStdinAsync + script constant", () => {
@@ -43,6 +100,33 @@ export async function evil(db: string, sql: string) {
 `;
     const offenders = scanSqliteRunnerViolationsFromText("src/evil-compose.ts", mutated);
     expect(offenders.length).toBeGreaterThan(0);
+  });
+
+  it("(c2) fails when os.execFileWithStdinAsync uses inline Python -c", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nimport * as os from './os-runtime.js';\n" +
+      "async function inlinePy(db: string, script: string) {\n" +
+      "  await os.execFileWithStdinAsync('python3', ['-c', 'import sqlite3', db], script, {});\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes(EXEC_STDIN))).toBe(true);
+  });
+
+  it("(c3) fails when an exported helper autocommits without assertSafeSqlScript", () => {
+    const mutated =
+      transcriptsSqlite +
+      "\nexport async function runSqliteCliWrites(db: string, script: string) {\n" +
+      "  await execFileWithStdinAsync('sqlite3', ['-bail', db], script, {});\n" +
+      "}\n";
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      mutated
+    );
+    expect(offenders.some((o) => o.includes("runSqliteCliWrites"))).toBe(true);
   });
 
   it("(d) fails when runSqliteScript bypasses assertSafeSqlScript", () => {
@@ -59,7 +143,32 @@ export async function evil(db: string, sql: string) {
     ).toBe(true);
   });
 
+  it("(i) fails when runSqliteCliSafeStdin bypasses assertSafeSqlScript", () => {
+    const withoutAssert = transcriptsSqlite.replace(
+      /export async function runSqliteCliSafeStdin[\s\S]*?assertSafeSqlScript\(script\);/,
+      `export async function runSqliteCliSafeStdin(
+  dbPath: string,
+  script: string
+): Promise<void> {
+  // assert removed`
+    );
+    const offenders = scanSqliteRunnerViolationsFromText(
+      "src/transcripts-sqlite.ts",
+      withoutAssert
+    );
+    expect(offenders.some((o) => o.includes("runSqliteCliSafeStdin"))).toBe(true);
+  });
+
+  it("(g+a) test fixture matches production SQLITE_PYTHON_EXECUTESCRIPT bytes", () => {
+    const production = extractSqlitePythonExecutescriptFromTranscriptsSource(transcriptsSqlite);
+    expect(production).toBeDefined();
+    expect(production).toBe(SQLITE_PYTHON_EXECUTESCRIPT);
+  });
+
   it("production src tree stays clean", () => {
     expect(scanSqliteRunnerViolations(repoRoot)).toEqual([]);
   });
 });
+
+const SAFE_ASSERT = "assertSafeSqlScript";
+const EXEC_STDIN = "execFileWithStdinAsync";
