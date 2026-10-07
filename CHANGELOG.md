@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.40
+
+### Fixed
+- G8 QA isolation: transport-chat Python children receive `HOME` / `USERPROFILE`, XDG, and `CURSOR_DOT_DIR` via `transportChatSubprocessEnv()` (`src/os-runtime.ts:113-124`, `src/chat-transport-scripts.ts:136-139`, `src/chat-import-activate.ts:755-759`).
+- `resolveEffectiveUserHome()` and Linux `defaultSyncRoots()` honor non-empty `process.env.HOME` for `~/.cursor` (`src/paths.ts:42-90`).
+- Python `effective_home()` / `dot_cursor_dir()` mirror TS rules for chats, projects, activation, and config fallbacks (`resources/transport-chat/scripts/cursor_chat_io_common.py:161-207`).
+
+### Tests
+- Isolated `HOME` / `CURSOR_DOT_DIR` for TS roots, spawn env, and Python `chats_root()` (`tests/paths.test.ts`, `tests/os-runtime-subprocess.test.ts`, `tests/transport-chat-path-isolation.test.ts`).
+
 ## v0.8.4-staging.39
 
 ### Security

@@ -12,9 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ACTIVATION_DIR = Path.home() / ".cursor" / "import-activation"
-PENDING_PATH = ACTIVATION_DIR / "pending.json"
-RESULT_PATH = ACTIVATION_DIR / "result.json"
+from cursor_chat_io_common import (
+    activation_dir,
+    activation_pending_path,
+    activation_result_path,
+)
+
+PENDING_PATH = activation_pending_path()
+RESULT_PATH = activation_result_path()
 MANIFEST_VERSION = 1
 CREATE_COMPOSER_COMMAND_ID = "composer.createComposer"
 
@@ -93,7 +98,7 @@ def normalize_manifest(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def stage_manifest(manifest: dict[str, Any]) -> Path:
-    ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
+    activation_dir().mkdir(parents=True, exist_ok=True)
     tmp = PENDING_PATH.with_suffix(".json.tmp")
     payload = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
     tmp.write_text(payload, encoding="utf-8")

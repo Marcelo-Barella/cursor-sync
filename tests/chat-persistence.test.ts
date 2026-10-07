@@ -209,6 +209,7 @@ describe("buildChatBundle scoped store lookup", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-scoped-store-"));
     mockHomedir.home = tempHome;
+    process.env.HOME = tempHome;
   });
 
   afterEach(async () => {

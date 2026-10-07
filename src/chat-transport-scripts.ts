@@ -1,7 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { nodeProcessCwd, spawnPython3Capture } from "./os-runtime.js";
+import {
+  nodeProcessCwd,
+  spawnPython3Capture,
+  transportChatSubprocessEnv,
+} from "./os-runtime.js";
 
 export type TransportChatScriptName =
   | "cursor_chat_io.py"
@@ -132,6 +136,7 @@ export async function runPythonDiskImport(
   const { exitCode, stdout, stderr } = await spawnPython3Capture({
     args,
     cwd: options.workspaceFolder,
+    env: transportChatSubprocessEnv(),
     log: (line) => log(`chat_io: ${line}`),
   });
 
@@ -171,6 +176,7 @@ export async function runPythonBundleInspect(
   const args = [scriptPath, "inspect", options.bundlePath];
   const { exitCode, stdout, stderr } = await spawnPython3Capture({
     args,
+    env: transportChatSubprocessEnv(),
     log: (line) => log(`chat_io inspect: ${line}`),
   });
 
@@ -208,6 +214,7 @@ export async function runPythonExportDiskKvSnapshot(
   const { exitCode, stdout } = await spawnPython3Capture({
     args: ["-c", py, options.globalDbPath, options.conversationId],
     cwd: scriptsDir,
+    env: transportChatSubprocessEnv(),
   });
   if (exitCode !== 0) {
     return null;

@@ -352,6 +352,7 @@ describe("chat gist export and import", () => {
   beforeEach(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-chat-gist-"));
     mockedHomeDir = tmpRoot;
+    process.env.HOME = tmpRoot;
     mockWorkspaceFolder = path.join(tmpRoot, "workspace-repo");
     await fs.mkdir(mockWorkspaceFolder, { recursive: true });
     mockRunDiskAndActivationVerify.mockReset();

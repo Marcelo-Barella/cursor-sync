@@ -1,4 +1,4 @@
-import { spawnPython3Capture } from "./os-runtime.js";
+import { spawnPython3Capture, transportChatSubprocessEnv } from "./os-runtime.js";
 import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import { systemTmpDir } from "./os-runtime.js";
@@ -755,6 +755,7 @@ export async function runPythonComposerBridge(
     const { exitCode, stdout, stderr } = await spawnPython3Capture({
       args,
       cwd: rawManifest.workspaceFolder,
+      env: transportChatSubprocessEnv(),
       log: (line) => log(`bridge: ${line}`),
     });
 

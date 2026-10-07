@@ -39,6 +39,18 @@ const SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
   "SYSTEMDRIVE",
 ];
 
+/** Home / XDG / dot-dir keys for transport-chat Python only (Path.home() parity). */
+const TRANSPORT_CHAT_SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
+  "HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "CURSOR_DOT_DIR",
+];
+
 const PYTHON_BASENAME_RE = /^py$|^python$|^python3(\.\d+)*$/i;
 
 const configuredAbsolutePythonPaths = new Set<string>();
@@ -90,6 +102,18 @@ export function assertAllowedSubprocessCommand(command: string): void {
 export function scrubbedSubprocessEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of SUBPROCESS_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined && value !== "") {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+/** Scrubbed env plus user-home keys so bundled transport-chat matches extension HOME/CURSOR_DOT_DIR. */
+export function transportChatSubprocessEnv(): NodeJS.ProcessEnv {
+  const env = scrubbedSubprocessEnv();
+  for (const key of TRANSPORT_CHAT_SUBPROCESS_ENV_ALLOWLIST) {
     const value = process.env[key];
     if (value !== undefined && value !== "") {
       env[key] = value;
@@ -300,6 +324,8 @@ export interface SpawnPython3Options {
   log?: (line: string) => void;
   /** Override interpreter (must still be allowlisted basename). */
   command?: string;
+  /** When set, replaces the default scrubbed subprocess env (e.g. transport-chat home parity). */
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function execFileAsync(
@@ -344,7 +370,7 @@ export async function spawnPython3Capture(
   return await new Promise((resolve, reject) => {
     const proc = spawn(resolved, args, {
       cwd: validateSubprocessCwd(cwd),
-      env: scrubbedSubprocessEnv(),
+      env: options.env ?? scrubbedSubprocessEnv(),
       shell: false,
     });
     let stdoutAcc = "";

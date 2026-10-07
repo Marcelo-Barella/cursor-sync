@@ -5,6 +5,7 @@ import {
   isAllowedSubprocessBasename,
   resolveSubprocessCommand,
   scrubbedSubprocessEnv,
+  transportChatSubprocessEnv,
   spawnSyncCapture,
   sqlite3CliArgs,
   subprocessExecFileOptionsForTest,
@@ -37,6 +38,27 @@ describe("os-runtime subprocess allowlist", () => {
   it("rejects relative command paths", () => {
     expect(() => resolveSubprocessCommand("./python3")).toThrow(/relative path/);
     expect(() => resolveSubprocessCommand("subdir/python3")).toThrow(/relative path/);
+  });
+
+  it("transportChatSubprocessEnv passes HOME and CURSOR_DOT_DIR for Python parity", () => {
+    const prevHome = process.env.HOME;
+    const prevDot = process.env.CURSOR_DOT_DIR;
+    process.env.HOME = "/tmp/iso-home";
+    process.env.CURSOR_DOT_DIR = "/tmp/alt-dot";
+    const env = transportChatSubprocessEnv();
+    expect(env.HOME).toBe("/tmp/iso-home");
+    expect(env.CURSOR_DOT_DIR).toBe("/tmp/alt-dot");
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    if (prevHome !== undefined) {
+      process.env.HOME = prevHome;
+    } else {
+      delete process.env.HOME;
+    }
+    if (prevDot !== undefined) {
+      process.env.CURSOR_DOT_DIR = prevDot;
+    } else {
+      delete process.env.CURSOR_DOT_DIR;
+    }
   });
 
   it("uses allowlisted env only (no secrets)", () => {

@@ -73,6 +73,18 @@ describe("paths", () => {
       delete process.env["CURSOR_DOT_DIR"];
     });
 
+    it("uses process.env.HOME for dotCursor when set (QA isolation)", async () => {
+      const { resolveSyncRoots, resolveEffectiveUserHome } = await import("../src/paths.js");
+      process.env["HOME"] = "/tmp/iso-home";
+      delete process.env["CURSOR_DOT_DIR"];
+      expect(resolveEffectiveUserHome("linux")).toBe("/tmp/iso-home");
+      const roots = resolveSyncRoots("linux");
+      expect(roots.dotCursor).toBe(path.join("/tmp/iso-home", ".cursor"));
+      expect(roots.cursorUser).toBe(
+        path.join("/tmp/iso-home", ".config", "Cursor", "User")
+      );
+    });
+
     it("resolves Linux paths with custom XDG_CONFIG_HOME", async () => {
       const { resolveSyncRoots } = await import("../src/paths.js");
       process.env["XDG_CONFIG_HOME"] = "/custom/config";

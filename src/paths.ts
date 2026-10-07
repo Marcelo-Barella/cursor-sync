@@ -39,28 +39,55 @@ const DENYLIST_GLOBS = ["Cookies*", "*.db", "*.db-journal", "*.db-wal", "*.log"]
 
 const MAX_SYNC_VSIX_BYTES = 50 * 1024 * 1024;
 
-function defaultSyncRoots(platform: NodeJS.Platform): SyncRoots {
+/** Effective user home for ~/.cursor resolution (honors non-empty HOME / USERPROFILE). */
+export function resolveEffectiveUserHome(
+  platform: NodeJS.Platform = process.platform
+): string {
   if (platform === "win32") {
-    const appData = process.env["APPDATA"] || path.join(os.homedir(), "AppData", "Roaming");
-    const userProfile = process.env["USERPROFILE"] || os.homedir();
+    const profile = process.env["USERPROFILE"]?.trim();
+    if (profile) {
+      return profile;
+    }
+  } else {
+    const home = process.env["HOME"]?.trim();
+    if (home) {
+      return home;
+    }
+  }
+  return os.homedir();
+}
+
+function defaultSyncRoots(platform: NodeJS.Platform): SyncRoots {
+  const effectiveHome = resolveEffectiveUserHome(platform);
+  if (platform === "win32") {
+    const appData =
+      process.env["APPDATA"]?.trim() ||
+      path.join(effectiveHome, "AppData", "Roaming");
     return {
       cursorUser: path.join(appData, "Cursor", "User"),
-      dotCursor: path.join(userProfile, ".cursor"),
+      dotCursor: path.join(effectiveHome, ".cursor"),
     };
   }
 
   if (platform === "darwin") {
-    const home = os.homedir();
     return {
-      cursorUser: path.join(home, "Library", "Application Support", "Cursor", "User"),
-      dotCursor: path.join(home, ".cursor"),
+      cursorUser: path.join(
+        effectiveHome,
+        "Library",
+        "Application Support",
+        "Cursor",
+        "User"
+      ),
+      dotCursor: path.join(effectiveHome, ".cursor"),
     };
   }
 
-  const configHome = process.env["XDG_CONFIG_HOME"] || path.join(os.homedir(), ".config");
+  const configHome =
+    process.env["XDG_CONFIG_HOME"]?.trim() ||
+    path.join(effectiveHome, ".config");
   return {
     cursorUser: path.join(configHome, "Cursor", "User"),
-    dotCursor: path.join(os.homedir(), ".cursor"),
+    dotCursor: path.join(effectiveHome, ".cursor"),
   };
 }
 
