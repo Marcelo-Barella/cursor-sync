@@ -12,18 +12,11 @@ export function isAppConfigsSessionExpiredError(error: unknown): boolean {
   );
 }
 
-const ABORT_REASON_LITERALS = new Set(["logout", "abort", "cancel", "cancelled", "canceled"]);
+/** Exact abort reason strings we intentionally use (e.g. AbortSignal.abort("logout")). */
+const INTENTIONAL_ABORT_REASONS = new Set(["logout"]);
 
-function stringLooksAbortLike(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (ABORT_REASON_LITERALS.has(normalized)) {
-    return true;
-  }
-  return (
-    normalized.includes("abort") ||
-    normalized.includes("cancel") ||
-    normalized.includes("logout")
-  );
+export function isIntentionalAbortReason(value: string): boolean {
+  return INTENTIONAL_ABORT_REASONS.has(value.trim());
 }
 
 function abortReasonFromError(error: Error): unknown {
@@ -32,7 +25,7 @@ function abortReasonFromError(error: Error): unknown {
 
 export function isAbortLikeError(error: unknown): boolean {
   if (typeof error === "string") {
-    return stringLooksAbortLike(error);
+    return isIntentionalAbortReason(error);
   }
   if (error instanceof DOMException && error.name === "AbortError") {
     return true;
@@ -41,11 +34,11 @@ export function isAbortLikeError(error: unknown): boolean {
     if (error.name === "AbortError") {
       return true;
     }
-    if (stringLooksAbortLike(error.message)) {
+    if (isIntentionalAbortReason(error.message)) {
       return true;
     }
     const reason = abortReasonFromError(error);
-    if (typeof reason === "string" && stringLooksAbortLike(reason)) {
+    if (typeof reason === "string" && isIntentionalAbortReason(reason)) {
       return true;
     }
   }

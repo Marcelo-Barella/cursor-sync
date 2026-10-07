@@ -3,10 +3,13 @@ import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
 import { isAbortLikeError } from "./app-config-errors.js";
-import { AppConfigsAbortedError } from "./app-session-coordination.js";
+import {
+  AppConfigsAbortedError,
+  isAppConfigsAbortedError,
+} from "./app-session-coordination.js";
 
 function throwIfR2RequestAborted(error: unknown, signal?: AbortSignal): void {
-  if (signal?.aborted || isAbortLikeError(error)) {
+  if (signal?.aborted || isAppConfigsAbortedError(error) || isAbortLikeError(error)) {
     throw new AppConfigsAbortedError("logout");
   }
 }

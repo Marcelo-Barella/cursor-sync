@@ -21,6 +21,12 @@
  *
  * 4. `rename` is atomic on one volume but is not issued relative to a held parent fd.
  *
+ * 5. Missing parent dirs use path `mkdir` only after holding the parent `O_DIRECTORY` fd
+ *    and matching its dev/ino before/after; Node's `fs/promises` FileHandle has no portable
+ *    `mkdirat`. A swap between mkdir and the child `O_DIRECTORY` open can still leave an
+ *    empty directory outside the sync root (~nested-race residual); pulls never report
+ *    success or write file bytes outside when that happens.
+ *
  * Temp files use `O_CREAT|O_EXCL|O_WRONLY|O_NOFOLLOW` with unpredictable names inside
  * the verified parent; final verification uses `O_RDONLY|O_NOFOLLOW` after rename.
  */
@@ -142,27 +148,52 @@ export async function ensureVerifiedIntermediateParents(
   const created: string[] = [];
   const parts = relative.split(path.sep).filter(Boolean);
   let current = rootResolved;
+  let parentHandle = await fs.open(
+    rootResolved,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+  );
 
-  for (const part of parts) {
-    const next = path.join(current, part);
-    try {
-      const st = await fs.lstat(next);
-      if (st.isSymbolicLink()) {
-        throw new PathVerificationError(`Refusing symlink in pull parent path: ${next}`);
+  try {
+    for (const part of parts) {
+      const next = path.join(current, part);
+      const parentInodeBefore = await inodeOfHandle(parentHandle);
+      let childHandle: FileHandle;
+      try {
+        const st = await fs.lstat(next);
+        if (st.isSymbolicLink()) {
+          throw new PathVerificationError(`Refusing symlink in pull parent path: ${next}`);
+        }
+        if (!st.isDirectory()) {
+          throw new PathVerificationError(`Refusing non-directory in pull parent path: ${next}`);
+        }
+        childHandle = await fs.open(
+          next,
+          fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+        );
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          await fs.mkdir(next);
+          created.push(next);
+          assertInodesMatch(
+            parentInodeBefore,
+            await inodeOfHandle(parentHandle),
+            "Parent directory during mkdir"
+          );
+          childHandle = await fs.open(
+            next,
+            fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+          );
+        } else {
+          throw err;
+        }
       }
-      if (!st.isDirectory()) {
-        throw new PathVerificationError(`Refusing non-directory in pull parent path: ${next}`);
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        await fs.mkdir(next);
-        created.push(next);
-      } else {
-        throw err;
-      }
+      await assertRealpathContainedInSyncRoot(next, syncKey, resolved);
+      await parentHandle.close();
+      parentHandle = childHandle;
+      current = next;
     }
-    await assertRealpathContainedInSyncRoot(next, syncKey, resolved);
-    current = next;
+  } finally {
+    await parentHandle.close();
   }
 
   return created;

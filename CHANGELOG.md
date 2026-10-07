@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## v0.8.4-staging.16-logout
+
+### Fixed
+- Narrow `isAbortLikeError` to exact abort signals (no substring false positives on cancel/abort/logout).
+- Pull rollback restore opens verified parent dir chain before writing backup bytes.
+- Nested parent `mkdir` via held `O_DIRECTORY` fd (`FileHandle.mkdir`).
+
 ## v0.8.4-staging.15-logout
 
 ### Fixed

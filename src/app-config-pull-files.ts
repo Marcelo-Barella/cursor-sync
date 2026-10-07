@@ -181,29 +181,35 @@ async function restoreBackedUpFileNoFollow(
   snapshot: PathInodeSnapshot,
   resolved: ResolvedSyncRoots
 ): Promise<void> {
-  const destStat = await fs.lstat(entry.absolutePath).catch(() => undefined);
-  if (destStat?.isSymbolicLink()) {
-    throw new PathVerificationError(
-      `Rollback refused symlink destination: ${entry.absolutePath}`
-    );
-  }
-  await assertPathInodeSnapshotFresh(snapshot);
-  await assertRealpathContainedInSyncRoot(entry.absolutePath, entry.syncKey, resolved);
-
-  const destHandle =
-    destStat && destStat.isFile()
-      ? await openFileNoFollow(
-          entry.absolutePath,
-          fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW
-        )
-      : await fs.open(
-          entry.absolutePath,
-          fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW
-        );
+  const chain = await openVerifiedDirChain(entry.absolutePath, entry.syncKey, resolved);
   try {
-    await destHandle.writeFile(data);
+    await assertPathInodeSnapshotFresh(snapshot);
+    await assertRealpathContainedInSyncRoot(entry.absolutePath, entry.syncKey, resolved);
+
+    const destStat = await fs.lstat(entry.absolutePath).catch(() => undefined);
+    if (destStat?.isSymbolicLink()) {
+      throw new PathVerificationError(
+        `Rollback refused symlink destination: ${entry.absolutePath}`
+      );
+    }
+
+    const destHandle =
+      destStat && destStat.isFile()
+        ? await openFileNoFollow(
+            entry.absolutePath,
+            fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW
+          )
+        : await fs.open(
+            entry.absolutePath,
+            fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW
+          );
+    try {
+      await destHandle.writeFile(data);
+    } finally {
+      await destHandle.close();
+    }
   } finally {
-    await destHandle.close();
+    await closeDirChain(chain);
   }
 }
 
