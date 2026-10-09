@@ -1,5 +1,13 @@
 import type { SyncHistoryEntry } from "../types.js";
 
+export type E2eSidebarPhase =
+  | "unlocked"
+  | "locked"
+  | "needs_setup"
+  | "email_not_verified"
+  | "no_app_session"
+  | "keys_unavailable";
+
 export interface SyncTabState {
   status: "synced" | "not-synced" | "syncing" | "error";
   lastSyncTime: string | undefined;
@@ -8,9 +16,34 @@ export interface SyncTabState {
   gistId: string | undefined;
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
+  appSessionExpired: boolean;
+  e2ePhase: E2eSidebarPhase;
+  keysStatusMessage?: string;
 }
 
-export function renderAccountSection(appSessionActive: boolean): string {
+export function renderAccountSection(
+  appSessionActive: boolean,
+  appSessionExpired: boolean
+): string {
+  if (appSessionExpired && !appSessionActive) {
+    return `<div class="section">
+    <div class="section-header">Account</div>
+    <div class="account-status account-status-expired">
+      <span class="codicon codicon-warning"></span>
+      <span>Session expired, log in again</span>
+    </div>
+    <button class="configure-btn" data-command="loginToApp" style="margin-top:8px">
+      <span class="codicon codicon-sign-in"></span> Log in to Cursor Sync
+    </button>
+    <button class="configure-btn" data-command="enterAppAuthCode" style="margin-top:8px">
+      <span class="codicon codicon-key"></span> Enter Login Code
+    </button>
+    <button class="configure-btn" data-command="configure" style="margin-top:8px">
+      <span class="codicon codicon-github-alt"></span> Configure GitHub
+    </button>
+  </div>`;
+  }
+
   if (appSessionActive) {
     return `<div class="section">
     <div class="section-header">Account</div>
@@ -99,6 +132,41 @@ export function renderHistoryEntry(entry: SyncHistoryEntry): string {
   </div>`;
 }
 
+export function renderE2eLockBanner(state: SyncTabState): string {
+  if (state.e2ePhase === "unlocked" || state.e2ePhase === "no_app_session") {
+    return "";
+  }
+  if (state.e2ePhase === "email_not_verified") {
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">Verify your email on the Cursor Sync website before setting up encryption.</p>
+    <button class="configure-btn" data-command="e2eRecheckEmail"><span class="codicon codicon-refresh"></span> I verified, re-check</button>
+  </div>`;
+  }
+  if (state.e2ePhase === "keys_unavailable") {
+    const msg = state.keysStatusMessage
+      ? escapeHtml(state.keysStatusMessage)
+      : "Encryption key status is temporarily unavailable.";
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">${msg}</p>
+    <button class="configure-btn" data-command="e2eRetryKeys"><span class="codicon codicon-refresh"></span> Retry</button>
+  </div>`;
+  }
+  if (state.e2ePhase === "needs_setup") {
+    return `<div class="section e2e-lock-banner">
+    <div class="section-header">Encrypted sync</div>
+    <p class="e2e-lock-copy">Create a sync passphrase to enable push, pull, and cloud sync.</p>
+    <button class="configure-btn" data-command="e2eUnlock"><span class="codicon codicon-key"></span> Set up passphrase</button>
+  </div>`;
+  }
+  return `<div class="section e2e-lock-banner">
+    <div class="section-header">Locked</div>
+    <p class="e2e-lock-copy">Sync is locked on this device. Unlock with your passphrase or recovery key.</p>
+    <button class="configure-btn" data-command="e2eUnlock"><span class="codicon codicon-unlock"></span> Unlock</button>
+  </div>`;
+}
+
 export function renderSyncPane(state: SyncTabState): string {
   const statusIconMap = {
     synced: "check",
@@ -134,7 +202,26 @@ export function renderSyncPane(state: SyncTabState): string {
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
 
+  const hardBlockSyncActions =
+    state.e2ePhase === "email_not_verified" || state.e2ePhase === "keys_unavailable";
+  const hardBlockTitle =
+    state.e2ePhase === "email_not_verified"
+      ? "Verify your email before encrypted sync is available."
+      : state.keysStatusMessage ?? "Encryption key status unavailable. Retry after the rate limit.";
+  const hardBlockAttr = hardBlockSyncActions
+    ? ` disabled aria-disabled="true" class="is-disabled" title="${escapeHtml(hardBlockTitle)}"`
+    : "";
+  const softGatedTitle =
+    state.e2ePhase === "locked" || state.e2ePhase === "needs_setup"
+      ? ` title="${escapeHtml("Unlock encrypted sync to use Push, Pull, and Sync Now.")}"`
+      : "";
+  const syncHint =
+    state.e2ePhase === "no_app_session"
+      ? `<p class="e2e-lock-copy" style="margin-top:8px">GitHub Gist sync works without app login. Log in to Cursor Sync for encrypted cloud sync.</p>`
+      : "";
+
   return `<div id="sync-pane" class="tab-pane">
+  ${renderE2eLockBanner(state)}
   <div class="status-card ${state.status}">
     <div class="status-icon-wrapper">
       ${state.status === "synced" ? cursorLogoSvg : `<span class="codicon codicon-${statusIcon}"></span>`}
@@ -149,7 +236,8 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
-  <button class="sync-now-btn" data-command="syncNow">
+  ${syncHint}
+  <button class="sync-now-btn" data-command="syncNow"${hardBlockAttr}${softGatedTitle}>
     <span class="codicon codicon-sync"></span>
     Sync Now
   </button>
@@ -157,10 +245,10 @@ export function renderSyncPane(state: SyncTabState): string {
   <div class="section">
     <div class="section-header">Actions</div>
     <div class="action-grid">
-      <button class="action-btn" data-command="push"><span class="codicon codicon-cloud-upload"></span> Push</button>
-      <button class="action-btn" data-command="pull"><span class="codicon codicon-cloud-download"></span> Pull</button>
-      <button class="action-btn" data-command="export"><span class="codicon codicon-export"></span> Export</button>
-      <button class="action-btn" data-command="import"><span class="codicon codicon-desktop-download"></span> Import</button>
+      <button class="action-btn" data-command="push"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-upload"></span> Push</button>
+      <button class="action-btn" data-command="pull"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-download"></span> Pull</button>
+      <button class="action-btn" data-command="export"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-export"></span> Export</button>
+      <button class="action-btn" data-command="import"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>
   </div>
 
@@ -171,6 +259,6 @@ export function renderSyncPane(state: SyncTabState): string {
     </div>
   </div>
 
-  ${renderAccountSection(state.appSessionActive)}
+  ${renderAccountSection(state.appSessionActive, state.appSessionExpired)}
 </div>`;
 }

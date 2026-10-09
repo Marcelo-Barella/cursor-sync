@@ -92,6 +92,11 @@ const getAppSessionMock = vi.hoisted(() => vi.fn());
 const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
 const putR2ObjectMock = vi.hoisted(() => vi.fn());
 const getR2ObjectMock = vi.hoisted(() => vi.fn());
+const putEncryptedR2ObjectMock = vi.hoisted(() => vi.fn());
+const getEncryptedR2ObjectMock = vi.hoisted(() => vi.fn());
+const putConfigsManifestWithRetryMock = vi.hoisted(() => vi.fn());
+const fetchConfigsApiMock = vi.hoisted(() => vi.fn());
+const decryptManifestPayloadMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
@@ -107,12 +112,55 @@ vi.mock("../src/app-r2-storage.js", () => ({
   getR2Object: getR2ObjectMock,
 }));
 
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 2),
+    }),
+  };
+});
+
+vi.mock("../src/e2e/r2-storage.js", () => ({
+  putEncryptedR2Object: putEncryptedR2ObjectMock,
+  getEncryptedR2Object: getEncryptedR2ObjectMock,
+}));
+
+vi.mock("../src/e2e/storage-plaintext.js", () => ({
+  deletePlaintextR2Objects: vi.fn().mockResolvedValue({
+    settled: [],
+    failed: [],
+    partial: false,
+    results: [],
+  }),
+  listPlaintextObjectKeys: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../src/e2e/configs-sync.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/configs-sync.js")>();
+  return {
+    ...actual,
+    fetchConfigsApi: fetchConfigsApiMock,
+    putConfigsManifestWithRetry: putConfigsManifestWithRetryMock,
+    decryptManifestPayload: decryptManifestPayloadMock,
+  };
+});
+
 function makeContext(): vscode.ExtensionContext {
   return {
     secrets: {
       get: async () => undefined,
       store: async () => {},
       delete: async () => {},
+    },
+    globalState: {
+      get: () => undefined,
+      update: async () => {},
     },
   } as unknown as vscode.ExtensionContext;
 }
@@ -277,6 +325,21 @@ describe("app-configs R2 sync", () => {
     getR2StorageCredentialsMock.mockReset();
     putR2ObjectMock.mockReset();
     getR2ObjectMock.mockReset();
+    putEncryptedR2ObjectMock.mockReset().mockResolvedValue(undefined);
+    getEncryptedR2ObjectMock.mockReset().mockResolvedValue(undefined);
+    putConfigsManifestWithRetryMock.mockReset().mockResolvedValue({
+      manifestVersion: 1,
+      manifestCiphertext: "c2VFMQ==",
+      payload: null,
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
+    fetchConfigsApiMock.mockReset().mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: null,
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    decryptManifestPayloadMock.mockReset();
     getR2StorageCredentialsMock.mockResolvedValue({
       endpoint: "https://example.r2.cloudflarestorage.com",
       bucket: "sync-bucket",
@@ -306,78 +369,53 @@ describe("app-configs R2 sync", () => {
     expect(putR2ObjectMock).not.toHaveBeenCalled();
   });
 
-  it("push uploads bytes to R2 and PUTs metadata-only payload", async () => {
+  it("push uploads encrypted bytes to R2 and PUTs manifestCiphertext", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        payload: { schemaVersion: 1, manifest: { files: {} }, files: {} },
-        updated_at: "2026-01-02T00:00:00.000Z",
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
 
     const { executePushAppConfigs } = await import("../src/app-configs.js");
     const ok = await executePushAppConfigs(makeContext());
 
     expect(ok).toBe(true);
-    expect(putR2ObjectMock).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: "users/user-1/" }),
-      "cursor-user/settings.json",
-      Buffer.from('{"x":1}')
-    );
-    const putCall = fetchMock.mock.calls.find(
-      (call) => call[1]?.method === "PUT"
-    );
-    expect(putCall).toBeDefined();
-    const body = JSON.parse(putCall![1].body as string);
-    expect(body.payload.files["cursor-user/settings.json"]).toEqual({
-      checksum: "abc",
-      sizeBytes: 7,
-    });
-    expect(body.payload.files["cursor-user/settings.json"].content).toBeUndefined();
+    expect(putEncryptedR2ObjectMock).toHaveBeenCalled();
+    expect(putConfigsManifestWithRetryMock).toHaveBeenCalled();
   });
 
-  it("pull prefers R2 bytes and falls back to legacy payload content", async () => {
+  it("pull reads encrypted manifest and R2 object bytes", async () => {
     getAppSessionMock.mockResolvedValue("jwt-token");
-    getR2ObjectMock.mockResolvedValue(undefined);
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        payload: {
-          schemaVersion: 1,
-          manifest: {
-            schemaVersion: 1,
-            syncProfileName: "default",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            sourceMachineId: "machine",
-            sourceOS: "linux",
-            files: {
-              "cursor-user/settings.json": {
-                checksum: "abc",
-                sizeBytes: 7,
-              },
-            },
-          },
-          files: {
-            "cursor-user/settings.json": {
-              content: '{"legacy":true}',
-              checksum: "abc",
-              sizeBytes: 7,
-            },
+    fetchConfigsApiMock.mockResolvedValue({
+      manifestVersion: 1,
+      manifestCiphertext: Buffer.alloc(36, 0).toString("base64"),
+      payload: null,
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    decryptManifestPayloadMock.mockReturnValue({
+      schemaVersion: 1,
+      manifest: {
+        schemaVersion: 1,
+        syncProfileName: "default",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        sourceMachineId: "machine",
+        sourceOS: "linux",
+        files: {
+          "cursor-user/settings.json": {
+            checksum: "abc",
+            sizeBytes: 7,
           },
         },
-        updated_at: "2026-01-01T00:00:00.000Z",
-      }),
+      },
+      files: {
+        "cursor-user/settings.json": {
+          checksum: "abc",
+          sizeBytes: 7,
+        },
+      },
     });
-    vi.stubGlobal("fetch", fetchMock);
+    getEncryptedR2ObjectMock.mockResolvedValue(Buffer.from('{"from":"r2"}'));
 
     const { executePullAppConfigs } = await import("../src/app-configs.js");
     const ok = await executePullAppConfigs(makeContext());
 
     expect(ok).toBe(true);
-    expect(getR2ObjectMock).toHaveBeenCalled();
+    expect(getEncryptedR2ObjectMock).toHaveBeenCalled();
   });
 });

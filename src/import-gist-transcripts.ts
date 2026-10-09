@@ -9,9 +9,8 @@ import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js
 import {
   TRANSCRIPT_MANIFEST_FILE_NAME,
   computeArtifactChecksum,
-  decodeTranscriptArtifact,
-  encodeTranscriptArtifact,
   gistFileNameToSyncKey,
+  syncKeyToGistFileName,
   parseTranscriptBundleManifest,
   summarizeTranscriptForSidebar,
   type TranscriptBundleManifest,
@@ -27,6 +26,11 @@ import {
 } from "./chat-workspace-label.js";
 import { listChatsWorkspaceDirs, type WorkspaceDir } from "./chat-export-ux.js";
 import { resolveSyncRoots } from "./paths.js";
+import {
+  assertCanReadE2eGist,
+  readLogicalFileFromGistMap,
+} from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 const {
   runSqliteScript,
@@ -34,7 +38,6 @@ const {
   resolveChatsRoot,
   escapeSqlLiteral,
   mergeComposerHeadersChain,
-  mergeComposerDataAdditive,
   deriveComposerHeadersPayloadFromSidebarSnapshot,
   stampWorkspaceIdentifierOnPayload,
   isExecFileTimeoutError,
@@ -56,9 +59,6 @@ interface ImportFromGistResult {
   warnings: string[];
 }
 
-/**
- * Main entry point: imports agent transcripts from any GitHub Gist URL or ID.
- */
 export async function executeImportTranscriptsFromGist(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -150,9 +150,29 @@ async function importTranscriptsFromGist(
     throw new Error(`Could not fetch Gist "${gistId}". Check the ID and your GitHub token.`);
   }
 
+  const gistFiles = gist.files ?? {};
+  let readGistFile: (logicalFileName: string) => string | undefined;
+
+  if (tryReadGistE2eMarker(gistFiles)) {
+    const access = await assertCanReadE2eGist(context, gistFiles);
+    if (!access.ok) {
+      throw new Error(access.message);
+    }
+    readGistFile = (logicalFileName) =>
+      readLogicalFileFromGistMap(
+        access.dek,
+        access.userId,
+        access.keyVersion,
+        gistFiles,
+        logicalFileName
+      );
+  } else {
+    readGistFile = (logicalFileName) => gistFiles[logicalFileName]?.content;
+  }
+
   // Step 2: Parse manifest
   progress.report({ message: "Parsing manifest..." });
-  const manifestRaw = gist.files?.[TRANSCRIPT_MANIFEST_FILE_NAME]?.content;
+  const manifestRaw = readGistFile(TRANSCRIPT_MANIFEST_FILE_NAME);
   if (!manifestRaw) {
     throw new Error("Gist does not contain a transcript manifest. Export transcripts first.");
   }
@@ -166,7 +186,7 @@ async function importTranscriptsFromGist(
 
   // Step 3: Discover transcripts
   progress.report({ message: "Discovering transcripts..." });
-  const transcripts = discoverTranscripts(manifest, gist);
+  const transcripts = discoverTranscripts(manifest, readGistFile);
   if (transcripts.length === 0) {
     throw new Error("No transcript files found in Gist.");
   }
@@ -176,19 +196,15 @@ async function importTranscriptsFromGist(
   const chatsRoot = resolveChatsRoot();
   const localWorkspaces = await listChatsWorkspaceDirs(chatsRoot);
 
-  let targetWorkspaceKey: string;
   if (localWorkspaces.length === 0) {
     throw new Error(
       "No local chat workspaces found in ~/.cursor/chats/. Open a workspace in Cursor first."
     );
-  } else if (localWorkspaces.length === 1) {
-    targetWorkspaceKey = localWorkspaces[0]!.name;
-  } else {
+  } else if (localWorkspaces.length > 1) {
     const picked = await promptForTargetWorkspace(localWorkspaces);
     if (!picked) {
       return { transcriptsWritten: 0, sidebarMerged: false, conversationIds: [], warnings: ["Cancelled by user."] };
     }
-    targetWorkspaceKey = picked;
   }
 
   // Step 5: Map source projects to target projects
@@ -241,10 +257,10 @@ async function importTranscriptsFromGist(
     const dbPath = stateDbPaths[0]!;
 
     try {
-      const headersPayloads = buildHeadersPayloads(transcripts, projectMapping, logger);
+      const headersPayloads = buildHeadersPayloads(transcripts, logger);
 
       if (headersPayloads.length > 0) {
-        const rows = await readExistingComposerState(dbPath, logger);
+        const rows = await readExistingComposerState(dbPath);
         const existingHeadersRaw = rows.headersRaw;
 
         const scriptParts: string[] = ["BEGIN IMMEDIATE;"];
@@ -345,16 +361,16 @@ function extractGistId(input: string): string | null {
 
 function discoverTranscripts(
   manifest: TranscriptBundleManifest,
-  gist: { files?: Record<string, { content?: string }> }
+  readGistFile: (logicalFileName: string) => string | undefined
 ): DiscoveredTranscript[] {
   const transcripts: DiscoveredTranscript[] = [];
 
   if (manifest.schemaVersion === 1) {
     const v1 = manifest as TranscriptManifestV1;
-    for (const [gistFileName, entry] of Object.entries(v1.files)) {
+    for (const gistFileName of Object.keys(v1.files)) {
       if (!gistFileName.endsWith(".jsonl")) continue;
 
-      const content = gist.files?.[gistFileName]?.content;
+      const content = readGistFile(gistFileName);
       if (!content) continue;
 
       const syncKey = gistFileNameToSyncKey(gistFileName);
@@ -382,8 +398,8 @@ function discoverTranscripts(
     for (const [artifactKey, artifact] of Object.entries(v2.artifacts)) {
       if (artifact.kind !== "transcript") continue;
 
-      const gistFileName = artifactKey.replace(/\//g, "--");
-      const content = gist.files?.[gistFileName]?.content;
+      const gistFileName = syncKeyToGistFileName(artifactKey);
+      const content = readGistFile(gistFileName);
       if (!content) continue;
 
       const buf = Buffer.from(content, "utf-8");
@@ -407,7 +423,6 @@ function discoverTranscripts(
 
 function buildHeadersPayloads(
   transcripts: DiscoveredTranscript[],
-  projectMapping: Map<string, string>,
   logger?: ReturnType<typeof getLogger>
 ): Array<Record<string, unknown>> {
   const payloads: Array<Record<string, unknown>> = [];
@@ -439,8 +454,7 @@ function buildHeadersPayloads(
 // --- SQLite Helpers ---
 
 async function readExistingComposerState(
-  dbPath: string,
-  logger?: ReturnType<typeof getLogger>
+  dbPath: string
 ): Promise<{ headersRaw: string | undefined; dataRaw: string | undefined }> {
   const { querySqliteRows } = __chatPersistenceInternals;
   const rows = await querySqliteRows(

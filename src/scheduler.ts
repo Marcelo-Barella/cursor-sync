@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
-import { executePush, isPushLocked } from "./push.js";
-import { executePull, isPullLocked } from "./pull.js";
+import { executePush } from "./push.js";
+import { executePull } from "./pull.js";
+import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
-import { requireToken } from "./auth.js";
+import { getToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles } from "./paths.js";
@@ -15,6 +16,9 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { Manifest } from "./types.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_JITTER_MS = 60_000;
@@ -82,9 +86,9 @@ export async function determineSyncAction(
     return { action: "push" };
   }
 
-  const token = await requireToken(context);
+  const token = await getToken(context);
   if (!token) {
-    return { action: "error", reason: "no_token" };
+    return { action: "none" };
   }
 
   const client = new GistClient(token);
@@ -93,14 +97,31 @@ export async function determineSyncAction(
     return { action: "error", reason: gistResult.error.category };
   }
 
-  const manifestFile = gistResult.data.files["manifest.json"];
-  if (!manifestFile) {
+  const gistFiles = gistResult.data.files;
+  let manifestJson: string | undefined;
+  if (tryReadGistE2eMarker(gistFiles)) {
+    const e2e = await requireE2eUnlocked(context, { gistSync: true });
+    if (!e2e.ok || e2e.kind !== "dek") {
+      return { action: "error", reason: "e2e_locked" };
+    }
+    manifestJson = readLogicalFileFromGistMap(
+      e2e.dek,
+      e2e.userId,
+      e2e.keyVersion,
+      gistFiles,
+      "manifest.json"
+    );
+  } else {
+    manifestJson = gistFiles["manifest.json"]?.content;
+  }
+
+  if (!manifestJson) {
     return { action: "push" };
   }
 
   let manifest: Manifest;
   try {
-    manifest = JSON.parse(manifestFile.content) as Manifest;
+    manifest = JSON.parse(manifestJson) as Manifest;
   } catch {
     return { action: "push" };
   }
@@ -181,11 +202,20 @@ export async function scheduledTick(
 ): Promise<void> {
   const logger = getLogger();
 
-  if (isPushLocked() || isPullLocked()) {
+  if (isSyncOperationActive()) {
     logger.appendLine(
       `[${new Date().toISOString()}] Scheduled sync skipped: operation in progress`
     );
     sendEvent(context, "scheduled_sync_skipped", { reason: "in_progress" });
+    return;
+  }
+
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
+  if (!e2e.ok) {
+    logger.appendLine(
+      `[${new Date().toISOString()}] Scheduled sync skipped: ${e2e.message}`
+    );
+    sendEvent(context, "scheduled_sync_skipped", { reason: "e2e_locked" });
     return;
   }
 

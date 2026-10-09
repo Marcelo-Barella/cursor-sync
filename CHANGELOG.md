@@ -2,6 +2,105 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.10
+
+### Fixed
+- Sidebar Sync Now / Push / Pull stay clickable when locked or needs setup (warning + Unlock); visible disabled styling when truly blocked.
+- Palette and command Sync Now when locked shows Unlock action; enablement without GitHub PAT when E2E gate applies.
+- `markAppSessionExpired` refreshes sidebar and status bar; session-expired Account row shows warning icon.
+- After session expiry or E2E on device, Push/Pull/Sync Now fail closed before “started” logs (no plaintext gist fallback).
+- API timeout messages also written to the Output channel.
+
+## v0.9.0-staging.9
+
+### Fixed
+- Friendly timeout copy for `TimeoutError` / `AbortError` (fail-closed, not offline).
+- `freshKeysFromServer` only after a real `GET /v1/keys` network response.
+- Invalid custom website URL fails closed (matches API URL behavior).
+- Recovery key save dialog defaults to Downloads or home directory.
+- Sidebar Sync Now / Push / Pull when locked: unlock toast with **Unlock** action; palette **Sync Now** entry.
+- Push/Pull log start only after lock check passes.
+- `401` on `/v1/keys` marks app session expired for the Account sidebar.
+
+## v0.9.0-staging.8
+
+### Fixed
+- **P1:** Gate no longer serves stale key material on `429` or `5xx`; unlock fail-closed with rate-limit / server-unavailable copy (cache fallback only for classified network errors).
+- Invalid custom API URL fails closed (`Invalid Cursor Sync API URL in settings`); never substitutes production default (prevents staging tokens hitting prod).
+- TLS errors classified by `cause.code` (`ERR_TLS_*`, `ERR_SSL_*`, cert errno); friendly TLS copy. `503` and other `5xx` use server-unavailable messaging.
+- Change passphrase reuses a single `GET /v1/keys` for verify + rewrap.
+
+### Notes
+- `TimeoutError` / bare `AbortError` without errno causes are intentionally **not** treated as offline (fail closed).
+- After **Lock**, offline unlock is not possible until an online keys refresh (lock clears persisted keys cache).
+
+## v0.9.0-staging.7
+
+### Fixed
+- Unlock gate falls through to offline key cache on classified network errors (verified cache); friendly connectivity copy in gate banner and `requireE2eUnlocked`.
+- Narrow offline detection to nested errno / abort timeout only; TLS and bare `TypeError` fail closed; `GET /v1/keys` uses a 15s timeout.
+- Every gate check refreshes when keys cache is `unverified_offline`; unlock reuses one gate `GET` for key material.
+- Lock skips immediate keys refetch; unlock shows sign-in message on 401; recovery rewrap confirm Escape cancels silently; “Passphrase changed” toast.
+- Push reloads gist id after plaintext guard; encrypted gist 404 creates a new gist instead of looping.
+- GitHub token prompt Cancel dismisses cleanly; sidebar dispatch surfaces errors.
+
+## v0.9.0-staging.6
+
+### Fixed
+- Unlock fails closed on `GET /v1/keys` 429 (no cached key material); rate-limit message uses Retry-After when present.
+- Offline key cache fallback only on true network errors during unlock; offline unlock label and offline wrong-secret messages; change passphrase and rotate recovery never use the fallback.
+- Offline unlock marks keys cache `unverified_offline` so the next gate check forces a fresh `GET /v1/keys`.
+- Lock clears persisted `cursorSync.e2e.keysCache.v1` from globalState, not only in-memory cache.
+
+## v0.9.0-staging.5
+
+### Fixed
+- Unlock, change passphrase, and rotate recovery always fetch fresh `GET /v1/keys` (cache fallback only on rate limit / network); wrong credential retries once after refetch; lock clears keys cache.
+- Change passphrase requires current passphrase or recovery key verification first.
+- Scheduler skips Gist push quietly without a token; no configure prompts from scheduled paths.
+- Sidebar sync/push/pull toasts when blocked; gist guard fails closed on read errors and clears stale gist id on 404.
+- Login single deferred toast; activation gate refresh catches failures; stray-check state cleared on reset.
+
+## v0.9.0-staging.4
+
+### Fixed
+- Migration completion treats cleared `payload: {}` as no legacy payload (`hasLegacyConfigsPayload`); throttles stray plaintext re-checks when migration is complete.
+- Activation refreshes stale non-verified keys cache with a real `GET /v1/keys` when needed.
+- Gist plaintext guard fails closed when the gist cannot be read; GitHub 503 no longer shows “token invalid”.
+- `keys_unavailable` / 429: correct sync/unlock messages, sidebar Retry, login deferred toast.
+
+## v0.9.0-staging.3
+
+### Fixed
+- Legacy plaintext migration uses `GET /v1/storage/plaintext-objects` as source of truth; unions config manifest keys before `clearLegacyPayload`; completes only when the listing is empty. Delete API parses `{results}` and retains partial progress on HTTP 502.
+- Plaintext Gist push/export/chat export refuses to overwrite an encrypted (CSE1) sync gist when not logged in.
+- Login and startup handle `GET /v1/keys` rate limits without failed login or blank sidebar; gate refreshes on activation using disk cache when verified.
+- Unlock while unverified shows the email verification message; setup checks verification before passphrase prompts.
+
+## v0.9.0-staging.2
+
+### Fixed
+- Email verification gate uses `GET /v1/keys` (200 / 404 `KEYS_NOT_SET` / 403 `EMAIL_NOT_VERIFIED` / 401) instead of JWT `email_verified`; Gist-only sync works without an app session.
+- Unlock, lock, passphrase change, recovery, and reset refresh the E2E gate cache and UI; lock always clears stored DEKs.
+- `GET /v1/keys` rate limits (429) show Retry-After messaging; wrapped key material is cached on disk to cut API calls.
+- Legacy plaintext migration deletes remote manifest keys, retries failures, and re-runs cleanup on sync when stray plaintext remains.
+
+### Changed
+- Recovery-key unlock requires a new passphrase rewrap; setup checks verification before passphrase; recovery key input normalizes I/L/O; rotate recovery supports Save to file.
+
+### Known
+- Ciphertext padding (spec) is not implemented in this release.
+
+## v0.9.0-staging.1
+
+### Added
+- Mandatory end-to-end encryption (E2E) for app configs (encrypted R2 + encrypted manifest with `clearLegacyPayload` migration) and GitHub Gist settings/chat/transcript exports (CSE1 envelopes + gist marker).
+- E2E gate commands (unlock, lock, passphrase change, recovery key rotation) and sidebar lock banner; push/pull/sync-now require unlock when encryption is enabled.
+- Legacy chat Gist password import with optional re-wrap under the sync DEK; `tests/e2e-crypto.test.ts` covers the spec section 8 crypto matrix.
+
+### Changed
+- Staging API preset targets `https://api-staging.cursor-sync.com` (separate env commit).
+
 ## v0.8.4-staging.5
 
 ### Fixed

@@ -45,7 +45,6 @@ import { initializeSidebar, refreshSidebar } from "./sidebar/index.js";
 import { initializeStatusBar, updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
 import {
-  endSyncOperation,
   recoverSyncOperationLatch,
   resetSyncOperation,
   tryBeginSyncOperation,
@@ -65,6 +64,14 @@ import { flushPendingSidebarWriteback } from "./chat-import-sidebar-writeback.js
 import { executeInstallSkillTransportChat } from "./install-skill-transport-chat.js";
 import { clearR2CredentialsCache } from "./app-r2-storage.js";
 import { registerDeveloperUrlConfigurationListener } from "./config/urls.js";
+import {
+  executeE2eChangePassphrase,
+  executeE2eLock,
+  executeE2eRotateRecoveryKey,
+  runRecheckEmailVerification,
+  runRetryKeysGateFlow,
+  runUnlockFlow,
+} from "./e2e/commands.js";
 let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -156,6 +163,37 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.reset", () =>
       executeReset(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.unlock", () =>
+      runUnlockFlow(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.lock", () =>
+      executeE2eLock(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.changePassphrase", () =>
+      executeE2eChangePassphrase(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.rotateRecoveryKey", () =>
+      executeE2eRotateRecoveryKey(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.recheckEmail", () =>
+      runRecheckEmailVerification(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.e2e.retryKeys", () =>
+      runRetryKeysGateFlow(context)
     )
   );
 
@@ -293,6 +331,15 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   updateConfiguredContext(context);
+  void import("./e2e/gate.js")
+    .then(({ refreshE2eGateOnActivation }) => refreshE2eGateOnActivation(context))
+    .catch((err) => {
+      logger.appendLine(
+        `[${new Date().toISOString()}] E2E gate activation refresh failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    });
   getOrCreateClientId(context);
   startScheduler(context);
 
@@ -335,6 +382,15 @@ export async function executeSyncNow(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
+
+  const { requireE2eUnlocked } = await import("./e2e/gate.js");
+  const { showE2eSyncBlockedMessage } = await import("./e2e/sync-blocked-ux.js");
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
+  if (!e2e.ok) {
+    await showE2eSyncBlockedMessage(e2e.message);
+    return;
+  }
+
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
 
   if (!tryBeginSyncOperation()) {
@@ -437,7 +493,7 @@ export async function executeSyncNow(
       { title: errorMessage }
     );
   } finally {
-    endSyncOperation();
+    resetSyncOperation();
     await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);
     refreshSidebar();
   }

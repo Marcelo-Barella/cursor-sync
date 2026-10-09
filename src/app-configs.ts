@@ -3,11 +3,26 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { appApiAuthHeaders } from "./app-api-http.js";
 import {
   getR2Object,
   getR2StorageCredentials,
-  putR2Object,
 } from "./app-r2-storage.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
+import {
+  decryptManifestPayload,
+  encryptManifestPayload,
+  fetchConfigsApi,
+  putConfigsManifestWithRetry,
+} from "./e2e/configs-sync.js";
+import { putEncryptedR2Object, getEncryptedR2Object } from "./e2e/r2-storage.js";
+import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
+import { runAppStorageLegacyCleanup } from "./e2e/app-storage-cleanup.js";
+import { isAppConfigsPayloadV1 } from "./e2e/configs-legacy-payload.js";
+import { hasLegacyConfigsPayload } from "./e2e/configs-legacy-payload.js";
+import { legacyPlaintextKeysFromConfigsResponse } from "./e2e/legacy-cleanup.js";
+import { KeysApiError } from "./e2e/keys-client.js";
+import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { getLogger } from "./diagnostics.js";
 import { enumerateSyncFiles, resolveSyncRoots } from "./paths.js";
@@ -31,7 +46,9 @@ export interface AppConfigsPayloadV1 {
 }
 
 export interface AppConfigsResponse {
-  payload: AppConfigsPayloadV1 | null;
+  payload?: AppConfigsPayloadV1 | null;
+  encryptedManifest?: string | null;
+  manifestVersion?: number;
   updated_at: string;
 }
 
@@ -58,13 +75,6 @@ function appConfigsBaseUrl(): string {
   return getAppApiUrl();
 }
 
-function authHeaders(session: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${session}`,
-    Accept: "application/json",
-  };
-}
-
 export async function fetchAppConfigs(
   context: vscode.ExtensionContext
 ): Promise<AppConfigsResponse | undefined> {
@@ -75,7 +85,7 @@ export async function fetchAppConfigs(
 
   const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
     method: "GET",
-    headers: authHeaders(session),
+    headers: appApiAuthHeaders(session),
   });
 
   if (response.status === 401) {
@@ -105,7 +115,7 @@ export async function putAppConfigs(
   const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
     method: "PUT",
     headers: {
-      ...authHeaders(session),
+      ...appApiAuthHeaders(session),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ payload }),
@@ -210,10 +220,22 @@ async function resolveRemoteFileContent(
   context: vscode.ExtensionContext,
   syncKey: string,
   file: AppConfigsPayloadFile,
-  manifestEntry: ManifestFileEntry
+  manifestEntry: ManifestFileEntry,
+  e2e?: { dek: Buffer; userId: string; keyVersion: number }
 ): Promise<Buffer | undefined> {
   const credentials = await getR2StorageCredentials(context);
-  if (credentials) {
+  if (credentials && e2e) {
+    const remote = await getEncryptedR2Object(
+      credentials,
+      e2e.dek,
+      e2e.userId,
+      e2e.keyVersion,
+      syncKey
+    );
+    if (remote) {
+      return remote;
+    }
+  } else if (credentials) {
     const remote = await getR2Object(credentials, syncKey);
     if (remote) {
       return remote;
@@ -223,20 +245,6 @@ async function resolveRemoteFileContent(
   return decodePayloadFileContent(file, manifestEntry);
 }
 
-function isAppConfigsPayloadV1(value: unknown): value is AppConfigsPayloadV1 {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as AppConfigsPayloadV1;
-  return (
-    candidate.schemaVersion === APP_CONFIGS_PAYLOAD_SCHEMA_VERSION &&
-    typeof candidate.manifest === "object" &&
-    candidate.manifest !== null &&
-    typeof candidate.files === "object" &&
-    candidate.files !== null
-  );
-}
-
 export async function executePushAppConfigs(
   context: vscode.ExtensionContext
 ): Promise<boolean> {
@@ -244,11 +252,21 @@ export async function executePushAppConfigs(
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
   try {
+    const e2e = await requireE2eUnlocked(context);
+    if (!isE2eDekUnlocked(e2e)) {
+      vscode.window.showErrorMessage(
+        e2e.ok ? "Encrypted app sync requires an unlocked sync passphrase." : e2e.message
+      );
+      return false;
+    }
     const localPayload = await buildLocalAppConfigsPayload();
     const credentials = await getR2StorageCredentials(context);
     if (!credentials) {
       return false;
     }
+
+    const migration = await loadMigrationState(context);
+    const metadataFiles: Record<string, AppConfigsPayloadFile> = {};
 
     for (const [syncKey, file] of Object.entries(localPayload.files)) {
       const manifestEntry = localPayload.manifest.files[syncKey];
@@ -263,28 +281,94 @@ export async function executePushAppConfigs(
         encoding === "base64"
           ? Buffer.from(file.content, "base64")
           : Buffer.from(file.content, "utf-8");
-      await putR2Object(credentials, syncKey, body);
+
+      await putEncryptedR2Object(
+        credentials,
+        e2e.dek,
+        e2e.userId,
+        e2e.keyVersion,
+        syncKey,
+        body
+      );
+      metadataFiles[syncKey] = {
+        checksum: file.checksum ?? manifestEntry.checksum,
+        sizeBytes: file.sizeBytes ?? manifestEntry.sizeBytes,
+        ...(manifestEntry.encoding ? { encoding: manifestEntry.encoding } : {}),
+      };
     }
 
-    const payload = buildMetadataOnlyPayload(
-      localPayload.manifest,
-      localPayload.files
-    );
-    const result = await putAppConfigs(context, payload);
-    if (!result) {
-      return false;
+    const manifestPayload: E2eConfigsManifestPayload = {
+      schemaVersion: 1,
+      manifest: localPayload.manifest,
+      files: metadataFiles,
+    };
+
+    const remoteBefore = await fetchConfigsApi(context);
+    const hadLegacyPayload = hasLegacyConfigsPayload(remoteBefore?.payload);
+    const extraKeysFromConfigs = legacyPlaintextKeysFromConfigsResponse(remoteBefore);
+    const clearLegacyPayload =
+      hadLegacyPayload ||
+      extraKeysFromConfigs.length > 0 ||
+      (migration && migration.phase !== "completed");
+
+    await putConfigsManifestWithRetry(context, (expectedManifestVersion) => ({
+      manifestCiphertext: encryptManifestPayload(
+        e2e.dek,
+        e2e.userId,
+        e2e.keyVersion,
+        manifestPayload
+      ),
+      expectedManifestVersion,
+      ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
+    }));
+
+    const cleanupRun = await runAppStorageLegacyCleanup(context, {
+      extraKeysFromConfigs,
+    });
+    const cleanup =
+      cleanupRun.kind === "ran"
+        ? cleanupRun.result
+        : {
+            legacyPayloadPresent: false,
+            deleted: [],
+            remainingKeys: [],
+            partial: false,
+            failed: [],
+          };
+    if (
+      cleanupRun.kind === "ran" &&
+      (cleanup.legacyPayloadPresent ||
+        cleanup.deleted.length > 0 ||
+        cleanup.remainingKeys.length > 0 ||
+        cleanup.partial)
+    ) {
+      const existing = await loadMigrationState(context);
+      if (existing && existing.phase !== "completed") {
+        await saveMigrationState(context, {
+          ...existing,
+          phase: "in_progress",
+          legacyPayloadCleared:
+            !cleanup.legacyPayloadPresent && cleanup.remainingKeys.length === 0,
+        });
+      }
     }
 
-    const fileCount = Object.keys(payload.files).length;
+    const fileCount = Object.keys(metadataFiles).length;
     vscode.window.showInformationMessage(
       `App configs push complete: ${fileCount} file(s) synced.`
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs succeeded: ${fileCount} files`
     );
+    await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof KeysApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Push app configs failed: ${message}`
     );
@@ -299,21 +383,32 @@ export async function executePullAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
+  const e2e = await requireE2eUnlocked(context);
+  if (!isE2eDekUnlocked(e2e)) {
+    vscode.window.showErrorMessage(e2e.ok ? "Unlock sync encryption first." : e2e.message);
+    return false;
+  }
+
   try {
-    const response = await fetchAppConfigs(context);
-    if (!response) {
+    const remote = await fetchConfigsApi(context);
+    if (!remote?.manifestCiphertext) {
+      if (!remote?.payload || !isAppConfigsPayloadV1(remote.payload as AppConfigsPayloadV1)) {
+        vscode.window.showInformationMessage("Pull app configs complete: no remote configs.");
+        return true;
+      }
+      vscode.window.showWarningMessage(
+        "Remote configs are not encrypted yet. Push from an unlocked client to migrate."
+      );
       return false;
     }
 
-    if (!response.payload || !isAppConfigsPayloadV1(response.payload)) {
-      vscode.window.showInformationMessage("Pull app configs complete: no remote configs.");
-      logger.appendLine(
-        `[${new Date().toISOString()}] Pull app configs: empty or invalid payload`
-      );
-      return true;
-    }
-
-    const { manifest, files } = response.payload;
+    const decrypted = decryptManifestPayload(
+      e2e.dek,
+      e2e.userId,
+      e2e.keyVersion,
+      remote.manifestCiphertext
+    );
+    const { manifest, files } = decrypted;
     const roots = resolveSyncRoots();
     const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> =
       [];
@@ -333,7 +428,8 @@ export async function executePullAppConfigs(
         context,
         syncKey,
         file,
-        manifestEntry
+        manifestEntry,
+        e2e
       );
       if (!content) {
         continue;
@@ -416,9 +512,16 @@ export async function executePullAppConfigs(
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs succeeded: ${filesToWrite.length} files`
     );
+    await runAppStorageLegacyCleanup(context);
+    await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message =
+      err instanceof KeysApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     logger.appendLine(
       `[${new Date().toISOString()}] Pull app configs failed: ${message}`
     );

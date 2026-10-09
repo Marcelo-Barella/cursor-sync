@@ -3,9 +3,8 @@ import * as vscode from "vscode";
 import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
-export { getAppApiUrl } from "./config/urls.js";
-
 export const APP_SESSION_SECRET = "cursorSync.appSession";
+export const APP_SESSION_EXPIRED_STATE_KEY = "cursorSync.appSession.expired";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
 
 class SecretStorageTimeoutError extends Error {
@@ -360,16 +359,40 @@ export async function getAppSession(
     if (secret) {
       return secret;
     }
-  } catch {
-    // SecretStorage unavailable, hung, or empty; use in-memory session for this window.
-  }
+  } catch {}
   return inMemoryAppSession;
+}
+
+export function isAppSessionExpired(context: vscode.ExtensionContext): boolean {
+  return context.globalState.get<boolean>(APP_SESSION_EXPIRED_STATE_KEY) === true;
+}
+
+export async function markAppSessionExpired(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context?.globalState?.update) {
+    await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, true);
+  }
+  await clearAppSession(context);
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  refreshSidebar();
+  await refreshSyncStatusBar(context);
+}
+
+export async function clearAppSessionExpiredMark(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context?.globalState?.update) {
+    await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, undefined);
+  }
 }
 
 export async function setAppSession(
   context: vscode.ExtensionContext,
   token: string
 ): Promise<void> {
+  await clearAppSessionExpiredMark(context);
   const logger = getLogger();
   logger.appendLine(
     `[${new Date().toISOString()}] App session: storing to SecretStorage (${APP_SESSION_SECRET})...`
@@ -396,10 +419,10 @@ export async function clearAppSession(
 ): Promise<void> {
   try {
     await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
-  } catch {
-    // Clear in-memory session even when SecretStorage is unavailable or hung.
-  }
+  } catch {}
   inMemoryAppSession = undefined;
+  const { onAppSessionCleared } = await import("./e2e/gate.js");
+  onAppSessionCleared(context);
 }
 
 async function completeLoginWithCode(
@@ -423,8 +446,12 @@ async function completeLoginWithCode(
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
+    const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
+    const loginUi = await ensureE2eGateAfterLogin(context);
     refreshSidebar();
-    vscode.window.showInformationMessage("Logged in to Cursor Sync.");
+    if (loginUi !== "deferred_keys") {
+      vscode.window.showInformationMessage("Logged in to Cursor Sync.");
+    }
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
