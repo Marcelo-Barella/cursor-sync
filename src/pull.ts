@@ -6,9 +6,9 @@ import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
-import { resolveSyncRoots, gistFileNameToSyncKey } from "./paths.js";
+import { resolveSyncRoots, syncKeyToGistFileName } from "./paths.js";
 import { computeChecksum } from "./packaging.js";
-import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflicts } from "./conflicts.js";
+import { detectConflicts, clearConflicts, getResolutionForKey } from "./conflicts.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
 import { findMissingExtensions, findExtraExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
@@ -32,6 +32,9 @@ import {
   formatPullSuccessToast,
   SYNC_DESTINATION_GIST_LABEL,
 } from "./sync-destination.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 export type PullTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
@@ -128,6 +131,20 @@ async function doPull(
   trigger: PullTrigger = "manual"
 ): Promise<boolean> {
   const logger = getLogger();
+
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
+  if (!e2e.ok) {
+    void showSyncFailureWithDebug(
+      context,
+      buildSyncDebugFailure("pull", trigger, e2e.message, {
+        direction: "pull",
+        category: "AUTH_FAILED",
+      }),
+      { title: e2e.message }
+    );
+    return false;
+  }
+
   logger.appendLine(`[${new Date().toISOString()}] Pull started (trigger=${trigger})`);
 
   let syncState = await loadSyncState(context);
@@ -236,8 +253,31 @@ async function doPull(
   }
 
   const gistData = gistResult.data;
-  const manifestFile = gistData.files["manifest.json"];
-  if (!manifestFile) {
+  const e2eMarker = tryReadGistE2eMarker(gistData.files);
+  let e2eRead:
+    | { dek: Buffer; userId: string; keyVersion: number }
+    | undefined;
+
+  if (e2eMarker) {
+    const access = await assertCanReadE2eGist(context, gistData.files);
+    if (!access.ok) {
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("pull", trigger, access.message, {
+          direction: "pull",
+          category: "AUTH_FAILED",
+        }),
+        { title: access.message }
+      );
+      return false;
+    }
+    e2eRead = access;
+  }
+
+  const manifestFile = e2eRead
+    ? undefined
+    : gistData.files["manifest.json"];
+  if (!e2eRead && !manifestFile) {
     const message =
       gistData.files[TRANSCRIPT_MANIFEST_FILE_NAME] !== undefined
         ? "Pull failed: This Gist contains agent transcripts, not settings. Update the configured Gist to one from Cursor Sync export/push, or use Cursor Sync: Import Agent Transcripts from Private Gist."
@@ -257,7 +297,19 @@ async function doPull(
 
   let manifest: Manifest;
   try {
-    manifest = JSON.parse(manifestFile.content) as Manifest;
+    const manifestJson = e2eRead
+      ? readLogicalFileFromGistMap(
+          e2eRead.dek,
+          e2eRead.userId,
+          e2eRead.keyVersion,
+          gistData.files,
+          "manifest.json"
+        )
+      : manifestFile?.content;
+    if (!manifestJson) {
+      throw new Error("missing manifest");
+    }
+    manifest = JSON.parse(manifestJson) as Manifest;
   } catch {
     const invalidManifestMessage = "Pull failed: invalid manifest.json.";
     void showSyncFailureWithDebug(
@@ -304,17 +356,7 @@ async function doPull(
   const roots = resolveSyncRoots(nodePlatform(), context);
   const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
-  for (const [gistFileName, gistFile] of Object.entries(gistData.files)) {
-    if (gistFileName === "manifest.json") {
-      continue;
-    }
-
-    const syncKey = gistFileNameToSyncKey(gistFileName);
-    const manifestEntry = manifest.files[syncKey];
-    if (!manifestEntry) {
-      continue;
-    }
-
+  for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
     if (conflicts.length > 0) {
       const resolution = getResolutionForKey(syncKey);
       if (resolution === "keepLocal") {
@@ -327,10 +369,28 @@ async function doPull(
       continue;
     }
 
+    const logicalGistName = syncKeyToGistFileName(syncKey);
+    let fileText: string | undefined;
+    if (e2eRead) {
+      fileText = readLogicalFileFromGistMap(
+        e2eRead.dek,
+        e2eRead.userId,
+        e2eRead.keyVersion,
+        gistData.files,
+        logicalGistName
+      );
+    } else {
+      const gistFile = gistData.files[logicalGistName];
+      fileText = gistFile?.content;
+    }
+    if (fileText === undefined) {
+      continue;
+    }
+
     const content =
       manifestEntry.encoding === "base64"
-        ? Buffer.from(gistFile.content, "base64")
-        : Buffer.from(gistFile.content, "utf-8");
+        ? Buffer.from(fileText, "base64")
+        : Buffer.from(fileText, "utf-8");
 
     filesToWrite.push({ absolutePath, syncKey, content });
   }

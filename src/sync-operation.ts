@@ -5,6 +5,15 @@ const STALE_SYNC_OPERATION_MS = 10 * 60 * 1000;
 let syncOperationActive = false;
 let syncOperationStartedAt: number | undefined;
 
+async function refreshSyncUiAfterLatchChange(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+  const { refreshSidebar } = await import("./sidebar/index.js");
+  await refreshSyncStatusBar(context);
+  refreshSidebar();
+}
+
 export function isSyncOperationActive(): boolean {
   return syncOperationActive;
 }
@@ -33,15 +42,6 @@ export function tryBeginSyncOperation(options?: { recoverStale?: boolean }): boo
   syncOperationActive = true;
   syncOperationStartedAt = Date.now();
   return true;
-}
-
-async function refreshSyncUiAfterLatchChange(
-  context: vscode.ExtensionContext
-): Promise<void> {
-  const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
-  const { refreshSidebar } = await import("./sidebar/index.js");
-  await refreshSyncStatusBar(context);
-  refreshSidebar();
 }
 
 export async function recoverSyncOperationLatch(

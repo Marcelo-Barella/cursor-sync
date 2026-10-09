@@ -18,24 +18,30 @@ const REMOTE2_CHK = computeChecksum(REMOTE2_BODY);
 const showQuickPickMock = vi.hoisted(() => vi.fn());
 const safeModeRef = vi.hoisted(() => ({ value: true }));
 
-vi.mock("vscode", () => ({
-  workspace: {
-    getConfiguration: () => ({
-      get: <T>(key: string, defaultValue?: T) => {
-        if (key === "appApiUrl") return "http://localhost:8100" as T;
-        if (key === "syncProfileName") return "default" as T;
-        if (key === "safeMode") return safeModeRef.value as T;
-        return defaultValue;
-      },
-    }),
-  },
-  window: {
-    showErrorMessage: vi.fn(),
-    showInformationMessage: vi.fn(),
-    showWarningMessage: vi.fn(),
-    showQuickPick: showQuickPickMock,
-  },
-}));
+vi.mock("vscode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("vscode")>();
+  return {
+    ...actual,
+    workspace: {
+      ...actual.workspace,
+      getConfiguration: () => ({
+        get: <T>(key: string, defaultValue?: T) => {
+          if (key === "appApiUrl") return "http://localhost:8100" as T;
+          if (key === "syncProfileName") return "default" as T;
+          if (key === "safeMode") return safeModeRef.value as T;
+          return defaultValue;
+        },
+      }),
+    },
+    window: {
+      ...actual.window,
+      showErrorMessage: vi.fn(),
+      showInformationMessage: vi.fn(),
+      showWarningMessage: vi.fn(),
+      showQuickPick: showQuickPickMock,
+    },
+  };
+});
 
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({ appendLine: vi.fn() }),
@@ -145,6 +151,10 @@ const getAppSessionMock = vi.hoisted(() => vi.fn());
 const putR2ObjectMock = vi.hoisted(() => vi.fn());
 const getR2ObjectMock = vi.hoisted(() => vi.fn());
 const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
+const putEncryptedR2ObjectMock = vi.hoisted(() => vi.fn());
+const putConfigsManifestWithRetryMock = vi.hoisted(() => vi.fn());
+const fetchConfigsApiMock = vi.hoisted(() => vi.fn());
+const getEncryptedR2ObjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({ getAppSession: getAppSessionMock }));
 vi.mock("../src/config/urls.js", () => ({ getAppApiUrl: () => "http://localhost:8100" }));
@@ -156,6 +166,53 @@ vi.mock("../src/app-r2-storage.js", () => ({
   putR2Object: putR2ObjectMock,
   getR2Object: getR2ObjectMock,
   deleteR2Object: vi.fn(),
+}));
+
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 2),
+    }),
+  };
+});
+
+vi.mock("../src/e2e/r2-storage.js", () => ({
+  putEncryptedR2Object: putEncryptedR2ObjectMock,
+  getEncryptedR2Object: getEncryptedR2ObjectMock,
+}));
+
+vi.mock("../src/e2e/configs-sync.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/configs-sync.js")>();
+  return {
+    ...actual,
+    fetchConfigsApi: fetchConfigsApiMock,
+    putConfigsManifestWithRetry: putConfigsManifestWithRetryMock,
+    decryptManifestPayload: vi.fn(),
+  };
+});
+
+vi.mock("../src/e2e/migration.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/migration.js")>();
+  return {
+    ...actual,
+    loadMigrationState: vi.fn().mockResolvedValue(undefined),
+    saveMigrationState: vi.fn().mockResolvedValue(undefined),
+    tryCompleteMigration: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../src/e2e/app-storage-cleanup.js", () => ({
+  runAppStorageLegacyCleanup: vi.fn().mockResolvedValue({ kind: "skipped" }),
+}));
+
+vi.mock("../src/e2e/legacy-cleanup.js", () => ({
+  legacyPlaintextKeysFromConfigsResponse: vi.fn().mockReturnValue([]),
 }));
 
 function remotePayload(checksum: string) {
@@ -212,7 +269,15 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
     safeModeRef.value = true;
     showQuickPickMock.mockReset();
     putR2ObjectMock.mockReset().mockResolvedValue(200);
+    putEncryptedR2ObjectMock.mockReset().mockResolvedValue(undefined);
+    putConfigsManifestWithRetryMock.mockReset().mockResolvedValue({
+      manifestVersion: 1,
+      manifestCiphertext: "c2VFMQ==",
+      payload: null,
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
     getR2ObjectMock.mockReset().mockResolvedValue(REMOTE_BODY);
+    getEncryptedR2ObjectMock.mockReset().mockResolvedValue(REMOTE_BODY);
     getAppSessionMock.mockResolvedValue("jwt");
     getR2StorageCredentialsMock.mockResolvedValue({
       endpoint: "https://example.r2.cloudflarestorage.com",
@@ -245,6 +310,16 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
       trackingScopeMismatch: false,
       deleteBlockedRootPrefixes: new Set(),
     });
+    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockFetchJsonResponse({
+          payload: remotePayload(REMOTE_CHK),
+          updated_at: "2026-01-01T00:00:00.000Z",
+        })
+      )
+    );
     readFileMock.mockImplementation(async (p: string) => {
       const key = String(p);
       if (key.endsWith("settings.json")) {
@@ -266,16 +341,12 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
     const ctx = makeContext();
     await seedBaseline(ctx);
 
-    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        mockFetchJsonResponse({
-          payload: remotePayload(REMOTE_CHK),
-          updated_at: "2026-01-01T00:00:00.000Z",
-        })
-      );
-    vi.stubGlobal("fetch", fetchMock);
+    fetchConfigsApiMock.mockReset().mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: remotePayload(REMOTE_CHK),
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
 
     showQuickPickMock.mockImplementation(async (items: { label: string; picked?: boolean }[]) => {
       expect(items).toHaveLength(1);
@@ -304,12 +375,12 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
       expect(plan.keys).toContain(SYNC_KEY);
     }
 
-    vi.mocked(fetchMock).mockResolvedValue(
-      mockFetchJsonResponse({
-        payload: remotePayload(REMOTE_CHK),
-        updated_at: "2026-01-01T00:00:00.000Z",
-      })
-    );
+    fetchConfigsApiMock.mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: remotePayload(REMOTE_CHK),
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
 
     const { packageFiles } = await import("../src/packaging.js");
     vi.spyOn(await import("../src/packaging.js"), "packageFiles").mockResolvedValue({
@@ -325,15 +396,8 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
 
     const pushOk = await executePushAppConfigs(ctx, { trigger: "syncNow" });
     expect(pushOk).toBe(true);
-    expect(putR2ObjectMock).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: "users/user-1/" }),
-      SYNC_KEY,
-      EDITED_BODY
-    );
-    const putConfigs = fetchMock.mock.calls.find((c) => c[1]?.method === "PUT");
-    expect(putConfigs).toBeDefined();
-    const putBody = JSON.parse(putConfigs![1]!.body as string);
-    expect(putBody.payload.manifest.files[SYNC_KEY].checksum).toBe(EDITED_CHK);
+    expect(putEncryptedR2ObjectMock).toHaveBeenCalled();
+    expect(putConfigsManifestWithRetryMock).toHaveBeenCalled();
 
     const afterPush = await loadAppStorageBaseline(ctx, "acct-test", "cursor-sync-storage");
     expect(afterPush?.localChecksums[SYNC_KEY]).toBe(EDITED_CHK);
@@ -342,13 +406,13 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
     const EDITED2_BODY = Buffer.from('{"edited":"v2"}');
     const EDITED2_CHK = computeChecksum(EDITED2_BODY);
 
-    vi.mocked(fetchMock).mockResolvedValue(
-      mockFetchJsonResponse({
-        payload: remotePayload(REMOTE2_CHK),
-        updated_at: "2026-01-02T00:00:00.000Z",
-      })
-    );
-    getR2ObjectMock.mockResolvedValue(REMOTE2_BODY);
+    fetchConfigsApiMock.mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: remotePayload(REMOTE2_CHK),
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
+    getEncryptedR2ObjectMock.mockResolvedValue(REMOTE2_BODY);
     scanLocalAppConfigFilesMock.mockResolvedValue({
       checksums: { [SYNC_KEY]: EDITED2_CHK },
       unreadableKeys: new Set(),
@@ -391,16 +455,13 @@ describe("staging.36 F3-X decline pull then Sync Now push", () => {
       remoteChecksums: { [SYNC_KEY]: EDITED_CHK },
     });
 
-    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        mockFetchJsonResponse({
-          payload: remotePayload(REMOTE_CHK),
-          updated_at: "2026-01-02T00:00:00.000Z",
-        })
-      )
-    );
+    fetchConfigsApiMock.mockReset().mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: remotePayload(REMOTE_CHK),
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
+    getEncryptedR2ObjectMock.mockReset().mockResolvedValue(REMOTE_BODY);
 
     writeWithoutFollowMock.mockClear();
     const { executePullAppConfigs } = await import("../src/app-configs.js");

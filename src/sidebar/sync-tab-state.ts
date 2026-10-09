@@ -1,5 +1,5 @@
 import type { SyncHistoryEntry } from "../types.js";
-import type { SyncTabState } from "./sync-tab.js";
+import type { E2eSidebarPhase, SyncTabState } from "./sync-tab.js";
 import {
   activeScheduledRootHeldFingerprint,
   deriveStorageSyncPresentation,
@@ -20,6 +20,9 @@ function latestAttemptForDestination(
 export function buildSyncTabStateFromInputs(input: {
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
+  appSessionExpired?: boolean;
+  e2ePhase?: E2eSidebarPhase;
+  keysStatusMessage?: string;
   syncState?: {
     lastSyncTimestamp: string;
     lastSyncDirection: "push" | "pull";
@@ -36,6 +39,9 @@ export function buildSyncTabStateFromInputs(input: {
   const base = {
     history,
     appSessionActive,
+    appSessionExpired: input.appSessionExpired ?? false,
+    e2ePhase: input.e2ePhase ?? "no_app_session",
+    ...(input.keysStatusMessage ? { keysStatusMessage: input.keysStatusMessage } : {}),
   };
 
   if (isSyncOperationActive) {

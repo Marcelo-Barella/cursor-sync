@@ -2,12 +2,12 @@ import * as vscode from "vscode";
 import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
-import { packageFiles, computeChecksum } from "./packaging.js";
+import { packageFiles } from "./packaging.js";
 import { GistClient } from "./gist.js";
-import { requireToken, validateStoredToken } from "./auth.js";
+import { getToken, requireToken, validateStoredToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
-import { detectConflicts, clearConflicts, getPendingConflicts, getResolutionForKey } from "./conflicts.js";
+import { detectConflicts, clearConflicts, getResolutionForKey } from "./conflicts.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
@@ -28,6 +28,11 @@ import {
   formatPushSuccessToast,
   SYNC_DESTINATION_GIST_LABEL,
 } from "./sync-destination.js";
+import { requireE2eUnlocked } from "./e2e/gate.js";
+import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
+import { encryptedGistFileNamesForLogical } from "./e2e/gist-read.js";
+import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
+import { assertPlaintextGistWriteAllowed } from "./e2e/gist-plaintext-guard.js";
 
 export type PushTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
@@ -93,12 +98,34 @@ async function doPush(
   trigger: PushTrigger = "manual"
 ): Promise<boolean> {
   const logger = getLogger();
+
+  const e2e = await requireE2eUnlocked(context, { gistSync: true });
+  if (!e2e.ok) {
+    void showSyncFailureWithDebug(
+      context,
+      buildSyncDebugFailure("push", trigger, e2e.message, {
+        direction: "push",
+        category: "AUTH_FAILED",
+      }),
+      { title: e2e.message }
+    );
+    return false;
+  }
+
   logger.appendLine(`[${new Date().toISOString()}] Push started`);
 
   const authFailedMessage =
     "GitHub token not configured. Configure your token to sync.";
 
-  if (!(await validateStoredToken(context))) {
+  if (trigger === "scheduled") {
+    const scheduledToken = await getToken(context);
+    if (!scheduledToken) {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Push skipped: no GitHub token (scheduled)`
+      );
+      return true;
+    }
+  } else if (!(await validateStoredToken(context))) {
     const token = await requireToken(context);
     if (!token) {
       void showSyncFailureWithDebug(
@@ -115,8 +142,15 @@ async function doPush(
     }
   }
 
-  const token = await requireToken(context);
+  const token =
+    trigger === "scheduled" ? await getToken(context) : await requireToken(context);
   if (!token) {
+    if (trigger === "scheduled") {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Push skipped: no GitHub token (scheduled)`
+      );
+      return true;
+    }
     void showSyncFailureWithDebug(
       context,
       buildSyncDebugFailure("push", trigger, authFailedMessage, {
@@ -131,7 +165,7 @@ async function doPush(
   }
 
   const client = new GistClient(token);
-  const syncState = await loadSyncState(context);
+  let syncState = await loadSyncState(context);
 
   if (syncState) {
     const remoteChecksums = syncState.remoteChecksums;
@@ -170,25 +204,57 @@ async function doPush(
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(files, profileName);
 
-  const gistFiles: Record<string, { content: string }> = {};
-  gistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
+  const logicalGistFiles: Record<string, { content: string }> = {};
+  logicalGistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
 
   for (const [key, value] of packaged) {
     const gistFileName = syncKeyToGistFileName(key);
-    gistFiles[gistFileName] = { content: value.content };
+    logicalGistFiles[gistFileName] = { content: value.content };
+  }
+
+  const usePlaintextGist = e2e.kind === "gist_plaintext";
+  if (usePlaintextGist) {
+    const guard = await assertPlaintextGistWriteAllowed(client, syncState?.gistId, context);
+    if (!guard.ok) {
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("push", trigger, guard.message, {
+          direction: "push",
+          category: "AUTH_FAILED",
+        }),
+        { title: guard.message }
+      );
+      return false;
+    }
+    syncState = await loadSyncState(context);
+  }
+  let gistFiles: Record<string, { content: string }>;
+  if (usePlaintextGist) {
+    gistFiles = logicalGistFiles;
+  } else if (e2e.kind === "dek") {
+    gistFiles = wrapGistFilesForUpload(
+      e2e.dek,
+      e2e.userId,
+      e2e.keyVersion,
+      logicalGistFiles
+    );
+  } else {
+    return false;
   }
 
   let gistId = syncState?.gistId;
   let isNewGist = false;
 
-  if (!gistId) {
-    const existingResult = await withRetry(() => client.findExistingGist());
-    if (existingResult.ok && existingResult.data) {
-      gistId = existingResult.data.id;
+  const clearStoredGistId = async (): Promise<void> => {
+    const latest = await loadSyncState(context);
+    if (!latest?.gistId) {
+      return;
     }
-  }
+    await saveSyncState(context, { ...latest, gistId: "" });
+    syncState = await loadSyncState(context);
+  };
 
-  if (!gistId) {
+  const createGistOnPush = async (): Promise<string | undefined> => {
     const result = await withRetry(() =>
       client.createGist(gistFiles, "Cursor Sync - Settings Backup")
     );
@@ -220,19 +286,59 @@ async function doPush(
         trigger,
         status_code: result.error.statusCode,
       });
-      return false;
+      return undefined;
     }
-    gistId = result.data.id;
-    isNewGist = true;
-  } else {
+    return result.data.id;
+  };
+
+  if (!gistId) {
+    const existingResult = await withRetry(() => client.findExistingGist());
+    if (existingResult.ok && existingResult.data) {
+      gistId = existingResult.data.id;
+    }
+  }
+
+  while (true) {
+    if (!gistId) {
+      const createdId = await createGistOnPush();
+      if (!createdId) {
+        return false;
+      }
+      gistId = createdId;
+      isNewGist = true;
+      break;
+    }
+
     const existingResult = await withRetry(() => client.getGist(gistId!));
+    if (!existingResult.ok && existingResult.error.statusCode === 404) {
+      await clearStoredGistId();
+      gistId = undefined;
+      continue;
+    }
+
     let filesToDelete: Record<string, null> = {};
-    if (existingResult.ok) {
-      const existingFiles = Object.keys(existingResult.data.files);
-      for (const existing of existingFiles) {
-        if (existing !== "manifest.json" && !gistFiles[existing]) {
-          filesToDelete[existing] = null;
+    if (existingResult.ok && !usePlaintextGist && e2e.kind === "dek") {
+      const encNames = encryptedGistFileNamesForLogical(
+        e2e.dek,
+        Object.keys(logicalGistFiles)
+      );
+      const migration = await loadMigrationState(context);
+      const completedGist = new Set(migration?.completedPlaintextGistFiles ?? []);
+      for (const existing of Object.keys(existingResult.data.files)) {
+        if (encNames.has(existing) || gistFiles[existing]) {
+          continue;
         }
+        filesToDelete[existing] = null;
+        if (migration && migration.phase !== "completed" && !completedGist.has(existing)) {
+          completedGist.add(existing);
+        }
+      }
+      if (migration && migration.phase !== "completed") {
+        await saveMigrationState(context, {
+          ...migration,
+          completedPlaintextGistFiles: [...completedGist],
+          phase: "in_progress",
+        });
       }
     }
 
@@ -244,6 +350,11 @@ async function doPush(
     const result = await withRetry(() =>
       client.updateGist(gistId!, updatePayload)
     );
+    if (!result.ok && result.error.statusCode === 404 && !usePlaintextGist) {
+      await clearStoredGistId();
+      gistId = undefined;
+      continue;
+    }
     if (!result.ok) {
       void showSyncFailureWithDebug(
         context,
@@ -274,6 +385,7 @@ async function doPush(
       });
       return false;
     }
+    break;
   }
 
   const checksums: Record<string, string> = {};
@@ -312,6 +424,7 @@ async function doPush(
   logger.appendLine(
     `[${new Date().toISOString()}] Push succeeded: ${fileCount} files`
   );
+  await tryCompleteMigration(context, "gist");
   return true;
 }
 

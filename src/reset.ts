@@ -2,6 +2,10 @@ import * as vscode from "vscode";
 import { clearAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
 import { clearAllAppStorageBaselines } from "./app-storage-baseline.js";
 import { clearToken } from "./auth.js";
+import { clearAllStoredDeks } from "./e2e/dek-storage.js";
+import { onAppSessionCleared, refreshE2eGateAfterCryptoChange } from "./e2e/gate.js";
+import { clearMigrationState } from "./e2e/migration.js";
+import { clearStrayPlaintextCheckState } from "./e2e/app-storage-cleanup.js";
 import { clearSyncState } from "./diagnostics.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
@@ -21,6 +25,10 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
   resetSyncOperation();
 
   await clearToken(context);
+  await clearAllStoredDeks(context);
+  await clearMigrationState(context);
+  await clearStrayPlaintextCheckState(context);
+  onAppSessionCleared(context);
   await clearAppSession(context);
   await clearPersistedAuthHandoff(context);
 
@@ -54,6 +62,7 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   // Update UI Context
   await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
+  await refreshE2eGateAfterCryptoChange(context);
   await refreshSyncStatusBar(context);
   refreshSidebar();
 

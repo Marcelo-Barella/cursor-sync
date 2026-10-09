@@ -11,6 +11,23 @@ export const LOCAL_WEBSITE_URL = "http://localhost:3000";
 
 export const DEFAULT_DEVELOPER_ENVIRONMENT = "staging" as const;
 
+export const INVALID_APP_API_URL_MESSAGE = "Invalid Cursor Sync API URL in settings.";
+export const INVALID_APP_WEBSITE_URL_MESSAGE = "Invalid Cursor Sync website URL in settings.";
+
+export class InvalidAppApiUrlError extends Error {
+  constructor() {
+    super(INVALID_APP_API_URL_MESSAGE);
+    this.name = "InvalidAppApiUrlError";
+  }
+}
+
+export class InvalidAppWebsiteUrlError extends Error {
+  constructor() {
+    super(INVALID_APP_WEBSITE_URL_MESSAGE);
+    this.name = "InvalidAppWebsiteUrlError";
+  }
+}
+
 export const LEGACY_APP_API_URL_KEY = "appApiUrl";
 export const DEVELOPER_API_URL_KEY = "developer.apiUrl";
 export const DEVELOPER_WEBSITE_URL_KEY = "developer.websiteUrl";
@@ -159,11 +176,22 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
   if (inputs.environment === "custom") {
     const raw =
       inputs.explicitApiUrl !== undefined ? inputs.explicitApiUrl : inputs.legacyApiUrl;
-    const { url, usedFallback } = normalizeHttpUrl(raw, DEFAULT_PRODUCTION_API_URL);
-    if (usedFallback && raw !== undefined) {
-      warnInvalidApi(raw, DEFAULT_PRODUCTION_API_URL);
+    const trimmed = (raw ?? "").trim();
+    if (!trimmed) {
+      throw new InvalidAppApiUrlError();
     }
-    return url;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new InvalidAppApiUrlError();
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new InvalidAppApiUrlError();
+    }
+    const path = parsed.pathname.replace(/\/+$/, "");
+    const normalized = `${parsed.protocol}//${parsed.host}${path}${parsed.search}${parsed.hash}`;
+    return stripTrailingSlash(normalized);
   }
 
   return DEFAULT_PRODUCTION_API_URL;
@@ -179,14 +207,22 @@ export function resolveAppWebsiteUrlFromInputs(inputs: UrlResolutionInputs): str
   }
 
   if (inputs.environment === "custom") {
-    const { url, usedFallback } = normalizeHttpUrl(
-      inputs.explicitWebsiteUrl,
-      DEFAULT_PRODUCTION_WEBSITE_URL
-    );
-    if (usedFallback && inputs.explicitWebsiteUrl !== undefined) {
-      warnInvalidWebsite(inputs.explicitWebsiteUrl, DEFAULT_PRODUCTION_WEBSITE_URL);
+    const trimmed = (inputs.explicitWebsiteUrl ?? "").trim();
+    if (!trimmed) {
+      throw new InvalidAppWebsiteUrlError();
     }
-    return url;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new InvalidAppWebsiteUrlError();
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new InvalidAppWebsiteUrlError();
+    }
+    const pathPart = parsed.pathname.replace(/\/+$/, "");
+    const normalized = `${parsed.protocol}//${parsed.host}${pathPart}${parsed.search}${parsed.hash}`;
+    return stripTrailingSlash(normalized);
   }
 
   return DEFAULT_PRODUCTION_WEBSITE_URL;

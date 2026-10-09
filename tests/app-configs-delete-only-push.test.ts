@@ -7,23 +7,29 @@ const showInformationMessageMock = vi.fn();
 const showQuickPickMock = vi.fn();
 const addSyncHistoryEntryMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
-vi.mock("vscode", () => ({
-  workspace: {
-    getConfiguration: () => ({
-      get: <T>(key: string, defaultValue?: T) => {
-        if (key === "safeMode") {
-          return false as T;
-        }
-        return defaultValue;
-      },
-    }),
-  },
-  window: {
-    showErrorMessage: showErrorMessageMock,
-    showInformationMessage: showInformationMessageMock,
-    showQuickPick: showQuickPickMock,
-  },
-}));
+vi.mock("vscode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("vscode")>();
+  return {
+    ...actual,
+    workspace: {
+      ...actual.workspace,
+      getConfiguration: () => ({
+        get: <T>(key: string, defaultValue?: T) => {
+          if (key === "safeMode") {
+            return false as T;
+          }
+          return defaultValue;
+        },
+      }),
+    },
+    window: {
+      ...actual.window,
+      showErrorMessage: showErrorMessageMock,
+      showInformationMessage: showInformationMessageMock,
+      showQuickPick: showQuickPickMock,
+    },
+  };
+});
 
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({ appendLine: appendLineMock, show: vi.fn() }),
@@ -121,6 +127,9 @@ const getAppSessionMock = vi.hoisted(() => vi.fn());
 const getR2StorageCredentialsMock = vi.hoisted(() => vi.fn());
 const putR2ObjectMock = vi.hoisted(() => vi.fn());
 const deleteR2ObjectMock = vi.hoisted(() => vi.fn());
+const putEncryptedR2ObjectMock = vi.hoisted(() => vi.fn());
+const putConfigsManifestWithRetryMock = vi.hoisted(() => vi.fn());
+const fetchConfigsApiMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
@@ -135,6 +144,52 @@ vi.mock("../src/app-r2-storage.js", () => ({
   putR2Object: putR2ObjectMock,
   getR2Object: vi.fn(),
   deleteR2Object: deleteR2ObjectMock,
+}));
+
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 2),
+    }),
+  };
+});
+
+vi.mock("../src/e2e/r2-storage.js", () => ({
+  putEncryptedR2Object: putEncryptedR2ObjectMock,
+  getEncryptedR2Object: vi.fn(),
+}));
+
+vi.mock("../src/e2e/configs-sync.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/configs-sync.js")>();
+  return {
+    ...actual,
+    fetchConfigsApi: fetchConfigsApiMock,
+    putConfigsManifestWithRetry: putConfigsManifestWithRetryMock,
+  };
+});
+
+vi.mock("../src/e2e/migration.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/migration.js")>();
+  return {
+    ...actual,
+    loadMigrationState: vi.fn().mockResolvedValue(undefined),
+    saveMigrationState: vi.fn().mockResolvedValue(undefined),
+    tryCompleteMigration: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../src/e2e/app-storage-cleanup.js", () => ({
+  runAppStorageLegacyCleanup: vi.fn().mockResolvedValue({ kind: "skipped" }),
+}));
+
+vi.mock("../src/e2e/legacy-cleanup.js", () => ({
+  legacyPlaintextKeysFromConfigsResponse: vi.fn().mockReturnValue([]),
 }));
 
 function makeContext(): vscode.ExtensionContext {
@@ -161,6 +216,39 @@ describe("delete-only push", () => {
     });
     deleteR2ObjectMock.mockResolvedValue(204);
     putR2ObjectMock.mockResolvedValue(200);
+    putEncryptedR2ObjectMock.mockReset().mockResolvedValue(undefined);
+    putConfigsManifestWithRetryMock.mockReset().mockResolvedValue({
+      manifestVersion: 1,
+      manifestCiphertext: "c2VFMQ==",
+      payload: null,
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
+    const remotePayload = {
+      schemaVersion: 1,
+      manifest: {
+        schemaVersion: 1,
+        syncProfileName: "default",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        sourceMachineId: "m",
+        sourceOS: "linux",
+        files: {
+          "dot-cursor/removed.md": { checksum: "was", sizeBytes: 1 },
+        },
+      },
+      files: {
+        "dot-cursor/removed.md": {
+          checksum: "was",
+          sizeBytes: 1,
+          content: "x",
+        },
+      },
+    };
+    fetchConfigsApiMock.mockReset().mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: remotePayload,
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
     const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
     vi.stubGlobal(
       "fetch",

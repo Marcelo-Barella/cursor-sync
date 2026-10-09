@@ -11,6 +11,14 @@ const executePushMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const executePullMock = vi.hoisted(() => vi.fn().mockResolvedValue({ status: "success" }));
 const isSyncOperationActiveMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const getAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const requireE2eUnlockedMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    ok: true,
+    userId: "user-1",
+    keyVersion: 1,
+    dek: Buffer.alloc(32, 1),
+  })
+);
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
 vi.mock("node:fs/promises", () => ({
@@ -50,6 +58,10 @@ vi.mock("../src/sync-operation.js", async (importOriginal) => {
     isSyncOperationActive: isSyncOperationActiveMock,
   };
 });
+
+vi.mock("../src/e2e/gate.js", () => ({
+  requireE2eUnlocked: requireE2eUnlockedMock,
+}));
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
@@ -591,6 +603,13 @@ describe("scheduled sync debug wiring", () => {
     executePullMock.mockReset().mockResolvedValue({ status: "success" });
     isSyncOperationActiveMock.mockReset().mockReturnValue(false);
     getAppSessionMock.mockReset().mockResolvedValue(undefined);
+    requireE2eUnlockedMock.mockReset().mockResolvedValue({
+      kind: "dek",
+      ok: true,
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 1),
+    });
 
     const diagnostics = await import("../src/diagnostics.js");
     vi.spyOn(diagnostics, "getLogger").mockReturnValue({

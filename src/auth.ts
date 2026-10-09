@@ -93,13 +93,18 @@ export async function getToken(
 }
 
 export async function requireToken(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { silent?: boolean }
 ): Promise<string | undefined> {
   const token = await getToken(context);
   if (!token) {
+    if (options?.silent) {
+      return undefined;
+    }
     const action = await vscode.window.showWarningMessage(
       "GitHub token not configured. Configure now?",
-      "Configure"
+      "Configure",
+      "Cancel"
     );
     if (action === "Configure") {
       await configureGithub(context);
@@ -128,11 +133,13 @@ export async function validateStoredToken(
   const result = await withRetry(() => client.validateToken());
 
   if (!result.ok) {
-    vscode.window.showErrorMessage(
-      "Stored GitHub token is no longer valid. Please reconfigure."
-    );
-    await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
-    updateStatusBar("unconfigured");
+    if (result.error.category === "AUTH_FAILED") {
+      vscode.window.showErrorMessage(
+        "Stored GitHub token is no longer valid. Please reconfigure."
+      );
+      await vscode.commands.executeCommand("setContext", "cursorSync.configured", false);
+      updateStatusBar("unconfigured");
+    }
     return false;
   }
 

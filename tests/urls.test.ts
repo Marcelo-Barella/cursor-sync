@@ -13,6 +13,10 @@ import {
   normalizeHttpUrl,
   resolveAppApiUrlFromInputs,
   resolveAppWebsiteUrlFromInputs,
+  INVALID_APP_API_URL_MESSAGE,
+  INVALID_APP_WEBSITE_URL_MESSAGE,
+  InvalidAppApiUrlError,
+  InvalidAppWebsiteUrlError,
   type UrlResolutionInputs,
 } from "../src/config/urls.js";
 
@@ -92,6 +96,17 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     ).toBe("https://custom.api.example");
   });
 
+  it("allows legacy bergamota staging hosts via custom preset", () => {
+    expect(
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitApiUrl: "https://api-staging-sync.bergamota.dev",
+        })
+      )
+    ).toBe("https://api-staging-sync.bergamota.dev");
+  });
+
   it("ignores legacy appApiUrl when environment preset is production", () => {
     expect(
       resolveAppApiUrlFromInputs(
@@ -136,17 +151,27 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     ).toBe("https://new.api.example");
   });
 
-  it("falls back to production default for invalid custom API URL", async () => {
-    const { resolveAppApiUrlFromInputs: resolve } = await import("../src/config/urls.js");
-    expect(
-      resolve(
+  it("throws for invalid custom API URL instead of falling back to production", () => {
+    expect(() =>
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitApiUrl: "http://exa mple",
+        })
+      )
+    ).toThrow(InvalidAppApiUrlError);
+    expect(showWarningMessageMock).not.toHaveBeenCalled();
+    try {
+      resolveAppApiUrlFromInputs(
         inputs({
           environment: "custom",
           explicitApiUrl: "not-a-url",
         })
-      )
-    ).toBe(DEFAULT_PRODUCTION_API_URL);
-    expect(showWarningMessageMock).toHaveBeenCalled();
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidAppApiUrlError);
+      expect((err as Error).message).toBe(INVALID_APP_API_URL_MESSAGE);
+    }
   });
 });
 
@@ -176,6 +201,28 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
         })
       )
     ).toBe("https://custom.web.example");
+  });
+
+  it("throws for invalid custom website URL instead of falling back to production", () => {
+    expect(() =>
+      resolveAppWebsiteUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitWebsiteUrl: "http://exa mple",
+        })
+      )
+    ).toThrow(InvalidAppWebsiteUrlError);
+    try {
+      resolveAppWebsiteUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitWebsiteUrl: "not-a-url",
+        })
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidAppWebsiteUrlError);
+      expect((err as Error).message).toBe(INVALID_APP_WEBSITE_URL_MESSAGE);
+    }
   });
 });
 

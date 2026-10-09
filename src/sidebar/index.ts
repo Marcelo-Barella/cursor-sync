@@ -32,7 +32,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.onDidReceiveMessage((message: SidebarMessage) => {
-      void dispatchSidebarMessage(this.context, webviewView.webview, message);
+      void dispatchSidebarMessage(this.context, webviewView.webview, message).catch(
+        (err: unknown) => {
+          const text = err instanceof Error ? err.message : String(err);
+          void vscode.window.showErrorMessage(`Sidebar action failed: ${text}`);
+        }
+      );
     });
     this._progressSub = onChatImportProgress((event) => {
       void webviewView.webview.postMessage({ type: "chats:progress", event });

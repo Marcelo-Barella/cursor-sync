@@ -55,6 +55,19 @@ vi.mock("../src/scheduler.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/scheduler.js")>();
   return { ...actual, determineSyncAction: vi.fn() };
 });
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 1),
+    }),
+  };
+});
 
 describe("staging.36 held/partial routing", () => {
   beforeEach(() => {

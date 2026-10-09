@@ -4,18 +4,24 @@ import type * as vscode from "vscode";
 const addSyncHistoryEntryMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const showWarningMessageMock = vi.hoisted(() => vi.fn());
 
-vi.mock("vscode", () => ({
-  workspace: {
-    getConfiguration: () => ({
-      get: <T>(key: string, defaultValue?: T) => defaultValue,
-    }),
-  },
-  window: {
-    showWarningMessage: showWarningMessageMock,
-    showInformationMessage: vi.fn(),
-    showErrorMessage: vi.fn(),
-  },
-}));
+vi.mock("vscode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("vscode")>();
+  return {
+    ...actual,
+    workspace: {
+      ...actual.workspace,
+      getConfiguration: () => ({
+        get: <T>(key: string, defaultValue?: T) => defaultValue,
+      }),
+    },
+    window: {
+      ...actual.window,
+      showWarningMessage: showWarningMessageMock,
+      showInformationMessage: vi.fn(),
+      showErrorMessage: vi.fn(),
+    },
+  };
+});
 
 vi.mock("../src/diagnostics.js", () => ({
   getLogger: () => ({ appendLine: vi.fn(), show: vi.fn() }),
@@ -33,6 +39,36 @@ vi.mock("../src/config/urls.js", () => ({
 vi.mock("../src/app-r2-storage.js", () => ({
   getR2StorageCredentials: vi.fn().mockResolvedValue({ prefix: "users/u/" }),
   getR2Object: vi.fn(),
+}));
+
+const fetchConfigsApiMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../src/e2e/gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();
+  return {
+    ...actual,
+    requireE2eUnlocked: vi.fn().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "user-1",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 2),
+    }),
+  };
+});
+
+vi.mock("../src/e2e/configs-sync.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/e2e/configs-sync.js")>();
+  return {
+    ...actual,
+    fetchConfigsApi: fetchConfigsApiMock,
+    decryptManifestPayload: vi.fn(),
+  };
+});
+
+vi.mock("../src/e2e/r2-storage.js", () => ({
+  getEncryptedR2Object: vi.fn(),
+  putEncryptedR2Object: vi.fn(),
 }));
 
 vi.mock("../src/app-storage-baseline.js", async (importOriginal) => {
@@ -122,31 +158,27 @@ describe("M6 scheduled pull root held", () => {
     vi.resetModules();
     addSyncHistoryEntryMock.mockClear();
     showWarningMessageMock.mockClear();
-    const { mockFetchJsonResponse } = await import("./mock-fetch-json.js");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        mockFetchJsonResponse({
-          payload: {
-            schemaVersion: 1,
-            manifest: {
-              schemaVersion: 1,
-              syncProfileName: "default",
-              createdAt: "2026-01-01T00:00:00.000Z",
-              sourceMachineId: "m",
-              sourceOS: "linux",
-              files: {
-                "dot-cursor/a.md": { checksum: "remote", sizeBytes: 1 },
-              },
-            },
-            files: {
-              "dot-cursor/a.md": { checksum: "remote", sizeBytes: 1, content: "hi" },
-            },
+    fetchConfigsApiMock.mockReset().mockResolvedValue({
+      manifestVersion: 0,
+      manifestCiphertext: null,
+      payload: {
+        schemaVersion: 1,
+        manifest: {
+          schemaVersion: 1,
+          syncProfileName: "default",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          sourceMachineId: "m",
+          sourceOS: "linux",
+          files: {
+            "dot-cursor/a.md": { checksum: "remote", sizeBytes: 1 },
           },
-          updated_at: "2026-01-02T00:00:00.000Z",
-        })
-      )
-    );
+        },
+        files: {
+          "dot-cursor/a.md": { checksum: "remote", sizeBytes: 1, content: "hi" },
+        },
+      },
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
   });
 
   afterEach(() => {

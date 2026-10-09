@@ -10,6 +10,20 @@ const showSyncFailureWithDebugMock = vi.hoisted(() =>
 
 const determineSyncActionMock = vi.hoisted(() => vi.fn());
 
+const requireE2eUnlockedMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    ok: true,
+    kind: "dek",
+    userId: "test-user",
+    keyVersion: 1,
+    dek: Buffer.alloc(32, 7),
+  })
+);
+
+vi.mock("../src/e2e/gate.js", () => ({
+  requireE2eUnlocked: requireE2eUnlockedMock,
+}));
+
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
 vi.mock("../src/sync-debug.js", async (importOriginal) => {
@@ -74,6 +88,13 @@ describe.sequential("push/pull debug wiring", () => {
 
   beforeEach(async () => {
     showSyncFailureWithDebugMock.mockClear();
+    requireE2eUnlockedMock.mockReset().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "test-user",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 7),
+    });
 
     const vscode = await import("vscode");
     vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({
@@ -361,6 +382,13 @@ describe.sequential("sync now debug wiring", () => {
     showSyncFailureWithDebugMock.mockClear();
     determineSyncActionMock.mockReset();
     hasAppSessionMock.mockReset().mockResolvedValue(false);
+    requireE2eUnlockedMock.mockReset().mockResolvedValue({
+      ok: true,
+      kind: "dek",
+      userId: "test-user",
+      keyVersion: 1,
+      dek: Buffer.alloc(32, 7),
+    });
 
     const vscode = await import("vscode");
     vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({

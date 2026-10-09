@@ -6,10 +6,12 @@ import { GistClient } from "./gist.js";
 import { getToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { getLogger } from "./diagnostics.js";
-import { resolveSyncRoots, gistFileNameToSyncKey } from "./paths.js";
+import { resolveSyncRoots, syncKeyToGistFileName } from "./paths.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { Manifest } from "./types.js";
+import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
+import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 export async function executeImport(context: vscode.ExtensionContext): Promise<void> {
   const logger = getLogger();
@@ -55,20 +57,42 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
   }
 
   const gistData = gistResult.data;
-  const manifestFile = gistData.files["manifest.json"];
-  if (!manifestFile) {
-    const message =
-      gistData.files[TRANSCRIPT_MANIFEST_FILE_NAME] !== undefined
-        ? "Import failed: This Gist contains agent transcripts, not settings. Use the command Cursor Sync: Import Agent Transcripts from Private Gist."
-        : "Import failed: manifest.json not found in Gist.";
-    vscode.window.showErrorMessage(message);
-    logger.appendLine(`[${new Date().toISOString()}] Import failed: missing manifest`);
-    return;
+  const e2eMarker = tryReadGistE2eMarker(gistData.files);
+  let e2eRead:
+    | { dek: Buffer; userId: string; keyVersion: number }
+    | undefined;
+
+  if (e2eMarker) {
+    const access = await assertCanReadE2eGist(context, gistData.files);
+    if (!access.ok) {
+      vscode.window.showErrorMessage(access.message);
+      logger.appendLine(`[${new Date().toISOString()}] Import failed: ${access.message}`);
+      return;
+    }
+    e2eRead = access;
   }
 
   let manifest: Manifest;
   try {
-    manifest = JSON.parse(manifestFile.content) as Manifest;
+    const manifestJson = e2eRead
+      ? readLogicalFileFromGistMap(
+          e2eRead.dek,
+          e2eRead.userId,
+          e2eRead.keyVersion,
+          gistData.files,
+          "manifest.json"
+        )
+      : gistData.files["manifest.json"]?.content;
+    if (!manifestJson) {
+      const message =
+        gistData.files[TRANSCRIPT_MANIFEST_FILE_NAME] !== undefined
+          ? "Import failed: This Gist contains agent transcripts, not settings. Use the command Cursor Sync: Import Agent Transcripts from Private Gist."
+          : "Import failed: manifest.json not found in Gist.";
+      vscode.window.showErrorMessage(message);
+      logger.appendLine(`[${new Date().toISOString()}] Import failed: missing manifest`);
+      return;
+    }
+    manifest = JSON.parse(manifestJson) as Manifest;
   } catch {
     vscode.window.showErrorMessage("Import failed: invalid manifest.json.");
     logger.appendLine(`[${new Date().toISOString()}] Import failed: invalid manifest`);
@@ -78,14 +102,22 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
   const roots = resolveSyncRoots(nodePlatform(), context);
   const availableFiles: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
-  for (const [gistFileName, gistFile] of Object.entries(gistData.files)) {
-    if (gistFileName === "manifest.json") {
-      continue;
+  for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
+    const logicalGistName = syncKeyToGistFileName(syncKey);
+    let fileText: string | undefined;
+    if (e2eRead) {
+      fileText = readLogicalFileFromGistMap(
+        e2eRead.dek,
+        e2eRead.userId,
+        e2eRead.keyVersion,
+        gistData.files,
+        logicalGistName
+      );
+    } else {
+      const gistFile = gistData.files[logicalGistName];
+      fileText = gistFile?.content;
     }
-
-    const syncKey = gistFileNameToSyncKey(gistFileName);
-    const manifestEntry = manifest.files[syncKey];
-    if (!manifestEntry) {
+    if (fileText === undefined) {
       continue;
     }
 
@@ -96,8 +128,8 @@ export async function executeImport(context: vscode.ExtensionContext): Promise<v
 
     const content =
       manifestEntry.encoding === "base64"
-        ? Buffer.from(gistFile.content, "base64")
-        : Buffer.from(gistFile.content, "utf-8");
+        ? Buffer.from(fileText, "base64")
+        : Buffer.from(fileText, "utf-8");
 
     availableFiles.push({ absolutePath, syncKey, content });
   }

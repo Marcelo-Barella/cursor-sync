@@ -30,6 +30,8 @@ import type {
   ExportConversationState,
   ExportProjectAccumulator,
 } from "./transcripts-internal-types.js";
+import { isE2eDekUnlocked, requireE2eUnlocked } from "./e2e/gate.js";
+import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 
 export async function executeExportTranscripts(
   context: vscode.ExtensionContext
@@ -51,6 +53,12 @@ export async function executeExportTranscripts(
 
   const token = await requireToken(context);
   if (!token) return;
+
+  const e2e = await requireE2eUnlocked(context);
+  if (!isE2eDekUnlocked(e2e)) {
+    vscode.window.showWarningMessage(e2e.ok ? "Unlock sync encryption first." : e2e.message);
+    return;
+  }
 
   const maxFileSizeKB = config.get<number>("transcripts.maxFileSizeKB") ?? 2048;
   const maxBytes = maxFileSizeKB * 1024;
@@ -132,7 +140,16 @@ export async function executeExportTranscripts(
   );
   if (confirm !== "Export") return;
 
-  const { gistFiles } = await buildExportBundleV2(selectedPlans, selectedProjects);
+  const { gistFiles: logicalGistFiles } = await buildExportBundleV2(
+    selectedPlans,
+    selectedProjects
+  );
+  const gistFiles = wrapGistFilesForUpload(
+    e2e.dek,
+    e2e.userId,
+    e2e.keyVersion,
+    logicalGistFiles
+  );
 
   const client = new GistClient(token);
 
@@ -159,7 +176,7 @@ export async function executeExportTranscripts(
       logger.appendLine(`[${new Date().toISOString()}] Transcript export succeeded: ${gistUrl}`);
 
       const action = await vscode.window.showInformationMessage(
-        `Transcript export successful! Private Gist: ${gistUrl}. Anyone with the link can open it.`,
+        `Transcript export successful! Private Gist: ${gistUrl}. Content is encrypted; unlock Cursor Sync to decrypt.`,
         "Copy URL"
       );
       if (action === "Copy URL") {

@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
+import { isAppSessionExpired } from "../app-auth.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
 import { isSyncOperationActive } from "../sync-operation.js";
-import type { SyncTabState } from "./sync-tab.js";
+import type { E2eSidebarPhase, SyncTabState } from "./sync-tab.js";
+import { resolveE2eGateSnapshot } from "../e2e/gate.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { buildSyncTabStateFromInputs } from "./sync-tab-state.js";
 import { activeScheduledRootHeldFingerprint } from "../storage-sync-ui-status.js";
@@ -16,10 +18,27 @@ export async function buildSyncTabState(
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
+  const appSessionExpired = isAppSessionExpired(context);
+  const gate = await resolveE2eGateSnapshot(context);
+  const e2ePhase: E2eSidebarPhase =
+    gate.phase === "unlocked"
+      ? "unlocked"
+      : gate.phase === "locked"
+        ? "locked"
+        : gate.phase === "keys_not_set"
+          ? "needs_setup"
+          : gate.phase === "email_not_verified"
+            ? "email_not_verified"
+            : gate.phase === "keys_unavailable"
+              ? "keys_unavailable"
+              : "no_app_session";
 
   return buildSyncTabStateFromInputs({
     history,
     appSessionActive,
+    appSessionExpired,
+    e2ePhase,
+    ...(gate.keysStatusMessage ? { keysStatusMessage: gate.keysStatusMessage } : {}),
     syncState,
     isSyncOperationActive: isSyncOperationActive(),
     activeHeldFingerprint: activeScheduledRootHeldFingerprint(context),
@@ -245,6 +264,19 @@ export async function renderSidebarHtml(
       transform: translateY(0);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
       filter: brightness(0.95);
+    }
+    .sync-now-btn:disabled,
+    .sync-now-btn.is-disabled,
+    .action-btn:disabled,
+    .action-btn.is-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+      filter: grayscale(0.35);
+    }
+    .account-status-expired .codicon-warning {
+      color: #f59e0b;
+      margin-right: 6px;
     }
 
     /* ── Section Headers ── */
