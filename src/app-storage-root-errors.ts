@@ -1,4 +1,3 @@
-/** User-facing text for sync root ensure failures; raw message stays in logs. */
 export function formatSyncRootEnsureUserMessage(raw: string): string {
   const codeMatch = /\b(EEXIST|EACCES|EPERM|ENOTDIR|EROFS|ENOSPC)\b/.exec(raw);
   const code = codeMatch?.[1];

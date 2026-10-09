@@ -32,15 +32,10 @@ export interface LocalConfigFileScan {
   checksums: Record<string, string>;
   /** @deprecated use skippedUnknownKeys */
   unreadableKeys: Set<string>;
-  /** Tracked keys excluded by sync profile globs */
   excludedKeys?: Set<string>;
-  /** Tracked keys over max file size */
   oversizeKeys?: Set<string>;
-  /** Local path is a symlink (or non-file) */
   symlinkKeys?: Set<string>;
-  /** File lies under a symlinked directory (file itself is not a symlink) */
   underSymlinkedDirKeys?: Set<string>;
-  /** Label for underSymlinkedDirKeys entries (relative symlink dir path) */
   symlinkedFolderLabels?: Record<string, string>;
   enoentKeys: Set<string>;
   provablyAbsentKeys: Set<string>;
@@ -364,7 +359,6 @@ export function localFileMissingFromBaseline(
   return scan.provablyAbsentKeys.has(key);
 }
 
-/** True when sync roots are present, writable, and not blocked for scheduled held recovery. */
 export async function appStorageSyncRootsHealthyForHeldRecovery(
   context: vscode.ExtensionContext
 ): Promise<boolean> {

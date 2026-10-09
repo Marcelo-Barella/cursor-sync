@@ -51,7 +51,6 @@ function isAsciiWhitespace(ch: string): boolean {
   return ch === " " || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r";
 }
 
-/** SQLite manifest SQL is ASCII outside single-quoted string literals. */
 function rejectNonAsciiOrFormatOutsideSingleQuotedLiteral(ch: string): void {
   if (ch.length !== 1) {
     return;
@@ -92,10 +91,6 @@ function throwUnterminated(kind: string): never {
   throw new UnsafeSqlScriptError(`SQL script contains an unterminated ${kind}`);
 }
 
-/**
- * Single-pass SQLite-style lexer: comments and quoted regions share one state machine so
- * quotes inside comments never open fake literals.
- */
 export function tokenizeSqlScript(script: string): SqlToken[] {
   const tokens: SqlToken[] = [];
   let i = 0;
@@ -393,7 +388,6 @@ function appendTokenToSurface(
   return { surface, prevEnd: token.end };
 }
 
-/** Build per-statement security surfaces (comments dropped, literals masked). */
 export function buildStatementSecuritySurfaces(script: string, tokens: SqlToken[]): string[] {
   const statements: string[] = [];
   let current = "";
@@ -483,7 +477,6 @@ export function removeSqlComments(script: string): string {
   return out;
 }
 
-/** Collapse whitespace after tokenization-based masking and comment stripping. */
 export function normalizeSqlForSafetyAnalysis(script: string): string {
   const tokens = tokenizeSqlScript(script);
   const statements = buildStatementSecuritySurfaces(script, tokens);
@@ -524,10 +517,6 @@ function assertNormalizedForbiddenTokens(normalized: string): void {
   }
 }
 
-/**
- * Reject manifest- or user-supplied SQL that could escape the SQL API (dot-commands, ATTACH, VACUUM, extensions).
- */
-/** Reject lone UTF-16 surrogates (valid emoji/ZWJ pairs are allowed). */
 export function assertValidSqlScriptUnicode(script: string): void {
   for (let i = 0; i < script.length; i++) {
     const code = script.charCodeAt(i);
@@ -558,7 +547,6 @@ export function assertSafeSqlScript(script: string): void {
 
 const READ_ONLY_QUERY_KEYWORDS = new Set(["select", "pragma"]);
 
-/** PRAGMA forms used by querySqliteRows callers (store-template-hydrate, sqlite-helpers tests). */
 const READ_ONLY_PRAGMA_NAMES_CALLERS = new Set(["user_version", "table_info"]);
 
 const READ_ONLY_FORBIDDEN_FUNCTIONS = new Set([
@@ -680,9 +668,6 @@ function assertReadOnlyPragma(sql: string, tokens: SqlToken[], statement: string
   }
 }
 
-/**
- * Enforce read-only sqlite3 / Python query helpers (single SELECT or allowlisted PRAGMA only).
- */
 export function assertReadOnlySqliteQuery(sql: string): void {
   assertValidSqlScriptUnicode(sql);
   const tokens = tokenizeSqlScript(sql);

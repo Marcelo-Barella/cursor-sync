@@ -104,7 +104,6 @@ import {
 } from "./app-storage-root-errors.js";
 import { SCHEDULED_ROOT_HELD_HISTORY_KEY } from "./storage-sync-ui-status.js";
 
-/** Pull completed cleanly; held = scheduled root hold; partial = incomplete pull; failure = error. */
 export type AppStoragePullStatus = "success" | "held" | "partial" | "failure";
 
 import {
@@ -2607,7 +2606,6 @@ export async function executePullAppConfigs(
   }
 }
 
-/** @internal test hooks */
 export const __appConfigsPullTestHooks = {
   warnRootEnsureFailuresOnce,
   isScheduledRootOnlyPullSkip,

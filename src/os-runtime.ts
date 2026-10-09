@@ -12,7 +12,6 @@ import { SubprocessCommandNotFoundError } from "./subprocess-errors.js";
 
 const execFilePromisified = promisify(execFileCallback);
 
-/** Subprocess executables the extension may invoke (basename). Documented in docs/app-storage-sync-decisions.md */
 export const ALLOWED_SUBPROCESS_COMMANDS: readonly string[] = [
   "python3",
   "python",
@@ -23,23 +22,21 @@ export const ALLOWED_SUBPROCESS_COMMANDS: readonly string[] = [
 
 const ALLOWED_COMMAND_SET = new Set(ALLOWED_SUBPROCESS_COMMANDS);
 
-/** Keys copied from the host process into child environments (nothing else). */
 const SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
-  "PATH", // locate allowlisted interpreters on PATH
-  "LANG", // locale for Python/sqlite CLI messages
+  "PATH",
+  "LANG",
   "LC_ALL",
   "LC_CTYPE",
-  "TMPDIR", // temp dir hints (not home)
+  "TMPDIR",
   "TEMP",
   "TMP",
-  "SystemRoot", // Windows system root (not user profile)
+  "SystemRoot",
   "windir",
-  "COMSPEC", // Windows cmd for py launcher edge cases
-  "PATHEXT", // Windows executable extensions
+  "COMSPEC",
+  "PATHEXT",
   "SYSTEMDRIVE",
 ];
 
-/** Home / XDG / dot-dir keys for transport-chat Python only (Path.home() parity). */
 const TRANSPORT_CHAT_SUBPROCESS_ENV_ALLOWLIST: readonly string[] = [
   "HOME",
   "USERPROFILE",
@@ -55,7 +52,6 @@ const PYTHON_BASENAME_RE = /^py$|^python$|^python3(\.\d+)*$/i;
 
 const configuredAbsolutePythonPaths = new Set<string>();
 
-/** Register machine-scoped pythonPath from settings (absolute paths only). */
 export function registerConfiguredAbsolutePythonPath(command: string): void {
   const trimmed = command.trim();
   if (!path.isAbsolute(trimmed)) {
@@ -110,7 +106,6 @@ export function scrubbedSubprocessEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Scrubbed env plus user-home keys so bundled transport-chat matches extension HOME/CURSOR_DOT_DIR. */
 export function transportChatSubprocessEnv(): NodeJS.ProcessEnv {
   const env = scrubbedSubprocessEnv();
   for (const key of TRANSPORT_CHAT_SUBPROCESS_ENV_ALLOWLIST) {
@@ -167,9 +162,6 @@ function resolveOnPath(basename: string, pathDirs: string[]): string | undefined
   return undefined;
 }
 
-/**
- * Resolve an allowlisted command to an absolute executable path using PATH from scrubbed env (never cwd).
- */
 export function resolveSubprocessCommand(command: string): string {
   assertAllowedSubprocessCommand(command);
   const trimmed = command.trim();
@@ -283,7 +275,6 @@ export async function execFileWithStdinAsync(
   });
 }
 
-/** @internal test hook for subprocess option hardening */
 export function subprocessExecFileOptionsForTest(
   options?: SafeExecFileOptions & { shell?: boolean; env?: NodeJS.ProcessEnv }
 ): ExecFileOptions {
@@ -322,9 +313,7 @@ export interface SpawnPython3Options {
   args: string[];
   cwd?: string;
   log?: (line: string) => void;
-  /** Override interpreter (must still be allowlisted basename). */
   command?: string;
-  /** When set, replaces the default scrubbed subprocess env (e.g. transport-chat home parity). */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -427,12 +416,10 @@ function sqlite3SupportsSafeFlag(): boolean {
   return sqlite3SafeFlagSupported;
 }
 
-/** True when the installed sqlite3 CLI accepts `-safe` (cached after first probe). */
 export function sqlite3CliSupportsSafeFlag(): boolean {
   return sqlite3SupportsSafeFlag();
 }
 
-/** Prefix sqlite3 CLI args with -safe when supported (.shell / .system disabled). */
 export function sqlite3CliArgs(userArgs: readonly string[]): string[] {
   if (sqlite3SupportsSafeFlag()) {
     return ["-safe", ...userArgs];
