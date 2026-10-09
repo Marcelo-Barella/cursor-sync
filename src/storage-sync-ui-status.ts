@@ -11,7 +11,6 @@ export interface StorageSyncUiPresentation {
   level: StorageSyncUiLevel;
   detail: string;
   lastSync?: Date;
-  /** held | partial — when level is warning */
   warningKind?: "held" | "partial";
 }
 

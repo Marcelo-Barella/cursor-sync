@@ -65,7 +65,6 @@ export function shouldPullAppConfigFile(
   return localChecksum !== remoteChecksum;
 }
 
-/** True when the remote manifest entry differs from the last synced remote baseline. */
 export function remoteChecksumChangedSinceBaseline(
   syncKey: string,
   remoteChecksum: string,

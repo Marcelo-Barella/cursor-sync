@@ -1,4 +1,3 @@
-/** Thrown when an allowlisted command cannot be resolved on PATH (maps to spawn ENOENT). */
 export class SubprocessCommandNotFoundError extends Error {
   readonly code = "ENOENT";
   readonly command: string;

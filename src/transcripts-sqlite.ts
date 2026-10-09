@@ -369,7 +369,6 @@ export const SQLITE_PYTHON_FALLBACK_SCRIPT = [
 ].join(";");
 export const SQLITE_RETRY_BACKOFF_MS = 1_500;
 export const FILE_ACCESS_TIMEOUT_MS = 12_000;
-/** Above this size, the sqlite3 CLI often stalls on WAL-backed state.vscdb; prefer Python. */
 export const SQLITE_PYTHON_PREFER_BYTES = 256 * 1024 * 1024;
 
 type PythonSqliteInterpreter = {
@@ -543,7 +542,6 @@ export async function runSqliteQuery(
   }
 }
 
-/** True when the sqlite3 CLI cannot be invoked (missing, blocked, or unusable shim). */
 export function isSqlite3UnavailableError(error: unknown): boolean {
   if (isCommandMissingError(error, "sqlite3") || isExecFileTimeoutError(error)) {
     return true;
@@ -585,7 +583,6 @@ export async function runSqliteScript(dbPath: string, script: string): Promise<v
   await execFileWithStdinAsync(py.command, args, sanitized, execOpts);
 }
 
-/** Run SQL via sqlite3 CLI with -safe -bail and stdin (queries only; no dot-commands). */
 export async function runSqliteCliSafeStdin(
   dbPath: string,
   script: string

@@ -142,7 +142,6 @@ export function syncKeyUnderFailedRoot(
   return failures.find((f) => syncKey.startsWith(f.prefix));
 }
 
-/** Relative path to the first symlinked directory component below root (not the file leaf). */
 export async function symlinkedAncestorRelativePath(
   absolutePath: string,
   rootPath: string
