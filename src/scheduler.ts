@@ -1,13 +1,23 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import { getAppSession } from "./app-auth.js";
+import {
+  applyAppStorageBaselineRefresh,
+  clearScheduledRootHeldMarkers,
+  determineAppStorageSyncAction,
+  fetchAppConfigs,
+  notifyAppStorageConflicts,
+} from "./app-configs.js";
 import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
-import { getToken } from "./auth.js";
+import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
-import { loadSyncState, getLogger } from "./diagnostics.js";
+import { loadSyncState, getLogger, maybeFinalizeAppStorageRecovery } from "./diagnostics.js";
+import { refreshSyncStatusBar } from "./sync-status-bar.js";
+import { refreshSidebar } from "./sidebar/index.js";
+import { executePullSucceeded } from "./pull.js";
 import { enumerateSyncFiles } from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { sendEvent } from "./analytics.js";
@@ -16,15 +26,21 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { Manifest } from "./types.js";
-import { requireE2eUnlocked } from "./e2e/gate.js";
-import { readLogicalFileFromGistMap } from "./e2e/gist-read.js";
-import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
 const MIN_INTERVAL_MINUTES = 5;
 const MAX_JITTER_MS = 60_000;
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let jitterTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function runScheduledTick(context: vscode.ExtensionContext): void {
+  void scheduledTick(context).catch((err) => {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    getLogger().appendLine(
+      `[${new Date().toISOString()}] Scheduled sync tick rejected: ${errMessage}`
+    );
+  });
+}
 
 export async function shouldSkipGistPushForAppSession(
   context: vscode.ExtensionContext
@@ -61,8 +77,8 @@ export function startScheduler(context: vscode.ExtensionContext): void {
   );
 
   jitterTimeout = setTimeout(() => {
-    scheduledTick(context);
-    timer = setInterval(() => scheduledTick(context), intervalMs);
+    runScheduledTick(context);
+    timer = setInterval(() => runScheduledTick(context), intervalMs);
   }, jitter);
 }
 
@@ -86,9 +102,9 @@ export async function determineSyncAction(
     return { action: "push" };
   }
 
-  const token = await getToken(context);
+  const token = await requireToken(context);
   if (!token) {
-    return { action: "none" };
+    return { action: "error", reason: "no_token" };
   }
 
   const client = new GistClient(token);
@@ -97,31 +113,14 @@ export async function determineSyncAction(
     return { action: "error", reason: gistResult.error.category };
   }
 
-  const gistFiles = gistResult.data.files;
-  let manifestJson: string | undefined;
-  if (tryReadGistE2eMarker(gistFiles)) {
-    const e2e = await requireE2eUnlocked(context, { gistSync: true });
-    if (!e2e.ok || e2e.kind !== "dek") {
-      return { action: "error", reason: "e2e_locked" };
-    }
-    manifestJson = readLogicalFileFromGistMap(
-      e2e.dek,
-      e2e.userId,
-      e2e.keyVersion,
-      gistFiles,
-      "manifest.json"
-    );
-  } else {
-    manifestJson = gistFiles["manifest.json"]?.content;
-  }
-
-  if (!manifestJson) {
+  const manifestFile = gistResult.data.files["manifest.json"];
+  if (!manifestFile) {
     return { action: "push" };
   }
 
   let manifest: Manifest;
   try {
-    manifest = JSON.parse(manifestJson) as Manifest;
+    manifest = JSON.parse(manifestFile.content) as Manifest;
   } catch {
     return { action: "push" };
   }
@@ -131,7 +130,7 @@ export async function determineSyncAction(
     remoteChecksums[key] = entry.checksum;
   }
 
-  const localFiles = await enumerateSyncFiles();
+  const localFiles = await enumerateSyncFiles(context);
   const localChecksums: Record<string, string> = {};
   for (const file of localFiles) {
     try {
@@ -197,6 +196,10 @@ export const scheduledSyncActionResolver = {
   determineSyncAction,
 };
 
+export const scheduledAppStorageSyncActionResolver = {
+  determineAppStorageSyncAction,
+};
+
 export async function scheduledTick(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -210,50 +213,73 @@ export async function scheduledTick(
     return;
   }
 
-  const e2e = await requireE2eUnlocked(context, { gistSync: true });
-  if (!e2e.ok) {
-    logger.appendLine(
-      `[${new Date().toISOString()}] Scheduled sync skipped: ${e2e.message}`
-    );
-    sendEvent(context, "scheduled_sync_skipped", { reason: "e2e_locked" });
-    return;
-  }
-
   logger.appendLine(
     `[${new Date().toISOString()}] Scheduled sync triggered`
   );
 
+  let statusBarFinalizedThisTick = false;
   try {
-    const result = await scheduledSyncActionResolver.determineSyncAction(context);
+    const appSessionActive = !!(await getAppSession(context));
+    const result = appSessionActive
+      ? await scheduledAppStorageSyncActionResolver.determineAppStorageSyncAction(
+          context,
+          { trigger: "scheduled" }
+        )
+      : await scheduledSyncActionResolver.determineSyncAction(context);
 
     switch (result.action) {
       case "none":
+        if (appSessionActive) {
+          await maybeFinalizeAppStorageRecovery(context, "scheduled");
+        }
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: already in sync, skipping`
         );
         sendEvent(context, "scheduled_sync_skipped", { reason: "already_in_sync" });
         break;
 
+      case "baseline_refresh": {
+        const remote = await fetchAppConfigs(context, { trigger: "scheduled" });
+        if (remote) {
+          await applyAppStorageBaselineRefresh(
+            context,
+            result.keys,
+            remote.updated_at
+          );
+        }
+        if (appSessionActive) {
+          await maybeFinalizeAppStorageRecovery(context, "scheduled");
+        }
+        break;
+      }
+
       case "pull": {
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: remote changes detected, pulling`
         );
-        await executePull(context, { trigger: "scheduled" });
+        const pullResult = await executePull(context, {
+          trigger: "scheduled",
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
+        if (executePullSucceeded(pullResult)) {
+          await clearScheduledRootHeldMarkers(context);
+        }
         break;
       }
 
       case "push": {
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped (app session active)`
-          );
-          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
-          break;
-        }
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local changes detected, pushing`
         );
-        await executePush(context, { trigger: "scheduled" });
+        const pushOk = await executePush(context, {
+          trigger: "scheduled",
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+          deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
+        });
         break;
       }
 
@@ -261,18 +287,26 @@ export async function scheduledTick(
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync: local and remote changes detected, pulling then pushing`
         );
-        const pullOk = await executePull(context, { trigger: "scheduled" });
-        if (!pullOk) {
+        const pullResult = await executePull(context, {
+          trigger: "scheduled",
+          keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
+        if (pullResult.status !== "success") {
           break;
         }
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Scheduled sync: Gist push skipped after pull (app session active)`
-          );
-          sendEvent(context, "scheduled_sync_skipped", { reason: "app_session" });
-          break;
+        const pushOk = await executePush(context, {
+          trigger: "scheduled",
+          keys: "pushKeys" in result ? (result.pushKeys as string[]) : undefined,
+          deletions:
+            "deletions" in result ? (result.deletions as string[]) : undefined,
+        });
+        if (pullResult.status === "success" && pushOk) {
+          await clearScheduledRootHeldMarkers(context);
         }
-        await executePush(context, { trigger: "scheduled" });
         break;
       }
 
@@ -285,18 +319,64 @@ export async function scheduledTick(
           reason: "conflict",
           conflict_count: result.keys.length,
         });
-        void showSyncFailureWithDebug(
-          context,
-          buildSyncDebugFailure("scheduler", "scheduled", conflictMessage, {
-            category: "CONFLICT",
-            conflictCount: result.keys.length,
-          }),
-          { level: "warning", title: conflictMessage }
+        if (appSessionActive) {
+          void notifyAppStorageConflicts(context, result.keys, {
+            scheduled: true,
+            trigger: "scheduled",
+          });
+        } else {
+          void showSyncFailureWithDebug(
+            context,
+            buildSyncDebugFailure("scheduler", "scheduled", conflictMessage, {
+              category: "CONFLICT",
+              conflictCount: result.keys.length,
+            }),
+            { level: "warning", title: conflictMessage }
+          );
+        }
+        break;
+      }
+
+      case "blocked": {
+        const blockMessage = result.message;
+        const fingerprint = `blocked:${blockMessage}`;
+        logger.appendLine(
+          `[${new Date().toISOString()}] Scheduled sync held: ${blockMessage}`
         );
+        sendEvent(context, "scheduled_sync_skipped", { reason: "blocked" });
+        const { addSyncHistoryEntry } = await import("./diagnostics.js");
+        const prev = context.globalState.get<string>(
+          "cursorSync.appStorage.scheduledRootHeldHistory"
+        );
+        if (prev !== fingerprint) {
+          await context.globalState.update(
+            "cursorSync.appStorage.scheduledRootHeldHistory",
+            fingerprint
+          );
+          await addSyncHistoryEntry(context, {
+            timestamp: new Date().toISOString(),
+            direction: "pull",
+            trigger: "scheduled",
+            fileCount: 0,
+            success: true,
+            destination: "cursor-sync-storage",
+            error: `held: ${blockMessage}`,
+          });
+        }
         break;
       }
 
       case "error": {
+        if (result.reason === "session_expired") {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync skipped: session expired`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "session_expired" });
+          await refreshSyncStatusBar(context, { failed: true });
+          statusBarFinalizedThisTick = true;
+          refreshSidebar();
+          break;
+        }
         const errorMessage = `Scheduled sync failed: ${result.reason}`;
         logger.appendLine(
           `[${new Date().toISOString()}] Scheduled sync skipped: ${result.reason}`
@@ -309,6 +389,9 @@ export async function scheduledTick(
           }),
           { title: errorMessage }
         );
+        await refreshSyncStatusBar(context, { failed: true });
+        statusBarFinalizedThisTick = true;
+        refreshSidebar();
         break;
       }
     }
@@ -318,11 +401,21 @@ export async function scheduledTick(
       `[${new Date().toISOString()}] Scheduled sync failed: ${errMessage}`
     );
     sendEvent(context, "scheduled_sync_failed", { reason: "exception" });
-    const errorMessage = `Scheduled sync failed: ${errMessage}`;
-    void showSyncFailureWithDebug(
-      context,
-      buildSyncDebugFailure("scheduler", "scheduled", errMessage),
-      { title: errorMessage }
-    );
+    const { isAppConfigsFetchError } = await import("./app-config-fetch-errors.js");
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      const errorMessage = `Scheduled sync failed: ${errMessage}`;
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("scheduler", "scheduled", errMessage),
+        { title: errorMessage }
+      );
+    }
+    await refreshSyncStatusBar(context, { failed: true });
+    refreshSidebar();
+    return;
+  }
+  if (!statusBarFinalizedThisTick) {
+    await refreshSyncStatusBar(context);
+    refreshSidebar();
   }
 }

@@ -102,10 +102,10 @@ describe("chat-partial-state", () => {
     const bundle = {
       ...fullBundle,
       sidebarSnapshot: {
-        ...(fullBundle.sidebarSnapshot as Record<string, unknown>),
+        ...(fullBundle.sidebarSnapshot as unknown as Record<string, unknown>),
         composerData: {
           [cid]: {
-            ...(((fullBundle.sidebarSnapshot as Record<string, unknown>).composerData as Record<string, unknown>)[cid] as Record<string, unknown>),
+            ...(((fullBundle.sidebarSnapshot as unknown as Record<string, unknown>).composerData as unknown as Record<string, unknown>)[cid] as unknown as Record<string, unknown>),
             workspaceIdentifier: sourceWorkspaceIdentifier,
           },
         },

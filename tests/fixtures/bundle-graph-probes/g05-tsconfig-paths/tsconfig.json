@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@qa-outside/*": ["../../../qa23-outside/*"]
+    },
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  }
+}

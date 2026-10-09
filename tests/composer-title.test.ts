@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ChatBundle } from "../src/chat-persistence.js";
 

@@ -15,6 +15,9 @@ async function resolveStateDbCandidates(): Promise<string[]> {
 }
 
 export function escapeSqlLiteral(value: string): string {
+  if (value.includes("\0")) {
+    throw new Error("SQL string literal cannot contain NUL");
+  }
   return value.replace(/'/g, "''");
 }
 

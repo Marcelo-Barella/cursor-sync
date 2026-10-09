@@ -1,4 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../src/paths.js", async () => {
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
+  return { ...PATHS_MOCK_USER_LABELS };
+});
+
+vi.mock("../src/sync-roots.js", () => ({
+  resolveExtensionSyncRoots: () => ({
+    cursorUser: "/tmp/cursor-user",
+    dotCursor: "/tmp/.cursor",
+  }),
+}));
 import { buildComposerHeaderPayloadsFromSyncChatHistory } from "../src/chat-id-sync.js";
 import type { SyncManifestChatHistoryEntry } from "../src/sync-manifest.js";
 

@@ -4,6 +4,8 @@ export const DEFAULT_PRODUCTION_API_URL = "https://api.sync.bergamota.dev";
 export const DEFAULT_PRODUCTION_WEBSITE_URL = "https://sync.bergamota.dev";
 export const STAGING_API_URL = "https://api-staging.cursor-sync.com";
 export const STAGING_WEBSITE_URL = "https://staging.cursor-sync.com";
+export const LEGACY_STAGING_API_URL = "https://api-staging-sync.bergamota.dev";
+export const LEGACY_STAGING_WEBSITE_URL = "https://staging.sync.bergamota.dev";
 export const LOCAL_API_URL = "http://localhost:8100";
 export const LOCAL_WEBSITE_URL = "http://localhost:3000";
 
@@ -35,6 +37,7 @@ export type DeveloperEnvironment = "production" | "staging" | "local" | "custom"
 
 const CONFIG_SECTION = "cursorSync";
 
+let lastWarnedInvalidApiRaw: string | undefined;
 let lastWarnedInvalidWebsiteRaw: string | undefined;
 
 export interface UrlResolutionInputs {
@@ -95,6 +98,51 @@ export function normalizeHttpUrl(
 
 export function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function websiteOrigin(url: string): string {
+  return new URL(stripTrailingSlash(url)).origin;
+}
+
+export const TRUSTED_APP_WEBSITE_ORIGINS: readonly string[] = [
+  websiteOrigin(DEFAULT_PRODUCTION_WEBSITE_URL),
+  websiteOrigin(STAGING_WEBSITE_URL),
+  websiteOrigin(LOCAL_WEBSITE_URL),
+  websiteOrigin(LEGACY_STAGING_WEBSITE_URL),
+];
+
+export function isTrustedAppWebsiteUrl(
+  candidateUrl: string,
+  inputsOverride?: UrlResolutionInputs
+): boolean {
+  let origin: string;
+  try {
+    origin = new URL(candidateUrl).origin;
+  } catch {
+    return false;
+  }
+
+  if (TRUSTED_APP_WEBSITE_ORIGINS.includes(origin)) {
+    return true;
+  }
+
+  const inputs = inputsOverride ?? resolveUrlResolutionInputs();
+  if (inputs.environment === "custom") {
+    const configuredWebsite = resolveAppWebsiteUrlFromInputs(inputs);
+    return origin === websiteOrigin(configuredWebsite);
+  }
+
+  return false;
+}
+
+function warnInvalidApi(raw: string, fallbackUrl: string): void {
+  if (lastWarnedInvalidApiRaw === raw) {
+    return;
+  }
+  lastWarnedInvalidApiRaw = raw;
+  void vscode.window.showWarningMessage(
+    `Cursor Sync: Invalid API URL "${raw}". Using ${fallbackUrl}.`
+  );
 }
 
 function warnInvalidWebsite(raw: string, fallbackUrl: string): void {

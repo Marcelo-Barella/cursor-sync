@@ -132,7 +132,7 @@ describe("gate 429 fail-closed with verified stale cache", () => {
       vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
         label: "Passphrase",
         id: "pass",
-      });
+      } as import("vscode").QuickPickItem & { id: string });
       vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(pass);
       const ok = await runUnlockFlow(context);
       expect(ok).toBe(false);
@@ -141,7 +141,7 @@ describe("gate 429 fail-closed with verified stale cache", () => {
     vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
       label: "Use recovery key",
       id: "recovery",
-    });
+    } as import("vscode").QuickPickItem & { id: string });
     vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce("stale-recovery-key");
     const okRecovery = await runUnlockFlow(context);
     expect(okRecovery).toBe(false);

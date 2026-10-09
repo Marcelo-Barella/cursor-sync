@@ -8,7 +8,10 @@ vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
 vi.mock("../src/paths.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/paths.js")>();
+  const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
   return {
+    ...actual,
+    ...PATHS_MOCK_USER_LABELS,
     resolveSyncRoots: vi.fn(actual.resolveSyncRoots),
   };
 });

@@ -42,6 +42,7 @@ describe("executeInstallSkillTransportChat", () => {
     vi.resetModules();
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "install-skill-"));
     testEnv.home = tmpRoot;
+    process.env.HOME = tmpRoot;
     bundledRoot = path.join(tmpRoot, "extension", "resources", "transport-chat");
     await fs.mkdir(path.join(bundledRoot, "scripts"), { recursive: true });
     await fs.writeFile(path.join(bundledRoot, "VERSION"), "1.0.0\n");
@@ -66,7 +67,7 @@ describe("executeInstallSkillTransportChat", () => {
   function context(): import("vscode").ExtensionContext {
     return {
       extensionUri: { fsPath: path.join(tmpRoot, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
   }
 
   it("(a) fresh install copies files and shows Installed message", async () => {

@@ -1,21 +1,42 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { deviceIdentitySalt, nodePlatform } from "./os-runtime.js";
 import type { SyncFileEntry, PackagedFile, Manifest, ManifestFileEntry } from "./types.js";
+
+export type PackageFileSkip = {
+  relativeSyncKey: string;
+  reason: string;
+};
 
 export async function packageFiles(
   files: SyncFileEntry[],
-  profileName: string
-): Promise<{ packaged: Map<string, PackagedFile>; manifest: Manifest }> {
+  profileName: string,
+  options?: { skipUnreadable?: boolean }
+): Promise<{
+  packaged: Map<string, PackagedFile>;
+  manifest: Manifest;
+  skipped: PackageFileSkip[];
+}> {
   const sorted = [...files].sort((a, b) =>
     a.relativeSyncKey.localeCompare(b.relativeSyncKey)
   );
 
   const packaged = new Map<string, PackagedFile>();
   const manifestFiles: Record<string, ManifestFileEntry> = {};
+  const skipped: PackageFileSkip[] = [];
 
   for (const file of sorted) {
-    const buf = await fs.readFile(file.absolutePath);
+    let buf: Buffer;
+    try {
+      buf = await fs.readFile(file.absolutePath);
+    } catch (err) {
+      if (options?.skipUnreadable) {
+        const reason = err instanceof Error ? err.message : String(err);
+        skipped.push({ relativeSyncKey: file.relativeSyncKey, reason });
+        continue;
+      }
+      throw err;
+    }
     const isUtf8 = isValidUtf8(buf);
 
     const content = isUtf8 ? buf.toString("utf-8") : buf.toString("base64");
@@ -39,11 +60,11 @@ export async function packageFiles(
     syncProfileName: profileName,
     createdAt: new Date().toISOString(),
     sourceMachineId: computeMachineId(),
-    sourceOS: process.platform as Manifest["sourceOS"],
+    sourceOS: nodePlatform() as Manifest["sourceOS"],
     files: manifestFiles,
   };
 
-  return { packaged, manifest };
+  return { packaged, manifest, skipped };
 }
 
 export function computeChecksum(content: Buffer): string {
@@ -51,7 +72,7 @@ export function computeChecksum(content: Buffer): string {
 }
 
 export function computeMachineId(): string {
-  const raw = `${os.hostname()}:${os.userInfo().username}`;
+  const raw = deviceIdentitySalt();
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 

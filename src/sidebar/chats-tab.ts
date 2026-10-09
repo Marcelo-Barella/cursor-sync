@@ -1,10 +1,9 @@
 import * as vscode from "vscode";
 import * as crypto from "node:crypto";
 import * as path from "node:path";
-import * as os from "node:os";
 import { listConversationsForWorkspace } from "../chat-export-ux.js";
 import { __chatPersistenceInternals } from "../transcripts.js";
-import { resolveSyncRoots } from "../paths.js";
+import { resolveExtensionSyncRoots } from "../sync-roots.js";
 import type { ConversationExportRow } from "../chat-export-ux.js";
 import type { BundleDiscoveryEntry } from "./bundle-discovery.js";
 import { listLocalBundles } from "./bundle-discovery.js";
@@ -62,7 +61,7 @@ export interface ChatsBundlesResult {
 }
 
 function resolveProjectsRoot(): string {
-  const { dotCursor } = resolveSyncRoots();
+  const { dotCursor } = resolveExtensionSyncRoots();
   return path.join(dotCursor, "projects");
 }
 
@@ -105,7 +104,7 @@ export async function listBundles(
 export async function openTranscriptForConversation(
   conversationId: string
 ): Promise<boolean> {
-  const { dotCursor } = resolveSyncRoots();
+  const { dotCursor } = resolveExtensionSyncRoots();
   const projectsRoot = path.join(dotCursor, "projects");
   let projectDirs: import("node:fs").Dirent[];
   try {
@@ -140,7 +139,7 @@ export async function openTranscriptForConversation(
 export async function revealTranscriptsForConversation(
   conversationId: string
 ): Promise<void> {
-  const { dotCursor } = resolveSyncRoots();
+  const { dotCursor } = resolveExtensionSyncRoots();
   const projectsRoot = path.join(dotCursor, "projects");
   let projectDirs: import("node:fs").Dirent[];
   try {

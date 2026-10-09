@@ -10,7 +10,7 @@ describe("sync-operation lock", () => {
     resetSyncOperation();
   });
 
-  it("exposes a single shared lock for push and pull", () => {
+  it("tracks a single shared sync operation latch", () => {
     expect(tryBeginSyncOperation()).toBe(true);
     expect(isSyncOperationActive()).toBe(true);
     expect(tryBeginSyncOperation()).toBe(false);

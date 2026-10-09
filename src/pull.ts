@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { GistClient } from "./gist.js";
@@ -12,7 +13,11 @@ import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js
 import { findMissingExtensions, findExtraExtensions } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
-import { tryBeginSyncOperation, resetSyncOperation } from "./sync-operation.js";
+import {
+  tryBeginSyncOperation,
+  recoverSyncOperationLatch,
+  resetSyncOperation,
+} from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -21,48 +26,101 @@ import {
 } from "./sync-debug.js";
 import { TRANSCRIPT_MANIFEST_FILE_NAME } from "./transcript-bundle.js";
 import type { SyncState, Manifest } from "./types.js";
+import { hasAppSession, executePullAppConfigs } from "./app-configs.js";
+import {
+  formatPullEmptyToast,
+  formatPullSuccessToast,
+  SYNC_DESTINATION_GIST_LABEL,
+} from "./sync-destination.js";
 import { requireE2eUnlocked } from "./e2e/gate.js";
 import { assertCanReadE2eGist, readLogicalFileFromGistMap } from "./e2e/gist-read.js";
 import { tryReadGistE2eMarker } from "./e2e/gist-bundle.js";
 
-export type PullTrigger = "manual" | "scheduled";
+export type PullTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
 export type PullOptions = {
-  trigger?: PullTrigger;
+  trigger?: PullTrigger | import("./app-configs.js").AppConfigsSyncTrigger;
   skipOperationLock?: boolean;
+  keys?: string[];
+  remoteDeletions?: string[];
 };
+
+export type ExecutePullResult =
+  | { status: "success" }
+  | { status: "held" }
+  | { status: "partial" }
+  | { status: "failure" };
+
+export function executePullSucceeded(result: ExecutePullResult): boolean {
+  return result.status === "success";
+}
 
 export async function executePull(
   context: vscode.ExtensionContext,
   options?: PullOptions
-): Promise<boolean> {
+): Promise<ExecutePullResult> {
   const trigger = options?.trigger ?? "manual";
   const skipOperationLock = options?.skipOperationLock === true;
+  let result: ExecutePullResult = { status: "success" };
 
   if (!skipOperationLock) {
     if (!tryBeginSyncOperation()) {
-      const { recoverSyncOperationLatch } = await import("./sync-operation.js");
       await recoverSyncOperationLatch(context, { force: true });
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
-        return false;
+        result = { status: "failure" };
+        return result;
       }
     }
-    updateStatusBar("syncing");
+    if (await hasAppSession(context)) {
+      updateStatusBar("syncing", { destination: "cursor-sync-storage" });
+    } else {
+      updateStatusBar("syncing", { destination: "github-gist" });
+    }
   }
 
   let failed = false;
   try {
-    const success = await doPull(context, trigger);
+    if (await hasAppSession(context)) {
+      const pullStatus = await executePullAppConfigs(context, {
+        trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
+        keys: options?.keys,
+        remoteDeletions: options?.remoteDeletions,
+      });
+      if (pullStatus === "held") {
+        result = { status: "held" };
+      } else if (pullStatus === "failure") {
+        result = { status: "failure" };
+      } else if (pullStatus === "partial") {
+        result = { status: "partial" };
+      } else {
+        result = { status: "success" };
+      }
+      failed = result.status === "failure";
+      return result;
+    }
+    const gistTrigger =
+      trigger === "syncNow" || trigger === "startup" ? "manual" : trigger;
+    const success = await doPull(context, gistTrigger);
+    result = success ? { status: "success" } : { status: "failure" };
     failed = !success;
-    return success;
+    return result;
   } catch (err) {
     failed = true;
+    result = { status: "failure" };
     throw err;
   } finally {
     if (!skipOperationLock) {
       resetSyncOperation();
-      await refreshSyncStatusBar(context, failed ? { failed: true } : undefined);
+      const barOpts =
+        result.status === "failure"
+          ? { failed: true }
+          : result.status === "held"
+            ? { held: true }
+            : result.status === "partial"
+              ? { warning: true }
+              : undefined;
+      await refreshSyncStatusBar(context, barOpts);
       refreshSidebar();
     }
   }
@@ -171,7 +229,7 @@ async function doPull(
         category: gistResult.error.category,
         statusCode: gistResult.error.statusCode,
       }),
-      { title: `Pull failed: ${gistResult.error.message}` }
+      { title: `Pull from ${SYNC_DESTINATION_GIST_LABEL} failed: ${gistResult.error.message}` }
     );
     logger.appendLine(
       `[${new Date().toISOString()}] Pull failed: ${gistResult.error.category} - ${gistResult.error.message}`
@@ -182,6 +240,7 @@ async function doPull(
       trigger,
       fileCount: 0,
       success: false,
+      destination: "github-gist",
       error: gistResult.error.message,
     });
     sendEvent(context, "sync_failed", {
@@ -294,7 +353,7 @@ async function doPull(
     }
   }
 
-  const roots = resolveSyncRoots();
+  const roots = resolveSyncRoots(nodePlatform(), context);
   const filesToWrite: Array<{ absolutePath: string; syncKey: string; content: Buffer }> = [];
 
   for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
@@ -364,7 +423,7 @@ async function doPull(
 
   if (filesToWrite.length === 0) {
     if (trigger === "manual") {
-      vscode.window.showInformationMessage("Pull complete: no files to update.");
+      vscode.window.showInformationMessage(formatPullEmptyToast("github-gist"));
     }
     sendEvent(context, "sync_completed", { direction: "pull", file_count: 0, trigger });
     return true;
@@ -401,8 +460,7 @@ async function doPull(
   if (writeError) {
     logger.appendLine(`[${new Date().toISOString()}] Rolling back partial writes`);
     await rollbackFromBackup(writtenBackups);
-    const writeErrorMessage =
-      "Pull failed: file write error. Changes have been rolled back.";
+    const writeErrorMessage = `Pull from ${SYNC_DESTINATION_GIST_LABEL} failed: file write error. Changes have been rolled back.`;
     void showSyncFailureWithDebug(
       context,
       buildSyncDebugFailure("pull", trigger, writeErrorMessage, {
@@ -418,6 +476,7 @@ async function doPull(
       trigger,
       fileCount: 0,
       success: false,
+      destination: "github-gist",
       error: "File write error",
     });
     sendEvent(context, "sync_failed", { direction: "pull", reason: "FILE_SYSTEM_ERROR", trigger });
@@ -447,6 +506,7 @@ async function doPull(
     trigger,
     fileCount: filesToWrite.length,
     success: true,
+    destination: "github-gist",
   });
   sendEvent(context, "sync_completed", {
     direction: "pull",
@@ -456,7 +516,7 @@ async function doPull(
   await syncExtensionsAfterPull(gistData.files, logger);
 
   vscode.window.showInformationMessage(
-    `Pull complete: ${filesToWrite.length} file(s) updated.`
+    formatPullSuccessToast(filesToWrite.length, "github-gist")
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Pull succeeded: ${filesToWrite.length} files`

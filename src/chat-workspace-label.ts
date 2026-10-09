@@ -1,7 +1,10 @@
-import * as os from "node:os";
 import * as path from "node:path";
+import { resolveUserHomeDir } from "./sync-roots.js";
 
-export function formatDisplayPath(folderFsPath: string, homeDir: string = os.homedir()): string {
+export function formatDisplayPath(
+  folderFsPath: string,
+  homeDir: string = resolveUserHomeDir()
+): string {
   const normalized = path.resolve(folderFsPath);
   const home = path.resolve(homeDir);
   const homeWithSep = home.endsWith(path.sep) ? home : home + path.sep;

@@ -8,6 +8,7 @@ function lockedState(): SyncTabState {
     lastSyncDirection: undefined,
     fileCount: 0,
     gistId: undefined,
+    statusDetail: undefined,
     history: [],
     appSessionActive: true,
     appSessionExpired: false,

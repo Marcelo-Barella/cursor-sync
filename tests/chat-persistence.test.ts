@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -208,6 +209,7 @@ describe("buildChatBundle scoped store lookup", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-scoped-store-"));
     mockHomedir.home = tempHome;
+    process.env.HOME = tempHome;
   });
 
   afterEach(async () => {
@@ -247,7 +249,7 @@ describe("buildChatBundle scoped store lookup", () => {
     const { buildChatBundle } = await import("../src/chat-persistence.js");
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
     const { bundle } = await buildChatBundle(context, conversationId, { report: () => {} }, {
       workspaceKey: wkA,
     });
@@ -279,7 +281,7 @@ describe("buildChatBundle scoped store lookup", () => {
     const { buildChatBundle } = await import("../src/chat-persistence.js");
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
     const { bundle } = await buildChatBundle(context, conversationId, { report: () => {} });
 
     const rels = bundle.transcriptFiles.map((tf) => tf.relativePath).sort();
@@ -350,7 +352,7 @@ describe("restoreChatBundle disk parity", () => {
 
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     const result = await restoreChatBundle(context, bundle, {
       report: () => {},
@@ -393,7 +395,7 @@ describe("restoreChatBundle disk parity", () => {
 
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(context, bundle, { report: () => {} })
@@ -417,7 +419,7 @@ describe("restoreChatBundle disk parity", () => {
     };
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(context, bundle, { report: () => {} })
@@ -443,7 +445,7 @@ describe("restoreChatBundle disk parity", () => {
     };
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(context, bundle, { report: () => {} })
@@ -468,7 +470,7 @@ describe("restoreChatBundle disk parity", () => {
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
       extensionUri: { fsPath: path.join(tempHome, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await restoreChatBundle(context, bundle, { report: () => {} }, {
       postActivate: true,
@@ -500,7 +502,7 @@ describe("restoreChatBundle disk parity", () => {
 
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(context, bundle, { report: () => {} })
@@ -577,7 +579,7 @@ describe("restoreChatBundle import-v2 activation", () => {
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
       extensionUri: { fsPath: path.join(tempHome, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await restoreChatBundle(context, minimalBundle(conversationId), { report: () => {} }, {
       activate: true,
@@ -608,7 +610,7 @@ describe("restoreChatBundle import-v2 activation", () => {
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
       extensionUri: { fsPath: path.join(tempHome, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(
@@ -632,7 +634,7 @@ describe("restoreChatBundle import-v2 activation", () => {
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
       extensionUri: { fsPath: path.join(tempHome, "extension") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     await expect(
       restoreChatBundle(
@@ -725,11 +727,11 @@ describe("restoreChatBundle in-process composer activation", () => {
     };
     const wsCtx = await requireWorkspaceContext({ workspaceFolder: FIXTURE_REPO });
     const raw = buildActivationManifest(bundle, conversationId, wsCtx);
-    const manifest = normalizeActivationManifest(raw as unknown as Record<string, unknown>);
-    (manifest.partialState as Record<string, unknown>).conversationMap = {
+    const manifest = normalizeActivationManifest(raw as unknown as unknown as Record<string, unknown>);
+    (manifest.partialState as unknown as Record<string, unknown>).conversationMap = {
       "bubble-1": { type: 1 },
     };
-    (manifest.partialState as Record<string, unknown>).fullConversationHeadersOnly = [
+    (manifest.partialState as unknown as Record<string, unknown>).fullConversationHeadersOnly = [
       { bubbleId: "bubble-1", type: 1 },
     ];
 

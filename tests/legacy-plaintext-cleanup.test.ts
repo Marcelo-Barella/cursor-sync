@@ -57,7 +57,7 @@ describe("legacy plaintext cleanup", () => {
   it("deletes all 5 legacy objects from plaintext-objects listing", async () => {
     const keys = ["a", "b", "c", "d", "e"];
     let listCalls = 0;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/plaintext-objects") && (!init?.method || init.method === "GET")) {
         listCalls += 1;
@@ -104,7 +104,7 @@ describe("legacy plaintext cleanup", () => {
       updated_at: "2026-01-02T00:00:00.000Z",
     });
     let listCalls = 0;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/plaintext-objects") && (!init?.method || init.method === "GET")) {
         listCalls += 1;
@@ -133,7 +133,7 @@ describe("legacy plaintext cleanup", () => {
   });
 
   it("keeps migration pending on 502 partial delete failures", async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/plaintext-objects") && (!init?.method || init.method === "GET")) {
         return {

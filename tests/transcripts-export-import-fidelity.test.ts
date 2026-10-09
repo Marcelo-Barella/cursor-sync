@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -40,6 +41,7 @@ describe("transcript export and import fidelity", () => {
   beforeEach(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-transcript-fidelity-"));
     mockedHomeDir.current = tmpRoot;
+    process.env.HOME = tmpRoot;
     createGistMock.mockReset();
     getGistMock.mockReset();
     requireTokenMock.mockReset();

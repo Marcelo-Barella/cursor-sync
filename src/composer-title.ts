@@ -8,7 +8,7 @@ import {
   scanWorkspaceStorageForFolder,
   stateDbPathForWorkspaceStorageId,
 } from "./chat-workspace-context.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { resolveConversationDisplayTitle } from "./transcript-bundle.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 import { listGlobalStateVscdbPaths } from "./transcripts-sqlite.js";
@@ -32,7 +32,7 @@ async function loadComposerNameIndexFromDbPath(dbPath: string): Promise<Map<stri
 export async function loadComposerNameIndexForChatsWorkspaceKey(
   chatsWorkspaceKey: string
 ): Promise<Map<string, string>> {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
   const folderFsPath = folderMap.get(chatsWorkspaceKey);
   if (!folderFsPath) {

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import { GistClient } from "./gist.js";
 import { getLogger } from "./diagnostics.js";
 import { getToken } from "./auth.js";
@@ -25,7 +25,7 @@ import {
   workspaceQuickPickLabel,
 } from "./chat-workspace-label.js";
 import { listChatsWorkspaceDirs, type WorkspaceDir } from "./chat-export-ux.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import {
   assertCanReadE2eGist,
   readLogicalFileFromGistMap,
@@ -198,7 +198,7 @@ async function importTranscriptsFromGist(
 
   if (localWorkspaces.length === 0) {
     throw new Error(
-      "No local chat workspaces found in ~/.cursor/chats/. Open a workspace in Cursor first."
+      `No local chat workspaces found in ${USER_LABEL_DOT_CURSOR}/chats/. Open a workspace in Cursor first.`
     );
   } else if (localWorkspaces.length > 1) {
     const picked = await promptForTargetWorkspace(localWorkspaces);
@@ -485,7 +485,7 @@ async function readExistingComposerState(
 async function promptForTargetWorkspace(
   localWorkspaces: WorkspaceDir[]
 ): Promise<string | null> {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
   const picks: vscode.QuickPickItem[] = localWorkspaces.map((w) => {
     const row = workspaceQuickPickLabel(w.name, folderMap);
@@ -501,7 +501,7 @@ async function promptForTargetWorkspace(
 }
 
 function resolveProjectsRoot(): string {
-  return path.join(os.homedir(), ".cursor", "projects");
+  return path.join(resolveExtensionSyncRoots().dotCursor, "projects");
 }
 
 async function promptForProjectMapping(
@@ -529,7 +529,7 @@ async function promptForProjectMapping(
     return null;
   }
 
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
   const mapping = new Map<string, string>();
 

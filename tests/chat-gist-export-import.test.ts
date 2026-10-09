@@ -304,7 +304,7 @@ vi.mock("../src/chat-transport-scripts.js", () => ({
           await mergeSidebarIntoStateDb(
             dbPath,
             bundle,
-            wsCtx.workspaceIdentifier as import("../src/chat-import-merge.js").WorkspaceIdentifier,
+            wsCtx.workspaceIdentifier as unknown as import("../src/chat-import-merge.js").WorkspaceIdentifier,
             { pinRecent: opts.pinRecent ?? true }
           );
         }
@@ -411,6 +411,7 @@ describe("chat gist export and import", () => {
   beforeEach(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-chat-gist-"));
     mockedHomeDir = tmpRoot;
+    process.env.HOME = tmpRoot;
     mockWorkspaceFolder = path.join(tmpRoot, "workspace-repo");
     await fs.mkdir(mockWorkspaceFolder, { recursive: true });
     mockRunDiskAndActivationVerify.mockReset();

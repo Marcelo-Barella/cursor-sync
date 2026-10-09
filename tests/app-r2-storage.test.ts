@@ -70,7 +70,7 @@ describe("app-r2-storage", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      "Log in to Cursor Sync to sync with Cursor Sync storage."
     );
   });
 
@@ -160,7 +160,7 @@ describe("app-r2-storage", () => {
 
     expect(result).toBeUndefined();
     expect(showErrorMessageMock).toHaveBeenCalledWith(
-      "Log in to Cursor Sync to sync configs with the app."
+      "Log in to Cursor Sync to sync with Cursor Sync storage."
     );
   });
 
@@ -178,7 +178,7 @@ describe("app-r2-storage", () => {
     const { mintR2StorageCredentials } = await import("../src/app-r2-storage.js");
 
     await expect(mintR2StorageCredentials(makeContext())).rejects.toThrow(
-      "App storage is unavailable (503)"
+      "Cursor Sync storage is unavailable (503)"
     );
   });
 

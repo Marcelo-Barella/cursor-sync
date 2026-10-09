@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { configureGithub, getToken } from "./auth.js";
 import { executePush } from "./push.js";
-import { executePull } from "./pull.js";
+import { executePull, executePullSucceeded } from "./pull.js";
 import { executeExport } from "./export.js";
 import { executeImport } from "./import.js";
 import { executeExportTranscripts, executeImportTranscripts } from "./transcripts.js";
@@ -24,19 +24,28 @@ import {
   consumePendingAuthCallback,
   executeEnterAppAuthCode,
   executeLoginToCursorSync,
+  executeLogoutAppSession,
   registerAppAuthUriHandler,
 } from "./app-auth.js";
 import {
+  applyAppStorageBaselineRefresh,
+  determineAppStorageSyncAction,
   executePullAppConfigs,
   executePushAppConfigs,
+  fetchAppConfigs,
+  hasAppSession,
+  notifyAppStorageConflicts,
 } from "./app-configs.js";
+import { isAppConfigsFetchError } from "./app-config-fetch-errors.js";
+import { setActiveExtensionContext } from "./extension-host-context.js";
 import { executeImportTranscriptsFromGist } from "./import-gist-transcripts.js";
 import { showStatus } from "./diagnostics.js";
 import { resolveConflictsCommand } from "./conflicts.js";
 import { executeReset } from "./reset.js";
 import { startScheduler, stopScheduler } from "./scheduler.js";
-import { determineSyncAction, shouldSkipGistPushForAppSession } from "./scheduler.js";
+import { determineSyncAction } from "./scheduler.js";
 import { getLogger, loadSyncState } from "./diagnostics.js";
+import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
 import {
   buildSyncDebugFailure,
   showSyncFailureWithDebug,
@@ -76,6 +85,7 @@ let configListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const logger = getLogger();
+  setActiveExtensionContext(context);
 
   context.subscriptions.push(registerAppAuthUriHandler(context));
   consumePendingAuthCallback(context);
@@ -121,6 +131,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.enterAppAuthCode", () =>
       executeEnterAppAuthCode(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cursorSync.app.logout", () =>
+      executeLogoutAppSession(context)
     )
   );
 
@@ -330,7 +346,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  updateConfiguredContext(context);
+  void refreshSyncCommandContextsAndStatusBar(context);
   void import("./e2e/gate.js")
     .then(({ refreshE2eGateOnActivation }) => refreshE2eGateOnActivation(context))
     .catch((err) => {
@@ -403,62 +419,101 @@ export async function executeSyncNow(
     }
   }
 
-  updateStatusBar("syncing");
+  const appSessionActive = await hasAppSession(context);
+  updateStatusBar("syncing", {
+    destination: appSessionActive ? "cursor-sync-storage" : "github-gist",
+  });
   refreshSidebar();
 
-  const lockedSyncOptions = { skipOperationLock: true as const, trigger: "manual" as const };
+  const lockedSyncOptions = {
+    skipOperationLock: true as const,
+    trigger: "syncNow" as const,
+  };
   let syncFailed = false;
   try {
-    const result = await determineSyncAction(context);
+    const result = appSessionActive
+      ? await determineAppStorageSyncAction(context, { trigger: "syncNow" })
+      : await determineSyncAction(context);
     switch (result.action) {
       case "none":
         vscode.window.showInformationMessage("Already in sync, nothing to do.");
         break;
-      case "pull":
-        if (!(await executePull(context, lockedSyncOptions))) {
-          syncFailed = true;
+      case "blocked":
+        vscode.window.showWarningMessage(result.message);
+        break;
+      case "baseline_refresh": {
+        const remote = await fetchAppConfigs(context, { trigger: "syncNow" });
+        if (remote) {
+          await applyAppStorageBaselineRefresh(
+            context,
+            result.keys,
+            remote.updated_at
+          );
         }
         break;
-      case "push":
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Sync Now: Gist push skipped (app session active)`
-          );
-          vscode.window.showInformationMessage(
-            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
-          );
-          break;
+      }
+      case "pull": {
+        const pullResult = await executePull(context, {
+          ...lockedSyncOptions,
+          keys: "keys" in result ? (result.keys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
+        if (pullResult.status !== "success") {
+          syncFailed = pullResult.status === "failure";
         }
-        if (!(await executePush(context, lockedSyncOptions))) {
+        break;
+      }
+      case "push":
+        if (
+          !(await executePush(context, {
+            ...lockedSyncOptions,
+            keys: "keys" in result ? (result.keys as string[]) : undefined,
+            deletions: "deletions" in result ? (result.deletions as string[]) : undefined,
+          }))
+        ) {
           syncFailed = true;
         }
         break;
       case "pull-push": {
-        const pullOk = await executePull(context, lockedSyncOptions);
-        if (!pullOk) {
-          syncFailed = true;
+        const pullResult = await executePull(context, {
+          ...lockedSyncOptions,
+          keys: "pullKeys" in result ? (result.pullKeys as string[]) : undefined,
+          remoteDeletions:
+            "remoteDeletions" in result
+              ? (result.remoteDeletions as string[])
+              : undefined,
+        });
+        if (pullResult.status !== "success") {
+          syncFailed = pullResult.status === "failure";
           break;
         }
-        if (await shouldSkipGistPushForAppSession(context)) {
-          logger.appendLine(
-            `[${new Date().toISOString()}] Sync Now: Gist push skipped after pull (app session active)`
-          );
-          vscode.window.showInformationMessage(
-            "App session active; Gist push skipped. Use Cursor Sync: Push App Configs."
-          );
-          break;
-        }
-        if (!(await executePush(context, lockedSyncOptions))) {
+        if (
+          !(await executePush(context, {
+            ...lockedSyncOptions,
+            keys: "pushKeys" in result ? (result.pushKeys as string[]) : undefined,
+            deletions:
+              "deletions" in result ? (result.deletions as string[]) : undefined,
+          }))
+        ) {
           syncFailed = true;
         }
         break;
       }
       case "conflict": {
         syncFailed = true;
+        if (appSessionActive) {
+          await notifyAppStorageConflicts(context, result.keys, {
+            trigger: "syncNow",
+          });
+          break;
+        }
         const conflictMessage = `${result.keys.length} conflict(s) detected. Resolve them first.`;
         void showSyncFailureWithDebug(
           context,
-          buildSyncDebugFailure("syncNow", "manual", conflictMessage, {
+          buildSyncDebugFailure("syncNow", "syncNow", conflictMessage, {
             category: "CONFLICT",
             conflictCount: result.keys.length,
           }),
@@ -469,10 +524,13 @@ export async function executeSyncNow(
       }
       case "error": {
         syncFailed = true;
+        if (result.reason === "session_expired") {
+          break;
+        }
         const errorMessage = `Sync failed: ${result.reason}`;
         void showSyncFailureWithDebug(
           context,
-          buildSyncDebugFailure("syncNow", "manual", result.reason, {
+          buildSyncDebugFailure("syncNow", "syncNow", result.reason, {
             category: result.reason,
           }),
           { title: errorMessage }
@@ -486,36 +544,19 @@ export async function executeSyncNow(
     logger.appendLine(
       `[${new Date().toISOString()}] Sync Now failed: ${errMessage}`
     );
-    const errorMessage = `Sync failed: ${errMessage}`;
-    void showSyncFailureWithDebug(
-      context,
-      buildSyncDebugFailure("syncNow", "manual", errMessage),
-      { title: errorMessage }
-    );
+    if (!isAppConfigsFetchError(err)?.historyRecorded) {
+      const errorMessage = `Sync failed: ${errMessage}`;
+      void showSyncFailureWithDebug(
+        context,
+        buildSyncDebugFailure("syncNow", "syncNow", errMessage),
+        { title: errorMessage }
+      );
+    } else {
+      vscode.window.showErrorMessage(errMessage);
+    }
   } finally {
     resetSyncOperation();
     await refreshSyncStatusBar(context, syncFailed ? { failed: true } : undefined);
     refreshSidebar();
-  }
-}
-
-async function updateConfiguredContext(
-  context: vscode.ExtensionContext
-): Promise<void> {
-  const token = await getToken(context);
-  const isConfigured = token !== undefined;
-  
-  await vscode.commands.executeCommand(
-    "setContext",
-    "cursorSync.configured",
-    isConfigured
-  );
-
-  if (isConfigured) {
-    const syncState = await loadSyncState(context);
-    const lastSync = syncState ? new Date(syncState.lastSyncTimestamp) : undefined;
-    updateStatusBar("ok", lastSync);
-  } else {
-    updateStatusBar("unconfigured");
   }
 }

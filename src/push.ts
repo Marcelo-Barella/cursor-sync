@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
 import { packageFiles } from "./packaging.js";
@@ -10,7 +11,11 @@ import { detectConflicts, clearConflicts, getResolutionForKey } from "./conflict
 import { generateExtensionsJson } from "./extensions.js";
 import { updateStatusBar } from "./statusbar.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
-import { tryBeginSyncOperation, resetSyncOperation } from "./sync-operation.js";
+import {
+  tryBeginSyncOperation,
+  recoverSyncOperationLatch,
+  resetSyncOperation,
+} from "./sync-operation.js";
 import { refreshSidebar } from "./sidebar/index.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -18,17 +23,24 @@ import {
   showSyncFailureWithDebug,
 } from "./sync-debug.js";
 import type { SyncState } from "./types.js";
+import { hasAppSession, executePushAppConfigs } from "./app-configs.js";
+import {
+  formatPushSuccessToast,
+  SYNC_DESTINATION_GIST_LABEL,
+} from "./sync-destination.js";
 import { requireE2eUnlocked } from "./e2e/gate.js";
 import { wrapGistFilesForUpload } from "./e2e/gist-bundle.js";
 import { encryptedGistFileNamesForLogical } from "./e2e/gist-read.js";
 import { loadMigrationState, saveMigrationState, tryCompleteMigration } from "./e2e/migration.js";
 import { assertPlaintextGistWriteAllowed } from "./e2e/gist-plaintext-guard.js";
 
-export type PushTrigger = "manual" | "scheduled";
+export type PushTrigger = "manual" | "scheduled" | "syncNow" | "startup";
 
 export type PushOptions = {
-  trigger?: PushTrigger;
+  trigger?: PushTrigger | import("./app-configs.js").AppConfigsSyncTrigger;
   skipOperationLock?: boolean;
+  keys?: string[];
+  deletions?: string[];
 };
 
 export async function executePush(
@@ -40,19 +52,33 @@ export async function executePush(
 
   if (!skipOperationLock) {
     if (!tryBeginSyncOperation()) {
-      const { recoverSyncOperationLatch } = await import("./sync-operation.js");
       await recoverSyncOperationLatch(context, { force: true });
       if (!tryBeginSyncOperation()) {
         vscode.window.showWarningMessage("A sync operation is already in progress.");
         return false;
       }
     }
-    updateStatusBar("syncing");
+    if (await hasAppSession(context)) {
+      updateStatusBar("syncing", { destination: "cursor-sync-storage" });
+    } else {
+      updateStatusBar("syncing", { destination: "github-gist" });
+    }
   }
 
   let failed = false;
   try {
-    const success = await doPush(context, trigger);
+    if (await hasAppSession(context)) {
+      const success = await executePushAppConfigs(context, {
+        trigger: trigger as import("./app-configs.js").AppConfigsSyncTrigger,
+        keys: options?.keys,
+        deletions: options?.deletions,
+      });
+      failed = !success;
+      return success;
+    }
+    const gistTrigger =
+      trigger === "syncNow" || trigger === "startup" ? "manual" : trigger;
+    const success = await doPush(context, gistTrigger);
     failed = !success;
     return success;
   } catch (err) {
@@ -168,10 +194,12 @@ async function doPush(
   }
 
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = (await import("./paths.js")).resolveSyncRoots().cursorUser;
+  const { resolveSyncRoots } = await import("./paths.js");
+  const roots = resolveSyncRoots(nodePlatform(), context);
+  const cursorUserRoot = roots.cursorUser;
   await writeExtensionsFile(cursorUserRoot, extensionsJson);
 
-  const files = await enumerateSyncFiles();
+  const files = await enumerateSyncFiles(context, roots);
   const config = vscode.workspace.getConfiguration("cursorSync");
   const profileName = config.get<string>("syncProfileName") ?? "default";
   const { packaged, manifest } = await packageFiles(files, profileName);
@@ -238,7 +266,7 @@ async function doPush(
           category: result.error.category,
           statusCode: result.error.statusCode,
         }),
-        { title: `Push failed: ${result.error.message}` }
+        { title: `Push to ${SYNC_DESTINATION_GIST_LABEL} failed: ${result.error.message}` }
       );
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
@@ -249,6 +277,7 @@ async function doPush(
         trigger,
         fileCount: 0,
         success: false,
+        destination: "github-gist",
         error: result.error.message,
       });
       sendEvent(context, "sync_failed", {
@@ -334,7 +363,7 @@ async function doPush(
           category: result.error.category,
           statusCode: result.error.statusCode,
         }),
-        { title: `Push failed: ${result.error.message}` }
+        { title: `Push to ${SYNC_DESTINATION_GIST_LABEL} failed: ${result.error.message}` }
       );
       logger.appendLine(
         `[${new Date().toISOString()}] Push failed: ${result.error.category} - ${result.error.message}`
@@ -345,6 +374,7 @@ async function doPush(
         trigger,
         fileCount: 0,
         success: false,
+        destination: "github-gist",
         error: result.error.message,
       });
       sendEvent(context, "sync_failed", {
@@ -380,6 +410,7 @@ async function doPush(
     trigger,
     fileCount,
     success: true,
+    destination: "github-gist",
   });
   sendEvent(context, "sync_completed", {
     direction: "push",
@@ -388,7 +419,7 @@ async function doPush(
     is_new_gist: isNewGist,
   });
   vscode.window.showInformationMessage(
-    `Push complete: ${fileCount} file(s) synced.`
+    formatPushSuccessToast(fileCount, "github-gist")
   );
   logger.appendLine(
     `[${new Date().toISOString()}] Push succeeded: ${fileCount} files`

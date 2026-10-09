@@ -99,6 +99,7 @@ vi.mock("../src/diagnostics.js", () => ({
 vi.mock("../src/paths.js", () => ({
   resolveSyncRoots: () => ({
     cursorUser: "/tmp/mock-cursor-user",
+    dotCursor: path.join(process.env.HOME ?? "/tmp", ".cursor"),
   }),
 }));
 
@@ -128,7 +129,7 @@ describe("chat-import-sidebar-writeback", () => {
           }
         },
       },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
     vi.clearAllMocks();
     const { mergeSidebarIntoStateDb, repairComposerDataAfterActivation } = await import(
       "../src/chat-import-merge.js"

@@ -2,6 +2,7 @@ import { AwsClient } from "aws4fetch";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { SYNC_DESTINATION_APP_STORAGE_LABEL } from "./sync-destination.js";
 
 export interface R2StorageCredentials {
   endpoint: string;
@@ -14,7 +15,7 @@ export interface R2StorageCredentials {
   expiresAt: string;
 }
 
-const LOGIN_REQUIRED_MESSAGE = "Log in to Cursor Sync to sync configs with the app.";
+const LOGIN_REQUIRED_MESSAGE = `Log in to Cursor Sync to sync with ${SYNC_DESTINATION_APP_STORAGE_LABEL}.`;
 const EXPIRY_BUFFER_MS = 60_000;
 
 let cachedCredentials: R2StorageCredentials | undefined;
@@ -126,7 +127,7 @@ export async function mintR2StorageCredentials(
   if (response.status === 503) {
     const text = await response.text().catch(() => "");
     throw new Error(
-      `App storage is unavailable (503)${text ? `: ${text}` : ""}`
+      `Cursor Sync storage is unavailable (503)${text ? `: ${text}` : ""}`
     );
   }
 
@@ -172,7 +173,7 @@ export async function putR2Object(
   credentials: R2StorageCredentials,
   syncKey: string,
   body: Buffer
-): Promise<void> {
+): Promise<number> {
   const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
@@ -191,6 +192,30 @@ export async function putR2Object(
       `Failed to upload ${syncKey} to storage (${response.status})${text ? `: ${text}` : ""}`
     );
   }
+  return response.status;
+}
+
+export async function deleteR2Object(
+  credentials: R2StorageCredentials,
+  syncKey: string
+): Promise<number> {
+  const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
+  const url = r2ObjectUrl(credentials, objectKey);
+  const client = createAwsClient(credentials);
+
+  const response = await client.fetch(url, { method: "DELETE" });
+
+  if (response.status === 404) {
+    return response.status;
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to delete ${syncKey} from storage (${response.status})${text ? `: ${text}` : ""}`
+    );
+  }
+  return response.status;
 }
 
 export async function getR2Object(

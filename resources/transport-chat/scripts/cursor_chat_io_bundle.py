@@ -344,8 +344,7 @@ _DETECTIVE_DECODE_TOOL = "cursor-detective/decode_conversation_state.py"
 
 def _load_agentkv_decode_helpers() -> dict[str, Any] | None:
     script = (
-        Path.home()
-        / ".cursor"
+        dot_cursor_dir()
         / "skills"
         / "cursor-detective"
         / "scripts"

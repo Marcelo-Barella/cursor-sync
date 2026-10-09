@@ -1,7 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { nodeProcessArgv } from "./os-runtime.js";
 import * as vscode from "vscode";
-import { getAppApiUrl, getAppWebsiteUrl } from "./config/urls.js";
+import { getAppApiUrl, getAppWebsiteUrl, isTrustedAppWebsiteUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
+import { releaseSyncLatchForAuthRetry } from "./sync-operation.js";
+import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
 
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 export const APP_SESSION_EXPIRED_STATE_KEY = "cursorSync.appSession.expired";
@@ -39,7 +42,6 @@ async function withSecretStorageTimeout<T>(
 function logAppSessionLoginSucceeded(): void {
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] App session login succeeded`);
-  logger.show();
 }
 
 function retainInMemoryAppSession(token: string, detail: string): void {
@@ -59,8 +61,7 @@ let appAuthActivateReady = false;
 const consumedAuthCodes = new Set<string>();
 let inFlightAuthCode: string | undefined;
 
-const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
-export { AUTH_STATE_TTL_MS };
+export const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 export interface PendingAuthHandoff {
   nonce: string;
@@ -207,8 +208,7 @@ export function isAuthCallbackUri(uri: vscode.Uri, extensionId: string): boolean
 
 export function parseAuthCallbackUriFromString(
   value: string,
-  extensionId: string,
-  uriScheme: string
+  extensionId: string
 ): vscode.Uri | undefined {
   try {
     const uri = vscode.Uri.parse(value);
@@ -232,8 +232,7 @@ export function parseAuthCallbackUriFromString(
 
 export function findAuthCallbackUriInArgv(
   argv: readonly string[],
-  extensionId: string,
-  uriScheme: string
+  extensionId: string
 ): vscode.Uri | undefined {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -243,7 +242,7 @@ export function findAuthCallbackUriInArgv(
     if (arg === "--open-url" && i + 1 < argv.length) {
       const next = argv[i + 1];
       if (next) {
-        const uri = parseAuthCallbackUriFromString(next, extensionId, uriScheme);
+        const uri = parseAuthCallbackUriFromString(next, extensionId);
         if (uri) {
           return uri;
         }
@@ -252,14 +251,13 @@ export function findAuthCallbackUriInArgv(
     if (arg.startsWith("--open-url=")) {
       const uri = parseAuthCallbackUriFromString(
         arg.slice("--open-url=".length),
-        extensionId,
-        uriScheme
+        extensionId
       );
       if (uri) {
         return uri;
       }
     }
-    const uri = parseAuthCallbackUriFromString(arg, extensionId, uriScheme);
+    const uri = parseAuthCallbackUriFromString(arg, extensionId);
     if (uri) {
       return uri;
     }
@@ -303,14 +301,6 @@ export async function buildAuthRedirectUri(
   return formatOAuthRedirectUri(externalUri, context.extension.id);
 }
 
-function formatTokenExchangeNetworkError(apiBase: string, err: unknown): Error {
-  const base = apiBase.replace(/\/$/, "");
-  const detail = err instanceof Error ? err.message : String(err);
-  return new Error(
-    `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
-  );
-}
-
 export async function exchangeCodeForSessionToken(
   apiBase: string,
   code: string,
@@ -329,7 +319,10 @@ export async function exchangeCodeForSessionToken(
       body: JSON.stringify(body),
     });
   } catch (err) {
-    throw formatTokenExchangeNetworkError(base, err);
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`
+    );
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -423,6 +416,7 @@ export async function clearAppSession(
   inMemoryAppSession = undefined;
   const { onAppSessionCleared } = await import("./e2e/gate.js");
   onAppSessionCleared(context);
+  void refreshSyncCommandContextsAndStatusBar(context);
 }
 
 async function completeLoginWithCode(
@@ -449,6 +443,7 @@ async function completeLoginWithCode(
     const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
     const loginUi = await ensureE2eGateAfterLogin(context);
     refreshSidebar();
+    void refreshSyncCommandContextsAndStatusBar(context);
     if (loginUi !== "deferred_keys") {
       vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     }
@@ -502,11 +497,7 @@ export function consumePendingAuthCallback(context: vscode.ExtensionContext): vo
     return;
   }
 
-  const argvUri = findAuthCallbackUriInArgv(
-    process.argv,
-    context.extension.id,
-    vscode.env.uriScheme
-  );
+  const argvUri = findAuthCallbackUriInArgv(nodeProcessArgv(), context.extension.id);
   if (argvUri) {
     handleAuthCallbackUri(context, argvUri);
   }
@@ -516,7 +507,6 @@ export async function executeLoginToCursorSync(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const logger = getLogger();
-  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
   await releaseSyncLatchForAuthRetry(context);
   try {
     const redirectUri = await buildAuthRedirectUri(context);
@@ -524,37 +514,73 @@ export async function executeLoginToCursorSync(
     storePendingAuthHandoff(redirectUri, state, Date.now(), context);
     const websiteBase = getAppWebsiteUrl();
     const loginUrl = buildSignInUrl(websiteBase, redirectUri, state);
+    if (!isTrustedAppWebsiteUrl(loginUrl)) {
+      vscode.window.showErrorMessage(
+        "Login URL is not from a trusted Cursor Sync website origin. Check Cursor Sync developer environment settings."
+      );
+      return;
+    }
     logger.appendLine(
       `[${new Date().toISOString()}] App login redirect_uri=${redirectUri}`
     );
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
-    if (!opened) {
-      vscode.window.showErrorMessage("Could not open the system browser for login.");
-      return;
+    let opened = false;
+    try {
+      opened = await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
+    } catch (openErr) {
+      const message = openErr instanceof Error ? openErr.message : String(openErr);
+      logger.appendLine(
+        `[${new Date().toISOString()}] App login openExternal failed: ${message}`
+      );
     }
-    logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
-    void vscode.window
-      .showInformationMessage(
-        "Browser opened for Cursor Sync login. If Cursor does not receive the callback, paste the one-time code from the login page.",
-        "Paste code"
-      )
-      .then((action) => {
-        if (action === "Paste code") {
-          void executeEnterAppAuthCode(context);
-        }
-      });
+    if (!opened) {
+      try {
+        await vscode.env.clipboard.writeText(loginUrl);
+      } catch (clipErr) {
+        const message = clipErr instanceof Error ? clipErr.message : String(clipErr);
+        logger.appendLine(
+          `[${new Date().toISOString()}] App login clipboard failed: ${message}`
+        );
+      }
+      const copyAction = "Copy URL";
+      void vscode.window
+        .showWarningMessage(
+          "Could not open the system browser for login. The login URL was copied to your clipboard when possible. Paste the one-time code below.",
+          copyAction
+        )
+        .then((choice) => {
+          if (choice === copyAction) {
+            void Promise.resolve(vscode.env.clipboard.writeText(loginUrl)).catch(
+              () => undefined
+            );
+          }
+        });
+    } else {
+      logger.appendLine(`[${new Date().toISOString()}] Opened app login URL`);
+      void vscode.window.showInformationMessage(
+        "Browser opened for Cursor Sync login. Paste the one-time code if Cursor does not receive the callback automatically."
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.appendLine(`[${new Date().toISOString()}] App login start failed: ${message}`);
     vscode.window.showErrorMessage(`Could not start login: ${message}`);
+  } finally {
+    await executeEnterAppAuthCode(context);
   }
+}
+
+export async function executeLogoutAppSession(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await clearAppSession(context);
+  const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
+  clearR2CredentialsCache();
+  vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
 }
 
 export async function executeEnterAppAuthCode(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
-  await releaseSyncLatchForAuthRetry(context);
   const code = await vscode.window.showInputBox({
     prompt: "Paste the one-time login code from the browser",
     ignoreFocusOut: true,
@@ -568,6 +594,8 @@ export async function executeEnterAppAuthCode(
   if (!code) {
     return;
   }
+  const { releaseSyncLatchForAuthRetry } = await import("./sync-operation.js");
+  await releaseSyncLatchForAuthRetry(context);
   const redirectUri = await resolveAuthRedirectUriForCodeExchange(context);
   await completeLoginWithCode(context, code.trim(), redirectUri);
 }

@@ -8,7 +8,7 @@ import {
   loadGlobalComposerNameIndex,
   resolveComposerConversationTitle,
 } from "./composer-title.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 
 function resolveChatsRoot(): string {
@@ -38,7 +38,7 @@ export interface ListConversationsOptions {
 }
 
 function resolveProjectsRoot(): string {
-  const { dotCursor } = resolveSyncRoots();
+  const { dotCursor } = resolveExtensionSyncRoots();
   return path.join(dotCursor, "projects");
 }
 
@@ -173,7 +173,7 @@ export async function pickChatsForExport(): Promise<ChatExportSelection | null> 
     return null;
   }
 
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
 
   let workspaceKey: string;

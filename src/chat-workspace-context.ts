@@ -1,12 +1,13 @@
 import * as fs from "node:fs/promises";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
+import { isWin32Platform } from "./os-runtime.js";
 import * as path from "node:path";
-import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots, resolveUserHomeDir } from "./sync-roots.js";
 
 export function stateDbPathForWorkspaceStorageId(workspaceStorageId: string): string {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   return path.join(cursorUser, "workspaceStorage", workspaceStorageId, "state.vscdb");
 }
 
@@ -55,11 +56,12 @@ export function folderPathFromWorkspaceUri(uri: string): string {
 }
 
 function expandUserFolder(folder: string): string {
+  const userHome = resolveUserHomeDir();
   if (folder === "~") {
-    return os.homedir();
+    return userHome;
   }
-  if (folder.startsWith("~/")) {
-    return path.join(os.homedir(), folder.slice(2));
+  if (folder.startsWith(USER_LABEL_HOME_TILDE_PREFIX)) {
+    return path.join(userHome, folder.slice(USER_LABEL_HOME_TILDE_PREFIX.length));
   }
   return folder;
 }
@@ -115,7 +117,7 @@ export async function buildChatsKeyToFolderMap(
 export async function scanWorkspaceStorageForFolder(
   folderFsPath: string
 ): Promise<string | undefined> {
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const wsRoot = path.join(cursorUser, "workspaceStorage");
   return scanWorkspaceStorageForId(wsRoot, path.resolve(folderFsPath));
 }
@@ -156,7 +158,7 @@ function buildWorkspaceIdentifier(
   wsId: string,
   folderFsPath: string
 ): WorkspaceIdentifier {
-  const sep = process.platform === "win32" ? 1 : 47;
+  const sep = isWin32Platform() ? 1 : 47;
   const external = pathToFileURL(folderFsPath).href;
   return {
     id: wsId,
@@ -201,7 +203,7 @@ export async function resolveWorkspaceContext(
   const chatsKey = md5FolderKey(folderFsPath);
 
   if (!workspaceStorageId) {
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const wsRoot = path.join(cursorUser, "workspaceStorage");
     workspaceStorageId = await scanWorkspaceStorageForId(wsRoot, folderFsPath);
   }
@@ -223,7 +225,7 @@ export async function requireWorkspaceContext(
     return ctx;
   }
   throw new Error(
-    "Workspace folder is required for chat import: sets ~/.cursor/chats/<md5(folder)> store.db path and stamps workspaceIdentifier on composer headers."
+    `Workspace folder is required for chat import: sets ${USER_LABEL_DOT_CURSOR}/chats/<md5(folder)> store.db path and stamps workspaceIdentifier on composer headers.`
   );
 }
 

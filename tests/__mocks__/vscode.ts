@@ -94,7 +94,6 @@ export const workspace = {
           "extensions.json",
           "vsix/**",
           "skills/**",
-          "skills-cursor/**/SKILL.md",
           "commands/**/*.md",
           "rules/*.mdc",
         ],
@@ -158,6 +157,13 @@ export const env = {
     writeText: async (text: string) => clipboardWriteTextImpl(text),
   },
 };
+
+export enum ColorThemeKind {
+  Light = 1,
+  Dark = 2,
+  HighContrast = 3,
+  HighContrastLight = 4,
+}
 
 export const window = {
   activeColorTheme: { kind: ColorThemeKind.Dark },
@@ -231,13 +237,6 @@ export const extensions = {
 export enum ExtensionKind {
   UI = 1,
   Workspace = 2,
-}
-
-export enum ColorThemeKind {
-  Light = 1,
-  Dark = 2,
-  HighContrast = 3,
-  HighContrastLight = 4,
 }
 
 export const Uri = {

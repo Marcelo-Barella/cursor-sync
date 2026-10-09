@@ -1,10 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import type { ChatBundle } from "./chat-persistence.js";
+import { resolveActivationDir } from "./chat-import-activate.js";
 import type { WorkspaceContext } from "./chat-workspace-context.js";
 import { sidebarSnapshotHasComposerData } from "./chat-partial-state.js";
-import { resolveSyncRoots } from "./paths.js";
+import { USER_LABEL_DOT_CURSOR_CHATS } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 
 const { querySqliteRows, resolveChatsRoot } = __chatPersistenceInternals;
@@ -17,9 +18,13 @@ export interface VerifyCheck {
   detail: string;
 }
 
-export const ACTIVATION_DIR = path.join(os.homedir(), ".cursor", "import-activation");
-const ACTIVATION_PENDING_PATH = path.join(ACTIVATION_DIR, "pending.json");
-const ACTIVATION_RESULT_PATH = path.join(ACTIVATION_DIR, "result.json");
+export function activationDirPath(): string {
+  return resolveActivationDir();
+}
+
+export const ACTIVATION_DIR = activationDirPath();
+const ACTIVATION_PENDING_PATH = () => path.join(activationDirPath(), "pending.json");
+const ACTIVATION_RESULT_PATH = () => path.join(activationDirPath(), "result.json");
 
 export interface VerifyIoDeps {
   fileExists: (filePath: string) => Promise<boolean>;
@@ -46,7 +51,7 @@ function defaultDeps(): VerifyIoDeps {
     readTextFile: (filePath: string) => fs.readFile(filePath, "utf8"),
     querySqliteRows,
     globalStateDbPath: () => {
-      const { cursorUser } = resolveSyncRoots();
+      const { cursorUser } = resolveExtensionSyncRoots();
       return path.join(cursorUser, "globalStorage", "state.vscdb");
     },
     chatsRoot: resolveChatsRoot,
@@ -247,13 +252,13 @@ export async function verifyImportVisibility(
       checks.push({
         name: "store.db",
         status: "FAIL",
-        detail: `missing at ~/.cursor/chats/${chatsKey}/${conversationId}/`,
+        detail: `missing at ${USER_LABEL_DOT_CURSOR_CHATS}/${chatsKey}/${conversationId}/`,
       });
     } else {
       checks.push({
         name: "store.db",
         status: "SKIP",
-        detail: `no file at ~/.cursor/chats/${chatsKey}/${conversationId}/`,
+        detail: `no file at ${USER_LABEL_DOT_CURSOR_CHATS}/${chatsKey}/${conversationId}/`,
       });
     }
   } else if (expectStore) {
@@ -335,7 +340,7 @@ export async function verifyImportVisibility(
   }
 
   if (workspaceContext) {
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const wsDb = path.join(
       cursorUser,
       "workspaceStorage",
@@ -405,8 +410,8 @@ export async function verifyActivationChecks(
   options: VerifyActivationChecksOptions = {}
 ): Promise<VerifyCheck[]> {
   const deps = { ...defaultDeps(), ...options.deps };
-  const pendingPath = options.pendingPath ?? ACTIVATION_PENDING_PATH;
-  const resultPath = options.resultPath ?? ACTIVATION_RESULT_PATH;
+  const pendingPath = options.pendingPath ?? ACTIVATION_PENDING_PATH();
+  const resultPath = options.resultPath ?? ACTIVATION_RESULT_PATH();
   const checks: VerifyCheck[] = [];
 
   let pendingCid: string | null = null;

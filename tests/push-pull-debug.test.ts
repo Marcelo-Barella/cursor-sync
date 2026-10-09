@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+type FetchInput = Parameters<typeof fetch>[0];
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -81,11 +83,10 @@ function extensionVersion(): string {
   ).version;
 }
 
-describe("push/pull debug wiring", () => {
+describe.sequential("push/pull debug wiring", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
       ok: true,
@@ -114,7 +115,7 @@ describe("push/pull debug wiring", () => {
   });
 
   it("calls showSyncFailureWithDebug on push gist create failure", async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
@@ -176,14 +177,14 @@ describe("push/pull debug wiring", () => {
     });
     expect(failure.message).toContain("Server error (500)");
     expect(options).toMatchObject({
-      title: expect.stringContaining("Push failed:"),
+      title: expect.stringContaining("Push to GitHub Gist failed:"),
     });
   });
 
   it("calls showSyncFailureWithDebug on pull getGist failure", async () => {
     const gistId = "abcdef1234567890abcdef1234567890";
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput) => {
       const url = String(input);
 
       if (url.endsWith(`/gists/${gistId}`)) {
@@ -217,7 +218,7 @@ describe("push/pull debug wiring", () => {
     const { executePull } = await import("../src/pull.js");
     const result = await executePull(mockContext(), { trigger: "scheduled" });
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ status: "failure" });
     expect(showSyncFailureWithDebugMock).toHaveBeenCalledTimes(1);
 
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
@@ -232,7 +233,7 @@ describe("push/pull debug wiring", () => {
     });
     expect(failure.message).toBe("Not Found");
     expect(options).toMatchObject({
-      title: expect.stringContaining("Pull failed:"),
+      title: expect.stringContaining("Pull from GitHub Gist failed:"),
     });
   });
 
@@ -259,6 +260,7 @@ describe("push/pull debug wiring", () => {
         relativeSyncKey: "cursor-user/settings.json",
         localChecksum: "local",
         remoteChecksum: "remote",
+        baseChecksum: "base",
       },
     ]);
     vi.spyOn(conflicts, "getResolutionForKey").mockReturnValue(undefined);
@@ -341,7 +343,7 @@ describe("push/pull debug wiring", () => {
     const { executePull } = await import("../src/pull.js");
     const result = await executePull(mockContext(), { trigger: "scheduled" });
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ status: "failure" });
     expect(showSyncFailureWithDebugMock).toHaveBeenCalledTimes(1);
 
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
@@ -363,13 +365,23 @@ describe("push/pull debug wiring", () => {
   });
 });
 
-describe("sync now debug wiring", () => {
+const hasAppSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(false));
+
+vi.mock("../src/app-configs.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/app-configs.js")>();
+  return {
+    ...actual,
+    hasAppSession: hasAppSessionMock,
+  };
+});
+
+describe.sequential("sync now debug wiring", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(async () => {
-    vi.resetModules();
     showSyncFailureWithDebugMock.mockClear();
     determineSyncActionMock.mockReset();
+    hasAppSessionMock.mockReset().mockResolvedValue(false);
     requireE2eUnlockedMock.mockReset().mockResolvedValue({
       ok: true,
       kind: "dek",
@@ -414,7 +426,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       message: "no_token",
       category: "no_token",
       extensionVersion: extensionVersion(),
@@ -441,7 +453,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       category: "CONFLICT",
       conflictCount: 2,
       message: "2 conflict(s) detected. Resolve them first.",
@@ -465,7 +477,7 @@ describe("sync now debug wiring", () => {
     const [, failure, options] = showSyncFailureWithDebugMock.mock.calls[0]!;
     expect(failure).toMatchObject({
       operation: "syncNow",
-      trigger: "manual",
+      trigger: "syncNow",
       message: "scheduler blew up",
       extensionVersion: extensionVersion(),
       platform: process.platform,
@@ -476,7 +488,7 @@ describe("sync now debug wiring", () => {
   it("does not duplicate debug toast when delegating to push failure", async () => {
     determineSyncActionMock.mockResolvedValue({ action: "push" });
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: FetchInput, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
 
