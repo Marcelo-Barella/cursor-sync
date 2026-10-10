@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { parseMetadataOverrides } from "./sync-manifest-overrides.js";
 
 export const SYNC_MANIFEST_SCHEMA_VERSION = 1 as const;
 
@@ -189,14 +190,18 @@ export function parseSyncManifestJson(
           const ir = inline as Record<string, unknown>;
           const content = ir.content as unknown[];
           const messages: Array<{ role: string; content: string }> = [];
-          for (const m of content) {
+          for (let mi = 0; mi < content.length; mi++) {
+            const m = content[mi];
             if (!m || typeof m !== "object" || Array.isArray(m)) {
+              errors.push(`chat_history[${i}].inline.content[${mi}] must be an object`);
               continue;
             }
             const mr = m as Record<string, unknown>;
-            if (typeof mr.role === "string" && typeof mr.content === "string") {
-              messages.push({ role: mr.role, content: mr.content });
+            if (typeof mr.role !== "string" || typeof mr.content !== "string") {
+              errors.push(`chat_history[${i}].inline.content[${mi}] needs string role and content`);
+              continue;
             }
+            messages.push({ role: mr.role, content: mr.content });
           }
           chat_history.push({
             workspace_key: wk,
@@ -218,29 +223,11 @@ export function parseSyncManifestJson(
 
   const dt = root.db_template as Record<string, unknown>;
   const mo = root.metadata_overrides as Record<string, unknown>;
-
-  let composer_header_payloads: Array<Record<string, unknown>> | undefined;
-  const chp = mo.composer_header_payloads;
-  if (chp !== undefined) {
-    if (!Array.isArray(chp)) {
-      return { ok: false, errors: ["metadata_overrides.composer_header_payloads must be array"] };
-    }
-    composer_header_payloads = [];
-    for (const p of chp) {
-      if (p && typeof p === "object" && !Array.isArray(p)) {
-        composer_header_payloads.push(p as Record<string, unknown>);
-      }
-    }
+  const overrides = parseMetadataOverrides(mo);
+  if (!overrides.ok) {
+    return overrides;
   }
-
-  let state_vscdb_sql: string[] | undefined;
-  const sqlRaw = mo.state_vscdb_sql;
-  if (sqlRaw !== undefined) {
-    if (!Array.isArray(sqlRaw)) {
-      return { ok: false, errors: ["metadata_overrides.state_vscdb_sql must be array of strings"] };
-    }
-    state_vscdb_sql = sqlRaw.filter((s): s is string => typeof s === "string");
-  }
+  const { state_vscdb_sql, composer_header_payloads } = overrides.overrides;
 
   const sqliteRel = String(dt.sqlite_file).trim();
   try {
