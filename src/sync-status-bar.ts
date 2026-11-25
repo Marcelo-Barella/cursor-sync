@@ -7,6 +7,8 @@ import { isSyncOperationActive } from "./sync-operation.js";
 import {
   activeScheduledRootHeldFingerprint,
   deriveStorageSyncPresentation,
+  formatStorageSyncStatusTooltip,
+  latestStorageHistoryEntry,
 } from "./storage-sync-ui-status.js";
 
 export async function refreshSyncStatusBar(
@@ -36,6 +38,7 @@ export async function refreshSyncStatusBar(
       activeHeldFingerprint: heldFp,
       tickFailed,
     });
+    const storageEntry = latestStorageHistoryEntry(history);
     if (options?.held && presentation.level === "ok") {
       presentation.level = "warning";
       presentation.warningKind = "held";
@@ -45,33 +48,35 @@ export async function refreshSyncStatusBar(
       presentation.level = "warning";
       presentation.warningKind = presentation.warningKind ?? "partial";
     }
+    const storageTooltip = formatStorageSyncStatusTooltip(presentation, storageEntry);
     switch (presentation.level) {
       case "error":
         updateStatusBar("error", {
           destination: "cursor-sync-storage",
-          detail: presentation.detail,
+          detail: storageTooltip,
           lastSync: presentation.lastSync,
         });
         return;
       case "conflict":
         updateStatusBar("conflict", {
           destination: "cursor-sync-storage",
-          detail: presentation.detail,
+          detail: storageTooltip,
           lastSync: presentation.lastSync,
         });
         return;
       case "warning":
         updateStatusBar("warning", {
           destination: "cursor-sync-storage",
-          detail: presentation.detail,
+          detail: storageTooltip,
           lastSync: presentation.lastSync,
+          warningKind: presentation.warningKind,
         });
         return;
       default:
         updateStatusBar("ok", {
           destination: "cursor-sync-storage",
           lastSync: presentation.lastSync,
-          detail: presentation.detail,
+          detail: storageTooltip,
         });
         return;
     }

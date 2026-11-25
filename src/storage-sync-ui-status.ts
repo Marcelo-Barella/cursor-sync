@@ -20,10 +20,16 @@ export function activeScheduledRootHeldFingerprint(
   return context.globalState.get<string>(SCHEDULED_ROOT_HELD_HISTORY_KEY);
 }
 
+export function storageHistoryEntries(
+  history: SyncHistoryEntry[]
+): SyncHistoryEntry[] {
+  return history.filter((entry) => entry.destination === "cursor-sync-storage");
+}
+
 export function latestStorageHistoryEntry(
   history: SyncHistoryEntry[]
 ): SyncHistoryEntry | undefined {
-  return history.find((entry) => entry.destination === "cursor-sync-storage");
+  return storageHistoryEntries(history)[0];
 }
 
 function entryDetail(entry: SyncHistoryEntry): string {
@@ -48,6 +54,9 @@ function sidebarStatusLabel(entry: SyncHistoryEntry): string {
   if (entry.held || entry.error?.startsWith("held:")) {
     return `Storage pull held`;
   }
+  if (entry.conflict) {
+    return "Storage sync conflict";
+  }
   if (entry.partial) {
     return `Storage ${entry.direction} partial`;
   }
@@ -63,9 +72,7 @@ export function deriveStorageSyncPresentation(input: {
   tickFailed?: boolean;
 }): StorageSyncUiPresentation {
   const activeHeld = Boolean(input.activeHeldFingerprint);
-  const storageHistory = input.history.filter(
-    (e) => e.destination === "cursor-sync-storage"
-  );
+  const storageHistory = storageHistoryEntries(input.history);
   const latestAny = storageHistory[0];
   const latestEffective =
     !activeHeld && latestAny?.held
@@ -135,10 +142,18 @@ export function deriveStorageSyncPresentation(input: {
   return { level: "ok", detail: "Logged in — no storage sync yet" };
 }
 
+export function formatStorageSyncStatusTooltip(
+  presentation: StorageSyncUiPresentation,
+  entry?: SyncHistoryEntry
+): string {
+  const detail = storageSyncSidebarStatusDetail(presentation, entry);
+  return `Cursor Sync storage — ${detail}`;
+}
+
 export function storageSyncSidebarStatus(
   presentation: StorageSyncUiPresentation
 ): "synced" | "error" | "syncing" | "warning" {
-  if (presentation.level === "error") {
+  if (presentation.level === "error" || presentation.level === "conflict") {
     return "error";
   }
   if (presentation.level === "warning") {
@@ -157,6 +172,9 @@ export function storageSyncSidebarStatusDetail(
     }
     if (presentation.warningKind === "partial" || entry.partial) {
       return sidebarStatusLabel({ ...entry, partial: true, success: true });
+    }
+    if (presentation.level === "conflict" || entry.conflict) {
+      return sidebarStatusLabel({ ...entry, success: false, conflict: true });
     }
     if (presentation.level === "error") {
       return sidebarStatusLabel({ ...entry, success: false });

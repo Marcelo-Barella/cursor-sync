@@ -862,9 +862,14 @@ def resolve_golden_store_template_path() -> Path | None:
     return None
 
 
+def _sqlite_open_readonly(db_path: Path) -> sqlite3.Connection:
+    uri = db_path.resolve().as_uri()
+    return sqlite3.connect(f"{uri}?mode=ro", uri=True)
+
+
 def read_template_user_version(db_path: Path) -> int | None:
     try:
-        conn = sqlite3.connect(db_path)
+        conn = _sqlite_open_readonly(db_path)
         try:
             row = conn.execute("PRAGMA user_version;").fetchone()
             if row and row[0] is not None:
@@ -884,7 +889,7 @@ def assert_golden_template_layout(db_path: Path) -> None:
             f"{GOLDEN_STORE_TEMPLATE_VERSION}, got {ver!r}. "
             "Regenerate resources/golden-chat-store.template.db."
         )
-    conn = sqlite3.connect(db_path)
+    conn = _sqlite_open_readonly(db_path)
     try:
         blob_cols = {row[1] for row in conn.execute("PRAGMA table_info(blobs);").fetchall()}
         meta_cols = {row[1] for row in conn.execute("PRAGMA table_info(meta);").fetchall()}

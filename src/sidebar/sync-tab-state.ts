@@ -12,9 +12,10 @@ function latestAttemptForDestination(
   history: SyncHistoryEntry[],
   destination: "github-gist" | "cursor-sync-storage"
 ): SyncHistoryEntry | undefined {
-  return history.find(
-    (entry) => (entry.destination ?? "github-gist") === destination
-  );
+  if (destination === "cursor-sync-storage") {
+    return latestStorageHistoryEntry(history);
+  }
+  return history.find((entry) => (entry.destination ?? "github-gist") === destination);
 }
 
 export function buildSyncTabStateFromInputs(input: {

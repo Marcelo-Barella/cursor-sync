@@ -10,6 +10,7 @@ export interface StatusBarUpdateOptions {
   lastSync?: Date;
   destination?: StatusBarDestination;
   detail?: string;
+  warningKind?: "held" | "partial";
   /** Command when state is unconfigured (defaults to app login). */
   unconfiguredCommand?: string;
   /** Alias used by logout-era callers (`updateStatusBar(state, lastSync, { setupCommand })`). */
@@ -49,6 +50,9 @@ export function updateStatusBar(
   const lastSync = options?.lastSync;
   const destination = options?.destination;
   const detail = options?.detail;
+  const warningKind = options?.warningKind;
+
+  statusBarItem.backgroundColor = undefined;
 
   let icon = "";
   let text = "Cursor Sync";
@@ -60,7 +64,7 @@ export function updateStatusBar(
       if (destination === "cursor-sync-storage") {
         text = "Sync: Storage";
         tooltip = detail
-          ? `Cursor Sync storage — ${detail}`
+          ? detail
           : lastSync
             ? `Cursor Sync storage — last sync ${lastSync.toLocaleString()}`
             : "Logged in to Cursor Sync storage";
@@ -94,9 +98,16 @@ export function updateStatusBar(
       break;
     case "warning":
       icon = "$(warning)";
-      text =
-        destination === "cursor-sync-storage" ? "Storage: Warning" : "Sync: Warning";
+      if (destination === "cursor-sync-storage" && warningKind === "partial") {
+        text = "Sync: Storage (partial)";
+      } else {
+        text =
+          destination === "cursor-sync-storage" ? "Storage: Warning" : "Sync: Warning";
+      }
       tooltip = detail ?? "Storage sync completed with warnings.";
+      statusBarItem.backgroundColor = new vscode.ThemeColor(
+        "statusBarItem.warningBackground"
+      );
       break;
     case "unconfigured":
       icon = "$(gear)";

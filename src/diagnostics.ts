@@ -196,9 +196,11 @@ export async function clearSyncState(
   }
 }
 
-function getSyncHistoryPath(context: vscode.ExtensionContext): string {
+export function getSyncHistoryPath(context: vscode.ExtensionContext): string {
   return path.join(context.globalStorageUri.fsPath, "sync-history.json");
 }
+
+let syncHistoryWriteChain: Promise<void> = Promise.resolve();
 
 export async function loadSyncHistory(
   context: vscode.ExtensionContext
@@ -282,13 +284,17 @@ export async function addSyncHistoryEntry(
   context: vscode.ExtensionContext,
   entry: SyncHistoryEntry
 ): Promise<void> {
-  const history = await loadSyncHistory(context);
-  history.unshift(entry);
-  if (history.length > MAX_HISTORY_ENTRIES) {
-    history.length = MAX_HISTORY_ENTRIES;
-  }
-  const filePath = getSyncHistoryPath(context);
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(history, null, 2), "utf-8");
+  const writeTask = syncHistoryWriteChain.then(async () => {
+    const history = await loadSyncHistory(context);
+    history.unshift(entry);
+    if (history.length > MAX_HISTORY_ENTRIES) {
+      history.length = MAX_HISTORY_ENTRIES;
+    }
+    const filePath = getSyncHistoryPath(context);
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(filePath, JSON.stringify(history, null, 2), "utf-8");
+  });
+  syncHistoryWriteChain = writeTask.catch(() => undefined);
+  await writeTask;
 }

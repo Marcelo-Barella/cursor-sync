@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveStorageSyncPresentation } from "../src/storage-sync-ui-status.js";
+import {
+  deriveStorageSyncPresentation,
+  formatStorageSyncStatusTooltip,
+} from "../src/storage-sync-ui-status.js";
 import type { SyncHistoryEntry } from "../src/types.js";
 
 function storageEntry(
@@ -53,6 +56,16 @@ describe("deriveStorageSyncPresentation", () => {
     expect(p.level).toBe("ok");
   });
 
+  it("formats tooltip from the same derived detail as the sidebar", () => {
+    const history = [
+      storageEntry({ success: true, direction: "push", fileCount: 3 }),
+    ];
+    const presentation = deriveStorageSyncPresentation({ history });
+    const tooltip = formatStorageSyncStatusTooltip(presentation, history[0]);
+    expect(tooltip).toContain("push succeeded");
+    expect(tooltip).not.toContain("no storage sync yet");
+  });
+
   it("treats partial pulls as warning not error", () => {
     const history = [
       storageEntry({ success: false, partial: true, fileCount: 2, error: "partial msg" }),
@@ -60,5 +73,22 @@ describe("deriveStorageSyncPresentation", () => {
     const p = deriveStorageSyncPresentation({ history });
     expect(p.level).toBe("warning");
     expect(p.warningKind).toBe("partial");
+  });
+
+  it("tooltip reports conflict instead of succeeded", () => {
+    const history = [
+      storageEntry({
+        success: false,
+        conflict: true,
+        fileCount: 2,
+        direction: "pull",
+        error: "2 conflicting file(s)",
+      }),
+    ];
+    const presentation = deriveStorageSyncPresentation({ history });
+    expect(presentation.level).toBe("conflict");
+    const tooltip = formatStorageSyncStatusTooltip(presentation, history[0]);
+    expect(tooltip).toMatch(/conflict/i);
+    expect(tooltip).not.toMatch(/succeeded/i);
   });
 });

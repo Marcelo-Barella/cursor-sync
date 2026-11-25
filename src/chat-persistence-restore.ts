@@ -459,10 +459,18 @@ export async function restoreChatBundle(
     for (const c of diskChecks) {
       logChatRestoreDebug(`verify: ${formatVerifyCheckLine(c)}`);
     }
+    const diskRestored =
+      storeWritten || transcriptsWritten > 0 || sidebarMerged;
     if (!verifyChecksAllOk(diskChecks)) {
-      throw new Error(
-        `Import verify failed (see verify lines above):\n${formatVerifyReport(diskChecks)}`
-      );
+      if (diskRestored) {
+        warnings.push(
+          "Disk verify reported issues after restore. Open the Cursor Sync output channel for check details."
+        );
+      } else {
+        throw new Error(
+          `Import verify failed (see verify lines above):\n${formatVerifyReport(diskChecks)}`
+        );
+      }
     }
 
     const sidebarOnDisk = sidebarVisibleOnDiskFromVerify(diskChecks);
@@ -533,8 +541,13 @@ export async function restoreChatBundle(
         logChatRestoreDebug(`verify: ${formatVerifyCheckLine(c)}`);
       }
       if (!verifyChecksAllOk(activationChecks)) {
-        throw new Error(
-          `Activation verify failed:\n${formatVerifyReport(activationChecks)}`
+        if (options.activateStrict) {
+          throw new Error(
+            `Activation verify failed:\n${formatVerifyReport(activationChecks)}`
+          );
+        }
+        warnings.push(
+          "Activation verify reported issues. Open the Cursor Sync output channel for details."
         );
       }
     } else if (options.postActivate) {
@@ -545,8 +558,8 @@ export async function restoreChatBundle(
         logChatRestoreDebug(`verify: ${formatVerifyCheckLine(c)}`);
       }
       if (!verifyChecksAllOk(activationChecks)) {
-        throw new Error(
-          `Activation verify failed:\n${formatVerifyReport(activationChecks)}`
+        warnings.push(
+          "Activation verify reported issues. Open the Cursor Sync output channel for details."
         );
       }
     }
@@ -579,6 +592,11 @@ export async function restoreChatBundle(
   }
   publishImportFidelitySummary(conversationId, fidelity);
 
+  const verifyDegraded =
+    verifyChecks.length > 0 &&
+    !verifyChecksAllOk(verifyChecks) &&
+    (storeWritten || transcriptsWritten > 0 || sidebarMerged);
+
   const result: LoadChatResult = {
     conversationId,
     transcriptsWritten,
@@ -587,6 +605,7 @@ export async function restoreChatBundle(
     sidebarMerged,
     warnings,
     verifyChecks: verifyChecks.length > 0 ? verifyChecks : undefined,
+    verifyDegraded: verifyDegraded || undefined,
     fidelity,
   };
   logChatRestoreDebug(

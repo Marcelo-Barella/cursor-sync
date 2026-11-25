@@ -321,4 +321,63 @@ describe("chat-import-ux", () => {
       "Imported 1/2 chats. 1 failed: Broken."
     );
   });
+
+  it("presentBatchChatImportOutcome does not claim restore for verify FAIL without disk writes", async () => {
+    const { presentBatchChatImportOutcome } = await import("../src/chat-import-ux.js");
+    await presentBatchChatImportOutcome(
+      mockExtensionContext,
+      {
+        successes: [
+          {
+            conversationId: "conv-a",
+            transcriptsWritten: 0,
+            storeWritten: false,
+            sidebarMerged: false,
+            warnings: ["Activation verify reported issues."],
+            verifyChecks: [
+              { name: "activation.result", status: "FAIL", detail: "missing" },
+            ],
+          },
+        ],
+        failures: [],
+      },
+      { activate: false },
+      "gist-chat-import",
+      1
+    );
+    expect(showWarningMessageMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("restored")
+    );
+    expect(showInformationMessageMock).toHaveBeenCalledWith("Imported 1/1 chat.");
+  });
+
+  it("presentBatchChatImportOutcome warns when disk restored but verify failed", async () => {
+    const { presentBatchChatImportOutcome } = await import("../src/chat-import-ux.js");
+    await presentBatchChatImportOutcome(
+      mockExtensionContext,
+      {
+        successes: [
+          {
+            conversationId: "conv-a",
+            transcriptsWritten: 0,
+            storeWritten: true,
+            sidebarMerged: false,
+            warnings: [],
+            verifyDegraded: true,
+            verifyChecks: [
+              { name: "global.composerHeaders", status: "FAIL", detail: "missing" },
+            ],
+          },
+        ],
+        failures: [],
+      },
+      { activate: false },
+      "gist-chat-import",
+      1
+    );
+    expect(showWarningMessageMock).toHaveBeenCalledWith(
+      expect.stringMatching(/restored \(store.db\) with verify warnings.*Imported 1\/1 chat/)
+    );
+    expect(showErrorMessageMock).not.toHaveBeenCalled();
+  });
 });

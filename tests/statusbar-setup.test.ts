@@ -4,6 +4,7 @@ const statusBarItem = {
   text: "",
   tooltip: "",
   command: "",
+  backgroundColor: undefined as unknown,
   show: vi.fn(),
   hide: vi.fn(),
 };
@@ -13,6 +14,9 @@ vi.mock("vscode", () => ({
     createStatusBarItem: vi.fn(() => statusBarItem),
   },
   StatusBarAlignment: { Right: 1 },
+  ThemeColor: class {
+    constructor(public id: string) {}
+  },
 }));
 
 describe("status bar Setup command wiring", () => {
@@ -33,6 +37,18 @@ describe("status bar Setup command wiring", () => {
     initializeStatusBar({ subscriptions: { push: vi.fn() } } as never);
     updateStatusBar("unconfigured");
     expect(statusBarItem.command).toBe("cursorSync.loginToApp");
+  });
+
+  it("updateStatusBar storage partial warning uses partial label and theme background", async () => {
+    const { initializeStatusBar, updateStatusBar } = await import("../src/statusbar.js");
+    initializeStatusBar({ subscriptions: { push: vi.fn() } } as never);
+    updateStatusBar("warning", {
+      destination: "cursor-sync-storage",
+      warningKind: "partial",
+      detail: "Cursor Sync storage — Storage pull partial",
+    });
+    expect(statusBarItem.text).toContain("Storage (partial)");
+    expect(statusBarItem.backgroundColor).toBeTruthy();
   });
 
   it("updateStatusBar unconfigured honors explicit configureGithub", async () => {

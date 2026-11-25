@@ -116,6 +116,7 @@ export interface LoadChatResult {
   sidebarMerged: boolean;
   warnings: string[];
   verifyChecks?: VerifyCheck[];
+  verifyDegraded?: boolean;
   fidelity?: import("./chat-bundle-fidelity.js").ChatBundleFidelitySummary;
 }
 

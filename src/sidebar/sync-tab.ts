@@ -112,12 +112,25 @@ export function renderHistoryEntry(entry: SyncHistoryEntry): string {
   const icon = entry.direction === "push" ? "arrow-up" : "arrow-down";
   const dirLabel = entry.direction === "push" ? "Push" : "Pull";
   const triggerBadge = entry.trigger === "scheduled" ? `<span class="badge badge-auto">auto</span>` : "";
-  const statusClass = entry.success ? "success" : "failure";
+  const statusClass = entry.partial
+    ? "warning"
+    : entry.held || entry.error?.startsWith("held:")
+      ? "warning"
+      : entry.success
+        ? "success"
+        : "failure";
   const statusDot = `<span class="status-dot ${statusClass}"></span>`;
   const time = relativeTime(entry.timestamp);
-  const detail = entry.success
-    ? `${entry.fileCount} file${entry.fileCount !== 1 ? "s" : ""}`
-    : escapeHtml(entry.error ?? "Failed");
+  const detail = entry.partial
+    ? `partial — ${entry.fileCount} file${entry.fileCount !== 1 ? "s" : ""}${entry.error ? ` — ${escapeHtml(entry.error)}` : ""}`
+    : entry.held || entry.error?.startsWith("held:")
+      ? escapeHtml(
+          entry.error?.replace(/^held:\s*/, "held — ") ??
+            "Held"
+        )
+      : entry.success
+        ? `${entry.fileCount} file${entry.fileCount !== 1 ? "s" : ""}`
+        : escapeHtml(entry.error ?? "Failed");
 
   return `<div class="history-entry">
     <div class="history-entry-left">
@@ -207,6 +220,11 @@ export function renderSyncPane(state: SyncTabState): string {
     </g>
   </svg>`;
 
+  const statusCardIcon =
+    state.status === "synced"
+      ? cursorLogoSvg
+      : `<span class="codicon codicon-${statusIcon}" aria-hidden="true"></span>`;
+
   const historyHtml = state.history.length > 0
     ? state.history.map(renderHistoryEntry).join("")
     : `<div class="empty-state">No sync history yet</div>`;
@@ -233,7 +251,7 @@ export function renderSyncPane(state: SyncTabState): string {
   ${renderE2eLockBanner(state)}
   <div class="status-card ${state.status}">
     <div class="status-icon-wrapper">
-      ${state.status === "synced" ? cursorLogoSvg : `<span class="codicon codicon-${statusIcon}"></span>`}
+      ${statusCardIcon}
     </div>
     <div class="status-info">
       <span class="status-label">${statusLabel}</span>
