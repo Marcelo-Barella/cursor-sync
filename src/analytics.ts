@@ -1,17 +1,24 @@
 import * as vscode from "vscode";
 import * as crypto from "node:crypto";
+import { getAppApiUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
 const CLIENT_ID_KEY = "cursorSync.analytics.clientId";
-const GA4_COLLECT_URL = "https://www.google-analytics.com/mp/collect";
-const GA4_MEASUREMENT_ID = "G-0GVF6BNM25";
-const GA4_API_SECRET = "rfkGZLnCRZSlhkSiHA1eTg";
+const TELEMETRY_TIMEOUT_MS = 4000;
 
 function logAnalyticsFailure(message: string): void {
   try {
     getLogger().appendLine(`[Analytics] ${message}`);
   } catch {
     // Logger unavailable during tests or early activation.
+  }
+}
+
+export function isAnalyticsSendingEnabled(): boolean {
+  try {
+    return vscode.env.isTelemetryEnabled;
+  } catch {
+    return false;
   }
 }
 
@@ -42,7 +49,7 @@ export function getOrCreateClientId(
 }
 
 /**
- * Sends an event to GA4 via Measurement Protocol. Fire-and-forget; never throws.
+ * Sends an event to the Cursor Sync API telemetry endpoint. Fire-and-forget; never throws.
  * Caller must ensure params contain no sensitive data (token, gistId, paths, error.message).
  */
 export function sendEvent(
@@ -50,6 +57,10 @@ export function sendEvent(
   name: string,
   params: Record<string, string | number | boolean | undefined>
 ): void {
+  if (!isAnalyticsSendingEnabled()) {
+    return;
+  }
+
   try {
     const clientId = getOrCreateClientId(context);
     const sanitizedParams: Record<string, string | number | boolean> = {};
@@ -59,7 +70,8 @@ export function sendEvent(
       }
     }
 
-    const url = `${GA4_COLLECT_URL}?measurement_id=${encodeURIComponent(GA4_MEASUREMENT_ID)}&api_secret=${encodeURIComponent(GA4_API_SECRET)}`;
+    const apiBase = getAppApiUrl();
+    const url = `${apiBase.replace(/\/+$/, "")}/v1/telemetry`;
     const body = JSON.stringify({
       client_id: clientId,
       events: [{ name, params: sanitizedParams }],
@@ -73,16 +85,20 @@ export function sendEvent(
       // ignore
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TELEMETRY_TIMEOUT_MS);
     void fetch(url, {
       method: "POST",
       body,
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     })
+      .finally(() => clearTimeout(timeout))
       .then((response) => {
         if (!response.ok) {
           return response.text().then((text) => {
             logAnalyticsFailure(
-              `GA returned error: status=${response.status} body=${text}`
+              `Telemetry API error: status=${response.status} body=${text}`
             );
           });
         }
