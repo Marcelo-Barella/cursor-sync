@@ -2077,6 +2077,10 @@ export async function executePushAppConfigs(
     return false;
   } finally {
     run.end();
+    const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+    const { refreshSidebar } = await import("./sidebar/index.js");
+    await refreshSyncStatusBar(context);
+    refreshSidebar();
   }
 }
 
@@ -2328,7 +2332,8 @@ export async function executePullAppConfigs(
       const selected = await vscode.window.showQuickPick(items, {
         canPickMany: true,
         title: "Cursor Sync storage: files to overwrite",
-        placeHolder: "Deselect files you do not want to overwrite",
+        placeHolder:
+          "Checked files will overwrite local copies. Uncheck local-only edits to keep.",
       });
 
       if (!selected) {
@@ -2440,9 +2445,7 @@ export async function executePullAppConfigs(
       filesToWrite.length === 0 &&
       filesToDelete.length === 0
     ) {
-      vscode.window.showInformationMessage(
-        `Pull from ${destinationLabel} cancelled. Nothing was changed.`
-      );
+      vscode.window.showInformationMessage("Pull cancelled. No files changed.");
       logger.appendLine(`[${new Date().toISOString()}] Pull app configs cancelled by user`);
       return "failure";
     }
@@ -2861,6 +2864,10 @@ export async function executePullAppConfigs(
     return "failure";
   } finally {
     run.end();
+    const { refreshSyncStatusBar } = await import("./sync-status-bar.js");
+    const { refreshSidebar } = await import("./sidebar/index.js");
+    await refreshSyncStatusBar(context);
+    refreshSidebar();
   }
 }
 

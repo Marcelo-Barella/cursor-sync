@@ -35,6 +35,36 @@ function bundleTitleOrId(bundle: ChatBundle): string {
   return title || bundle.conversationId;
 }
 
+function verifyFailureNames(result: LoadChatResult): string[] {
+  return (result.verifyChecks ?? [])
+    .filter((c) => c.status === "FAIL")
+    .map((c) => c.name);
+}
+
+export function formatChatImportVerifyDegradedMessage(result: LoadChatResult): string {
+  const failed = verifyFailureNames(result);
+  const restoredParts: string[] = [];
+  if (result.storeWritten) {
+    restoredParts.push("store.db");
+  }
+  if (result.transcriptsWritten > 0) {
+    restoredParts.push(
+      `${result.transcriptsWritten} transcript file${result.transcriptsWritten === 1 ? "" : "s"}`
+    );
+  }
+  if (result.sidebarMerged) {
+    restoredParts.push("sidebar state");
+  }
+  const restored =
+    restoredParts.length > 0 ? restoredParts.join(", ") : "disk data";
+  const checks =
+    failed.length > 0 ? failed.join(", ") : "post-restore checks";
+  return (
+    `Chat "${result.conversationId}" restored (${restored}) with verify warnings: ${checks}. ` +
+    "Open the Cursor Sync output channel for details. If the chat is missing from the sidebar, try Reload Window."
+  );
+}
+
 function formatFailedImportLabels(
   failures: BatchChatImportFailure[],
   maxShown = 3
@@ -258,7 +288,9 @@ export async function presentChatImportOutcome(
 ): Promise<void> {
   const logger = getLogger();
   const message = buildChatImportResultMessage(result, restoreOptions);
-  if (result.fidelity?.textOnlyLayer4) {
+  if (result.verifyDegraded || verifyFailureNames(result).length > 0) {
+    vscode.window.showWarningMessage(formatChatImportVerifyDegradedMessage(result));
+  } else if (result.fidelity?.textOnlyLayer4) {
     vscode.window.showWarningMessage(
       `${message} — Text-only Layer 4: no diskKvSnapshot (schema v${result.fidelity.schemaVersion}). Tool/MCP UI cards will not match the source; re-export with Python transport after opening the chat on the source machine.`
     );
@@ -326,6 +358,10 @@ export async function presentBatchChatImportOutcome(
   const partialFail = batch.failures.length > 0;
   const anyTextOnlyLayer4 = batch.successes.some((r) => r.fidelity?.textOnlyLayer4);
 
+  const verifyDegraded = batch.successes.filter(
+    (s) => s.verifyDegraded || verifyFailureNames(s).length > 0
+  );
+
   if (successCount === 0) {
     const detail = formatFailedImportLabels(batch.failures);
     vscode.window.showErrorMessage(
@@ -343,7 +379,13 @@ export async function presentBatchChatImportOutcome(
       " Text-only Layer 4: no diskKvSnapshot on some imports; tool/MCP UI cards may not match the source.";
   }
 
-  if (partialFail || anyTextOnlyLayer4) {
+  if (verifyDegraded.length > 0) {
+    const degradedMsg =
+      verifyDegraded.length === 1
+        ? formatChatImportVerifyDegradedMessage(verifyDegraded[0]!)
+        : `${verifyDegraded.length} chat(s) restored with verify warnings. ${summary} See Cursor Sync output for per-check details.`;
+    vscode.window.showWarningMessage(degradedMsg);
+  } else if (partialFail || anyTextOnlyLayer4) {
     vscode.window.showWarningMessage(summary);
   } else {
     vscode.window.showInformationMessage(summary);

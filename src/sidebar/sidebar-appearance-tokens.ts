@@ -27,6 +27,11 @@ export function renderSidebarAppearanceTokenCss(): string {
       --cs-btn-primary-bg: #ededec;
       --cs-btn-primary-fg: #0c0c0a;
       --cs-btn-primary-hover: rgba(237, 236, 236, 0.88);
+      --cs-btn-logout-bg: rgba(248, 113, 113, 0.14);
+      --cs-btn-logout-fg: #fecaca;
+      --cs-btn-logout-border: rgba(248, 113, 113, 0.45);
+      --cs-btn-logout-hover-bg: rgba(248, 113, 113, 0.22);
+      --cs-warning-fg: #fbbf24;
       --cs-scroll-track: #161614;
       --cs-scroll-thumb: #2a2a28;
       --cs-scroll-thumb-hover: #3a3a37;
@@ -63,6 +68,11 @@ export function renderSidebarAppearanceTokenCss(): string {
       --cs-btn-primary-bg: #14120b;
       --cs-btn-primary-fg: #f3f2ee;
       --cs-btn-primary-hover: rgba(20, 18, 11, 0.88);
+      --cs-btn-logout-bg: rgba(185, 28, 28, 0.1);
+      --cs-btn-logout-fg: #991b1b;
+      --cs-btn-logout-border: rgba(185, 28, 28, 0.35);
+      --cs-btn-logout-hover-bg: rgba(185, 28, 28, 0.16);
+      --cs-warning-fg: #b45309;
       --cs-scroll-track: #e8e7e3;
       --cs-scroll-thumb: #c9c8c4;
       --cs-scroll-thumb-hover: #b0afab;

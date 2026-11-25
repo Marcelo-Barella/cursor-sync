@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.14
+
+### Fixed
+
+- Status bar storage tooltip derives from the same sync-history presentation as Show Status; refreshes after app-configs push/pull command paths.
+- Partial app storage sync uses warning status bar state (`statusBarItem.warningBackground`), partial label text, and clears on the next full success.
+- Sidebar Sync Warning card shows codicon warning styling; sync history list reflects partial/held rows.
+- Serialized `sync-history.json` writes so sidebar and disk share one source of truth for partial entries.
+- Pull overwrite picker placeholder matches remote-preselected / local-unchecked safe mode behavior.
+- Settings Log out button uses higher-contrast theme tokens for dark and light sidebar themes.
+- Chat import distinguishes disk-restored verify warnings from hard failures (actionable copy).
+- Bundled chat Python opens golden store template read-only before copying for synthesis.
+- Shortened pull cancel toast to avoid truncation.
+
 ## v0.9.0-staging.13
 
 ### Changed

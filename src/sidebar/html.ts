@@ -174,6 +174,14 @@ export async function renderSidebarHtml(
       border-color: rgba(248, 113, 113, 0.25);
       box-shadow: 0 0 20px rgba(248, 113, 113, 0.08);
     }
+    .status-card.warning {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, var(--cs-surface) 100%);
+      border-color: rgba(245, 158, 11, 0.22);
+    }
+    .status-card.warning:hover {
+      border-color: rgba(245, 158, 11, 0.32);
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
+    }
 
     .status-icon-wrapper {
       width: 40px;
@@ -214,6 +222,14 @@ export async function renderSidebarHtml(
       background: rgba(248, 113, 113, 0.12);
       color: #f87171;
       box-shadow: 0 0 12px rgba(248, 113, 113, 0.15);
+    }
+    .warning .status-icon-wrapper {
+      background: rgba(245, 158, 11, 0.14);
+      color: var(--cs-warning-fg);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.18);
+    }
+    .warning .status-icon-wrapper .codicon-warning {
+      color: var(--cs-warning-fg);
     }
 
     .status-info { flex: 1; min-width: 0; }
@@ -397,6 +413,10 @@ export async function renderSidebarHtml(
       background: #f87171;
       box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
     }
+    .status-dot.warning {
+      background: var(--cs-warning-fg);
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
+    }
 
     .badge {
       font-size: 9px;
@@ -441,6 +461,17 @@ export async function renderSidebarHtml(
       background: rgba(52, 211, 153, 0.04);
     }
     .configure-btn .codicon { font-size: 13px; }
+    .configure-btn-logout {
+      border-style: solid;
+      border-color: var(--cs-btn-logout-border);
+      background: var(--cs-btn-logout-bg);
+      color: var(--cs-btn-logout-fg);
+    }
+    .configure-btn-logout:hover {
+      border-color: var(--cs-btn-logout-border);
+      background: var(--cs-btn-logout-hover-bg);
+      color: var(--cs-btn-logout-fg);
+    }
 
     .codicon {
       font-family: 'codicon';

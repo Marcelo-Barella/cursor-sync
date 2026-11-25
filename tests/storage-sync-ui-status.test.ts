@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveStorageSyncPresentation } from "../src/storage-sync-ui-status.js";
+import {
+  deriveStorageSyncPresentation,
+  formatStorageSyncStatusTooltip,
+} from "../src/storage-sync-ui-status.js";
 import type { SyncHistoryEntry } from "../src/types.js";
 
 function storageEntry(
@@ -51,6 +54,16 @@ describe("deriveStorageSyncPresentation", () => {
       activeHeldFingerprint: undefined,
     });
     expect(p.level).toBe("ok");
+  });
+
+  it("formats tooltip from the same derived detail as the sidebar", () => {
+    const history = [
+      storageEntry({ success: true, direction: "push", fileCount: 3 }),
+    ];
+    const presentation = deriveStorageSyncPresentation({ history });
+    const tooltip = formatStorageSyncStatusTooltip(presentation, history[0]);
+    expect(tooltip).toContain("push succeeded");
+    expect(tooltip).not.toContain("no storage sync yet");
   });
 
   it("treats partial pulls as warning not error", () => {

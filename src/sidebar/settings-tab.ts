@@ -68,7 +68,7 @@ export function renderSettingsAccountSection(account: SettingsTabAccountState): 
     <div class="section-header">Account</div>
     <div class="settings-list">
       ${emailHtml}
-      <button type="button" class="configure-btn" data-command="appLogout" style="margin-top:8px">
+      <button type="button" class="configure-btn configure-btn-logout" data-command="appLogout" style="margin-top:8px">
         <span class="codicon codicon-sign-out"></span> Log out
       </button>
     </div>

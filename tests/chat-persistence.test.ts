@@ -622,7 +622,31 @@ describe("restoreChatBundle import-v2 activation", () => {
     ).rejects.toThrow(/activate-strict/i);
   });
 
-  it("throws when activation verify returns FAIL", async () => {
+  it("returns verifyDegraded when activation verify returns FAIL without activateStrict", async () => {
+    mockVerifyActivationChecks.mockResolvedValueOnce([
+      {
+        name: "activation.result",
+        status: "FAIL",
+        detail: "missing result.json",
+      },
+    ]);
+    const { restoreChatBundle } = await import("../src/chat-persistence.js");
+    const context = {
+      globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
+      extensionUri: { fsPath: path.join(tempHome, "extension") },
+    } as unknown as import("vscode").ExtensionContext;
+
+    const result = await restoreChatBundle(
+      context,
+      minimalBundle("conv-activate-verify-fail"),
+      { report: () => {} },
+      { activate: true, workspaceFolder: FIXTURE_REPO }
+    );
+    expect(result.warnings.some((w) => w.includes("Activation verify"))).toBe(true);
+    expect(result.verifyChecks?.some((c) => c.status === "FAIL")).toBe(true);
+  });
+
+  it("throws when activation verify returns FAIL with activateStrict", async () => {
     mockVerifyActivationChecks.mockResolvedValueOnce([
       {
         name: "activation.result",
@@ -639,9 +663,9 @@ describe("restoreChatBundle import-v2 activation", () => {
     await expect(
       restoreChatBundle(
         context,
-        minimalBundle("conv-activate-verify-fail"),
+        minimalBundle("conv-activate-verify-fail-strict"),
         { report: () => {} },
-        { activate: true, workspaceFolder: FIXTURE_REPO }
+        { activate: true, activateStrict: true, workspaceFolder: FIXTURE_REPO }
       )
     ).rejects.toThrow(/Activation verify failed/);
   });

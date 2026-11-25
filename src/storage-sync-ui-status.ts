@@ -20,10 +20,16 @@ export function activeScheduledRootHeldFingerprint(
   return context.globalState.get<string>(SCHEDULED_ROOT_HELD_HISTORY_KEY);
 }
 
+export function storageHistoryEntries(
+  history: SyncHistoryEntry[]
+): SyncHistoryEntry[] {
+  return history.filter((entry) => entry.destination === "cursor-sync-storage");
+}
+
 export function latestStorageHistoryEntry(
   history: SyncHistoryEntry[]
 ): SyncHistoryEntry | undefined {
-  return history.find((entry) => entry.destination === "cursor-sync-storage");
+  return storageHistoryEntries(history)[0];
 }
 
 function entryDetail(entry: SyncHistoryEntry): string {
@@ -63,9 +69,7 @@ export function deriveStorageSyncPresentation(input: {
   tickFailed?: boolean;
 }): StorageSyncUiPresentation {
   const activeHeld = Boolean(input.activeHeldFingerprint);
-  const storageHistory = input.history.filter(
-    (e) => e.destination === "cursor-sync-storage"
-  );
+  const storageHistory = storageHistoryEntries(input.history);
   const latestAny = storageHistory[0];
   const latestEffective =
     !activeHeld && latestAny?.held
@@ -133,6 +137,14 @@ export function deriveStorageSyncPresentation(input: {
   }
 
   return { level: "ok", detail: "Logged in — no storage sync yet" };
+}
+
+export function formatStorageSyncStatusTooltip(
+  presentation: StorageSyncUiPresentation,
+  entry?: SyncHistoryEntry
+): string {
+  const detail = storageSyncSidebarStatusDetail(presentation, entry);
+  return `Cursor Sync storage — ${detail}`;
 }
 
 export function storageSyncSidebarStatus(
