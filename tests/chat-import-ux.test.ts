@@ -347,7 +347,7 @@ describe("chat-import-ux", () => {
       1
     );
     expect(showWarningMessageMock).toHaveBeenCalledWith(
-      expect.stringContaining("restored (store.db) with verify warnings")
+      expect.stringMatching(/restored \(store.db\) with verify warnings.*Imported 1\/1 chat/)
     );
     expect(showErrorMessageMock).not.toHaveBeenCalled();
   });

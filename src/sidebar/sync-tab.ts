@@ -124,7 +124,10 @@ export function renderHistoryEntry(entry: SyncHistoryEntry): string {
   const detail = entry.partial
     ? `partial — ${entry.fileCount} file${entry.fileCount !== 1 ? "s" : ""}${entry.error ? ` — ${escapeHtml(entry.error)}` : ""}`
     : entry.held || entry.error?.startsWith("held:")
-      ? escapeHtml(entry.error?.replace(/^held:\s*/, "held") ?? "Held")
+      ? escapeHtml(
+          entry.error?.replace(/^held:\s*/, "held — ") ??
+            "Held"
+        )
       : entry.success
         ? `${entry.fileCount} file${entry.fileCount !== 1 ? "s" : ""}`
         : escapeHtml(entry.error ?? "Failed");

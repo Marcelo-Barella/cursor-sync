@@ -380,10 +380,11 @@ export async function presentBatchChatImportOutcome(
   }
 
   if (verifyDegraded.length > 0) {
-    const degradedMsg =
+    const degradedLead =
       verifyDegraded.length === 1
         ? formatChatImportVerifyDegradedMessage(verifyDegraded[0]!)
-        : `${verifyDegraded.length} chat(s) restored with verify warnings. ${summary} See Cursor Sync output for per-check details.`;
+        : `${verifyDegraded.length} chat(s) restored with verify warnings.`;
+    const degradedMsg = `${degradedLead} ${summary}`.trim();
     vscode.window.showWarningMessage(degradedMsg);
   } else if (partialFail || anyTextOnlyLayer4) {
     vscode.window.showWarningMessage(summary);
