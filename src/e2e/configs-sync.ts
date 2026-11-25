@@ -8,6 +8,11 @@ import { envelopeFromBase64Wire, envelopeToBase64Wire, isValidCse1EnvelopeBytes 
 import { encryptObjectPayload, decryptObjectPayload } from "./key-material.js";
 import type { E2eConfigsManifestPayload } from "./manifest-payload.js";
 import { parseManifestPayload, serializeManifestPayload } from "./manifest-payload.js";
+import {
+  AppConfigsSessionExpiredError,
+  isAbortLikeError,
+} from "../app-config-errors.js";
+import { AppConfigsAbortedError } from "../app-session-coordination.js";
 
 export interface ConfigsApiResponse {
   payload: AppConfigsPayloadV1 | Record<string, unknown> | null;
@@ -48,16 +53,26 @@ function parseConfigsResponse(data: Record<string, unknown>): ConfigsApiResponse
 }
 
 export async function fetchConfigsApi(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { signal?: AbortSignal }
 ): Promise<ConfigsApiResponse | undefined> {
   const session = await getAppSession(context);
   if (!session) {
     return undefined;
   }
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await authorizedAppApiFetch(session, `${base}/configs`, {
-    method: "GET",
-  });
+  let response: Response;
+  try {
+    response = await authorizedAppApiFetch(session, `${base}/configs`, {
+      method: "GET",
+      signal: options?.signal,
+    });
+  } catch (err) {
+    if (options?.signal?.aborted || isAbortLikeError(err)) {
+      throw new AppConfigsAbortedError("logout");
+    }
+    throw err;
+  }
   if (response.status === 401) {
     return undefined;
   }
@@ -114,7 +129,8 @@ export class ConfigsManifestConflictError extends Error {
 
 export async function putConfigsManifest(
   context: vscode.ExtensionContext,
-  body: ConfigsPutBody
+  body: ConfigsPutBody,
+  options?: { signal?: AbortSignal }
 ): Promise<ConfigsApiResponse> {
   const session = await getAppSession(context);
   if (!session) {
@@ -122,13 +138,25 @@ export async function putConfigsManifest(
   }
   assertWireManifestCiphertext(body.manifestCiphertext);
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await authorizedAppApiFetch(session, `${base}/configs`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await authorizedAppApiFetch(session, `${base}/configs`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    });
+  } catch (err) {
+    if (options?.signal?.aborted || isAbortLikeError(err)) {
+      throw new AppConfigsAbortedError("logout");
+    }
+    throw err;
+  }
+  if (response.status === 401) {
+    throw new AppConfigsSessionExpiredError();
+  }
   if (response.status === 409) {
     const err = await readAppApiErrorJson(response);
     if (err.error === "MANIFEST_VERSION_MISMATCH") {
@@ -146,19 +174,21 @@ export async function putConfigsManifest(
 export async function putConfigsManifestWithRetry(
   context: vscode.ExtensionContext,
   buildBody: (expectedManifestVersion: number) => ConfigsPutBody,
-  options?: { maxAttempts?: number }
+  options?: { maxAttempts?: number; signal?: AbortSignal }
 ): Promise<ConfigsApiResponse> {
   const maxAttempts = options?.maxAttempts ?? 3;
   let attempt = 0;
-  const remote = await fetchConfigsApi(context);
+  const remote = await fetchConfigsApi(context, { signal: options?.signal });
   let expectedVersion = remote?.manifestVersion ?? 0;
   while (attempt < maxAttempts) {
     attempt += 1;
     try {
-      return await putConfigsManifest(context, buildBody(expectedVersion));
+      return await putConfigsManifest(context, buildBody(expectedVersion), {
+        signal: options?.signal,
+      });
     } catch (err) {
       if (err instanceof ConfigsManifestConflictError) {
-        const latest = await fetchConfigsApi(context);
+        const latest = await fetchConfigsApi(context, { signal: options?.signal });
         expectedVersion = latest?.manifestVersion ?? expectedVersion;
         continue;
       }

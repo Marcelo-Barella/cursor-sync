@@ -6,9 +6,10 @@ import {
   getAppWebsiteUrl,
   isTrustedAppWebsiteUrl,
   InvalidAppApiUrlError,
+  UntrustedAppApiOriginError,
 } from "./config/urls.js";
 import { appApiFetch } from "./app-api-http.js";
-import { UntrustedAppApiOriginError } from "./config/urls.js";
+import { resolveAppSessionEmail } from "./app-session-identity.js";
 import { getLogger } from "./diagnostics.js";
 import { releaseSyncLatchForAuthRetry } from "./sync-operation.js";
 import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
@@ -16,6 +17,8 @@ import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
 export const APP_SESSION_SECRET = "cursorSync.appSession";
 export const APP_SESSION_EXPIRED_STATE_KEY = "cursorSync.appSession.expired";
 const SECRET_STORAGE_TIMEOUT_MS = 2000;
+const LOGOUT_SECRET_STORAGE_TIMEOUT_MS = 10_000;
+export const PENDING_SECRET_CLEAR_KEY = "cursorSync.appSession.pendingSecretClear";
 
 class SecretStorageTimeoutError extends Error {
   constructor() {
@@ -417,16 +420,92 @@ export async function setAppSession(
   }
 }
 
-export async function clearAppSession(
+async function notifyAppSessionCleared(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  try {
-    await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
-  } catch {}
-  inMemoryAppSession = undefined;
   const { onAppSessionCleared } = await import("./e2e/gate.js");
   onAppSessionCleared(context);
   void refreshSyncCommandContextsAndStatusBar(context);
+}
+
+export async function clearAppSession(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  try {
+    const stored = await withSecretStorageTimeout(
+      context.secrets.get(APP_SESSION_SECRET)
+    );
+    if (stored) {
+      await withSecretStorageTimeout(context.secrets.delete(APP_SESSION_SECRET));
+      const stillStored = await withSecretStorageTimeout(
+        context.secrets.get(APP_SESSION_SECRET)
+      );
+      if (stillStored) {
+        return false;
+      }
+    }
+    inMemoryAppSession = undefined;
+    await notifyAppSessionCleared(context);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Logout path: bounded wait; on timeout clear local session and retry delete on next activation. */
+export async function clearAppSessionForLogout(
+  context: vscode.ExtensionContext
+): Promise<boolean> {
+  try {
+    const stored = await withSecretStorageTimeout(
+      context.secrets.get(APP_SESSION_SECRET),
+      LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+    );
+    if (stored) {
+      try {
+        await withSecretStorageTimeout(
+          context.secrets.delete(APP_SESSION_SECRET),
+          LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+        );
+      } catch (err) {
+        if (err instanceof SecretStorageTimeoutError) {
+          inMemoryAppSession = undefined;
+          await context.globalState.update(PENDING_SECRET_CLEAR_KEY, true);
+          vscode.window.showWarningMessage(
+            "Cursor Sync cleared your session locally, but secure storage is still busy. It will retry clearing the saved login on the next start."
+          );
+          await notifyAppSessionCleared(context);
+          return true;
+        }
+        throw err;
+      }
+      const stillStored = await withSecretStorageTimeout(
+        context.secrets.get(APP_SESSION_SECRET),
+        LOGOUT_SECRET_STORAGE_TIMEOUT_MS
+      );
+      if (stillStored) {
+        return false;
+      }
+    }
+    inMemoryAppSession = undefined;
+    await context.globalState.update(PENDING_SECRET_CLEAR_KEY, undefined);
+    await notifyAppSessionCleared(context);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function retryPendingSecretClearOnActivate(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (!context.globalState.get<boolean>(PENDING_SECRET_CLEAR_KEY)) {
+    return;
+  }
+  const cleared = await clearAppSession(context);
+  if (cleared) {
+    await context.globalState.update(PENDING_SECRET_CLEAR_KEY, undefined);
+  }
 }
 
 async function completeLoginWithCode(
@@ -447,13 +526,26 @@ async function completeLoginWithCode(
     const token = await exchangeCodeForSessionToken(getAppApiUrl(), code, redirectUri);
     consumedAuthCodes.add(code);
     await setAppSession(context, token);
+    const { bumpSessionEpoch } = await import("./app-session-coordination.js");
+    bumpSessionEpoch();
+    if (context.globalState?.update) {
+      await context.globalState.update(
+        "cursorSync.appSession.userEmail",
+        resolveAppSessionEmail(token)
+      );
+      await context.globalState.update(APP_SESSION_EXPIRED_STATE_KEY, false);
+      await context.globalState.update(
+        "cursorSync.appSession.loginApiBaseOverride",
+        getAppApiUrl()
+      );
+    }
     await clearPersistedAuthHandoff(context);
     logAppSessionLoginSucceeded();
     const { refreshSidebar } = await import("./sidebar/index.js");
-    const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
-    const loginUi = await ensureE2eGateAfterLogin(context);
     refreshSidebar();
     void refreshSyncCommandContextsAndStatusBar(context);
+    const { ensureE2eGateAfterLogin } = await import("./e2e/commands.js");
+    const loginUi = await ensureE2eGateAfterLogin(context);
     if (loginUi !== "deferred_keys") {
       vscode.window.showInformationMessage("Logged in to Cursor Sync.");
     }
@@ -582,10 +674,91 @@ export async function executeLoginToCursorSync(
 export async function executeLogoutAppSession(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  await clearAppSession(context);
-  const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
-  clearR2CredentialsCache();
-  vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
+  const {
+    isLoggingOut,
+    getLogoutInProgressPromise,
+    setLogoutInProgress,
+    setLoggingOut,
+    bindLogoutProgress,
+    clearLogoutProgress,
+    bumpSessionEpoch,
+    abortAppConfigsForLogout,
+    tryServerLogout,
+  } = await import("./app-session-coordination.js");
+
+  const existing = getLogoutInProgressPromise();
+  if (isLoggingOut() && existing) {
+    vscode.window.showInformationMessage("Logging out…");
+    await existing;
+    return;
+  }
+
+  const session = await getAppSession(context);
+  if (!session) {
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    "Log out of Cursor Sync storage? Your local synced files and GitHub Gist settings are not deleted.",
+    { modal: true },
+    "Log out"
+  );
+  if (choice !== "Log out") {
+    return;
+  }
+
+  const sessionToken = session;
+  const apiBase = getAppApiUrl();
+
+  const logoutWork = vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Logging out",
+      cancellable: false,
+    },
+    async (progress) => {
+      setLoggingOut(true);
+      bindLogoutProgress(progress);
+      progress.report({ message: "Stopping sync…" });
+      const { refreshSidebar } = await import("./sidebar/index.js");
+      refreshSidebar();
+
+      bumpSessionEpoch();
+      await abortAppConfigsForLogout();
+
+      progress.report({ message: "Clearing session…" });
+      const { clearAppSessionArtifactsForLogout } = await import("./app-session-state.js");
+      const cleared = await clearAppSessionArtifactsForLogout(context);
+      if (!cleared) {
+        setLoggingOut(false);
+        clearLogoutProgress();
+        refreshSidebar();
+        vscode.window.showErrorMessage(
+          "Could not log out: the session could not be removed from secure storage. Try again or reload the window."
+        );
+        return;
+      }
+
+      await tryServerLogout(apiBase, sessionToken);
+
+      const { clearR2CredentialsCache } = await import("./app-r2-storage.js");
+      clearR2CredentialsCache();
+      setLoggingOut(false);
+      clearLogoutProgress();
+      refreshSidebar();
+      vscode.window.showInformationMessage("Logged out of Cursor Sync storage.");
+    }
+  );
+
+  const tracked = Promise.resolve(logoutWork);
+  setLogoutInProgress(tracked);
+  try {
+    await tracked;
+  } finally {
+    setLogoutInProgress(undefined);
+    setLoggingOut(false);
+    clearLogoutProgress();
+  }
 }
 
 export async function executeEnterAppAuthCode(

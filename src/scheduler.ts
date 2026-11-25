@@ -12,7 +12,7 @@ import { executePush } from "./push.js";
 import { executePull } from "./pull.js";
 import { isSyncOperationActive } from "./sync-operation.js";
 import { GistClient } from "./gist.js";
-import { requireToken } from "./auth.js";
+import { getToken, requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger, maybeFinalizeAppStorageRecovery } from "./diagnostics.js";
 import { refreshSyncStatusBar } from "./sync-status-bar.js";
@@ -94,15 +94,19 @@ export function stopScheduler(): void {
 }
 
 export async function determineSyncAction(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  options?: { allowAuthPrompt?: boolean }
 ): Promise<SyncAction> {
+  const allowAuthPrompt = options?.allowAuthPrompt !== false;
   const syncState = await loadSyncState(context);
 
   if (!syncState || !syncState.gistId) {
     return { action: "push" };
   }
 
-  const token = await requireToken(context);
+  const token = allowAuthPrompt
+    ? await requireToken(context)
+    : await getToken(context);
   if (!token) {
     return { action: "error", reason: "no_token" };
   }
@@ -203,6 +207,10 @@ export const scheduledAppStorageSyncActionResolver = {
 export async function scheduledTick(
   context: vscode.ExtensionContext
 ): Promise<void> {
+  const { isLoggingOut } = await import("./app-session-coordination.js");
+  if (isLoggingOut()) {
+    return;
+  }
   const logger = getLogger();
 
   if (isSyncOperationActive()) {
@@ -213,19 +221,33 @@ export async function scheduledTick(
     return;
   }
 
+  const hasAppSession = !!(await getAppSession(context));
+  if (!hasAppSession && context.secrets) {
+    const hasGithubToken = !!(await getToken(context));
+    if (!hasGithubToken) {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Scheduled sync skipped: no app session and no GitHub token`
+      );
+      sendEvent(context, "scheduled_sync_skipped", { reason: "no_credentials" });
+      return;
+    }
+  }
+
   logger.appendLine(
     `[${new Date().toISOString()}] Scheduled sync triggered`
   );
 
   let statusBarFinalizedThisTick = false;
   try {
-    const appSessionActive = !!(await getAppSession(context));
+    const appSessionActive = hasAppSession;
     const result = appSessionActive
       ? await scheduledAppStorageSyncActionResolver.determineAppStorageSyncAction(
           context,
           { trigger: "scheduled" }
         )
-      : await scheduledSyncActionResolver.determineSyncAction(context);
+      : await scheduledSyncActionResolver.determineSyncAction(context, {
+          allowAuthPrompt: false,
+        });
 
     switch (result.action) {
       case "none":
@@ -375,6 +397,13 @@ export async function scheduledTick(
           await refreshSyncStatusBar(context, { failed: true });
           statusBarFinalizedThisTick = true;
           refreshSidebar();
+          break;
+        }
+        if (result.reason === "no_token") {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Scheduled sync skipped: no GitHub token`
+          );
+          sendEvent(context, "scheduled_sync_skipped", { reason: "no_token" });
           break;
         }
         const errorMessage = `Scheduled sync failed: ${result.reason}`;

@@ -8,6 +8,7 @@ Release line combining Cursor Sync account sign-in, encrypted cloud storage, E2E
 
 ### Added
 
+- Settings sidebar **Account** section and `cursorSync.app.logout` (modal confirm, coordinated abort of in-flight app configs, partial R2 push manifest commit, best-effort server logout via pinned API transport).
 - Browser sign-in at `cursor-sync.com` / `staging.cursor-sync.com` with paste-one-time-code completion and protocol callback handling (`cursorSync.loginToCursorSync`, `cursorSync.enterAppAuthCode`, `cursorSync.logoutAppSession`).
 - App configs sync via `GET/PUT /v1/configs` with R2 object storage and API-minted short-lived SigV4 credentials.
 - Mandatory E2E encryption gate (Argon2id + AES-256-GCM) for app storage and encrypted Gist exports; unlock, lock, change passphrase, rotate recovery key; legacy plaintext migration and encrypted gist guard.
@@ -28,6 +29,81 @@ Release line combining Cursor Sync account sign-in, encrypted cloud storage, E2E
 ### Install
 
 - Distribute via sideloaded VSIX only (`npm run package`); not published to Marketplace or Open VSX.
+
+## v0.8.4-staging.17-logout
+
+### Fixed
+- Status bar **Sync: Setup** defaults to `cursorSync.loginToApp` on initialize and activate; invalid PAT reconfigure still passes `configureGithub` explicitly.
+
+## v0.8.4-staging.16-logout
+
+### Fixed
+- Narrow `isAbortLikeError` to exact abort signals (no substring false positives on cancel/abort/logout).
+- Pull rollback restore opens verified parent dir chain before writing backup bytes.
+- Nested parent `mkdir` via held `O_DIRECTORY` fd (`FileHandle.mkdir`).
+
+## v0.8.4-staging.15-logout
+
+### Fixed
+- Pull writes create missing intermediate parent directories (verified, one segment at a time, no symlink follow) before `openVerifiedDirChain`.
+
+## v0.8.4-staging.14-logout
+
+### Fixed
+- `isAbortLikeError` accepts bare abort reason strings (e.g. Node fetch `"logout"`); R2 GET/PUT map aborts to cancel flow.
+- Pull rollback restores via `O_NOFOLLOW` opens (no `writeFile` through symlinks).
+- Concurrent pull-write stress adversary races writer parent directories.
+
+## v0.8.4-staging.13-logout
+
+### Fixed
+- Pull write post-rename: no recovery on benign chmod/journal failures; fd-proven escape cleanup only; parent dev/ino re-opened by path after rename.
+- AbortSignal on GET `/configs` (pull/push) and partial-commit reconcile; logout abort no longer surfaces as generic pull/push failure.
+- Quarantine toast is non-blocking; Setup → `loginToApp` scoped to no-GitHub-PAT refresh only.
+
+## v0.8.4-staging.12-logout
+
+### Fixed
+- Narrow pull write TOCTOU window (parent dev/ino, O_EXCL|O_NOFOLLOW temps, post-rename containment, escaped-file cleanup).
+- Pass logout `AbortSignal` through pull R2 GETs and dirty reconciliation GETs.
+- Quarantine invalid (non-corrupt) pull journals with a deduped warning toast on replay.
+- Status bar **Sync: Setup** opens app login (`cursorSync.loginToApp`) when GitHub PAT is absent.
+
+## v0.8.4-staging.11-logout
+
+### Fixed
+- Pull path TOCTOU hardening (dev/ino verified dir walk, O_NOFOLLOW opens, journal validation/quarantine).
+- Logout drain 120s prompt races in-flight work; R2 fetch abort signals; keyring clear bounded with retry on activate.
+- Corrupt/missing pull journal warnings, backup dir protection on all pruners, dismissible missing-backup prompts.
+
+## v0.8.4-staging.10-logout
+
+### Fixed
+- Logout coordination tests restored; push abort merges into remote baseline; logout gates sync, shows progress, and awaits SecretStorage without timeout races.
+- `remoteDirty` reconciliation on push, abort-signal logout on config PUT, no partial commit without baseline GET, dirty cleared only after object/manifest verify, session-expired marks dirty.
+- Pull journal ordering/fsync, corrupt journal handling, rollback/replay containment, held external symlinks skipped, file mode preserved, skip warnings.
+
+## v0.8.4-staging.9-logout
+
+### Fixed
+- App configs push abort merges uploaded keys into the full remote manifest (server replaces lists; no orphan/shrink).
+- Config `PUT` timeout + abort signal; `401` on normal push shows session-expired (not logout abort); `remoteDirty` flag on failed metadata commit after uploads.
+- Pull checksum verification, journal-backed safe writes/rollback (unique backups/temps, containment, symlink-aware restore, user-edit preservation).
+- Logout clears SecretStorage before server `POST /auth/logout` and waits for pull rollback finalization.
+
+## v0.8.4-staging.8-logout
+
+### Fixed
+- Scheduled Gist sync skips silently when there is no app session and no GitHub PAT (no configure toasts after logout).
+- Logout aborts in-flight app configs push/pull with bounded wait; partial pushes commit manifest entries only for uploaded R2 keys; aborted pulls roll back and show a single cancellation notice.
+- Logout no longer releases the Gist sync operation latch; failed SecretStorage delete keeps the signed-in UI.
+- Best-effort `POST /auth/logout` before local session clear (2s timeout; 404/network ignored).
+
+## v0.8.4-staging.7
+
+### Added
+- Settings tab **Account** section: shows signed-in email when available, **Log out** / **Log in** actions, and command `cursorSync.app.logout` (modal confirm; clears app session, R2 credential cache, and login metadata without touching Gist sync state).
+>>>>>>> origin/cursor/sidebar-logout-settings-adca
 
 ## v0.9.0-staging.11
 

@@ -10,8 +10,14 @@ export interface StatusBarUpdateOptions {
   lastSync?: Date;
   destination?: StatusBarDestination;
   detail?: string;
-  /** Command when state is unconfigured (defaults to GitHub setup). */
+  /** Command when state is unconfigured (defaults to app login). */
   unconfiguredCommand?: string;
+  /** Alias used by logout-era callers (`updateStatusBar(state, lastSync, { setupCommand })`). */
+  setupCommand?: string;
+}
+
+export interface UpdateStatusBarOptions {
+  setupCommand?: string;
 }
 
 export function initializeStatusBar(context: vscode.ExtensionContext): void {
@@ -28,11 +34,17 @@ export function initializeStatusBar(context: vscode.ExtensionContext): void {
 
 export function updateStatusBar(
   state: SyncState,
-  options?: StatusBarUpdateOptions
+  optionsOrLastSync?: StatusBarUpdateOptions | Date,
+  legacyOptions?: UpdateStatusBarOptions
 ): void {
   if (!statusBarItem) {
     return;
   }
+
+  const options: StatusBarUpdateOptions =
+    optionsOrLastSync instanceof Date
+      ? { lastSync: optionsOrLastSync, ...legacyOptions }
+      : { ...(optionsOrLastSync ?? {}), ...(legacyOptions ?? {}) };
 
   const lastSync = options?.lastSync;
   const destination = options?.destination;
@@ -91,7 +103,7 @@ export function updateStatusBar(
       text = "Sync: Setup";
       tooltip = "Cursor Sync is not configured. Click to set up.";
       statusBarItem.command =
-        options?.unconfiguredCommand ?? "cursorSync.configureGithub";
+        options?.unconfiguredCommand ?? options?.setupCommand ?? "cursorSync.loginToApp";
       break;
   }
 

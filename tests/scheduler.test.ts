@@ -19,7 +19,16 @@ const requireE2eUnlockedMock = vi.hoisted(() =>
     dek: Buffer.alloc(32, 1),
   })
 );
+const getTokenMock = vi.hoisted(() => vi.fn().mockResolvedValue("ghp_test_token"));
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
+
+vi.mock("../src/auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/auth.js")>();
+  return {
+    ...actual,
+    getToken: (...args: unknown[]) => getTokenMock(...args),
+  };
+});
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from("content")),
@@ -98,6 +107,8 @@ describe("scheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetModules();
+    getTokenMock.mockResolvedValue("ghp_test_token");
+    getAppSessionMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -131,6 +142,10 @@ describe("scheduler", () => {
   });
 
   it("enforces minimum interval of 5 minutes", async () => {
+    const { __resetAppSessionCoordinationForTests } = await import(
+      "../src/app-session-coordination.js"
+    );
+    __resetAppSessionCoordinationForTests();
     const vscode = await import("vscode");
     vi.spyOn(vscode.workspace, "getConfiguration").mockReturnValue({
       get: (key: string) => {
@@ -598,6 +613,8 @@ describe("determineSyncAction", () => {
 describe("scheduled sync debug wiring", () => {
   beforeEach(async () => {
     vi.resetModules();
+    getTokenMock.mockResolvedValue("ghp_test_token");
+    getAppSessionMock.mockResolvedValue(undefined);
     showSyncFailureWithDebugMock.mockClear();
     executePushMock.mockReset().mockResolvedValue(true);
     executePullMock.mockReset().mockResolvedValue({ status: "success" });
@@ -621,11 +638,23 @@ describe("scheduled sync debug wiring", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls showSyncFailureWithDebug on determineSyncAction error", async () => {
+  it("skips debug toast when scheduled sync has no GitHub token", async () => {
     const scheduler = await import("../src/scheduler.js");
     vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
       action: "error",
       reason: "no_token",
+    });
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
+  });
+
+  it("calls showSyncFailureWithDebug on determineSyncAction error", async () => {
+    const scheduler = await import("../src/scheduler.js");
+    vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction").mockResolvedValue({
+      action: "error",
+      reason: "gist_unreachable",
     });
 
     await scheduler.scheduledTick(mockContext());
@@ -635,12 +664,12 @@ describe("scheduled sync debug wiring", () => {
     expect(failure).toMatchObject({
       operation: "scheduler",
       trigger: "scheduled",
-      message: "no_token",
-      category: "no_token",
+      message: "gist_unreachable",
+      category: "gist_unreachable",
       extensionVersion: extensionVersion(),
       platform: process.platform,
     });
-    expect(options).toMatchObject({ title: "Scheduled sync failed: no_token" });
+    expect(options).toMatchObject({ title: "Scheduled sync failed: gist_unreachable" });
   });
 
   it("calls showSyncFailureWithDebug on determineSyncAction conflict with warning", async () => {
@@ -814,4 +843,50 @@ describe("scheduled sync debug wiring", () => {
     expect(showSyncFailureWithDebugMock).not.toHaveBeenCalled();
   });
 
+  it("skips scheduled tick silently without app session or GitHub token", async () => {
+    getAppSessionMock.mockResolvedValue(undefined);
+    getTokenMock.mockResolvedValue(undefined);
+    const scheduler = await import("../src/scheduler.js");
+    const determineSpy = vi.spyOn(
+      scheduler.scheduledSyncActionResolver,
+      "determineSyncAction"
+    );
+    const vscode = await import("./__mocks__/vscode.js");
+    const warnSpy = vi.spyOn(vscode.window, "showWarningMessage");
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(determineSpy).not.toHaveBeenCalled();
+    expect(executePushMock).not.toHaveBeenCalled();
+    expect(executePullMock).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses app storage sync when an app session is active", async () => {
+    getAppSessionMock.mockResolvedValue("jwt-session");
+    const scheduler = await import("../src/scheduler.js");
+    const gistSpy = vi.spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction");
+    const appSpy = vi
+      .spyOn(scheduler.scheduledAppStorageSyncActionResolver, "determineAppStorageSyncAction")
+      .mockResolvedValue({ action: "none" });
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(gistSpy).not.toHaveBeenCalled();
+    expect(appSpy).toHaveBeenCalled();
+    expect(executePushMock).not.toHaveBeenCalled();
+  });
+
+  it("passes allowAuthPrompt false for scheduled gist sync", async () => {
+    getAppSessionMock.mockResolvedValue(undefined);
+    getTokenMock.mockResolvedValue("ghp_test_token");
+    const scheduler = await import("../src/scheduler.js");
+    const gistSpy = vi
+      .spyOn(scheduler.scheduledSyncActionResolver, "determineSyncAction")
+      .mockResolvedValue({ action: "none" });
+
+    await scheduler.scheduledTick(mockContext());
+
+    expect(gistSpy).toHaveBeenCalledWith(expect.anything(), { allowAuthPrompt: false });
+  });
 });

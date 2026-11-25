@@ -23,6 +23,21 @@ import { runAppStorageLegacyCleanup } from "./e2e/app-storage-cleanup.js";
 import { hasLegacyConfigsPayload, isAppConfigsPayloadV1 } from "./e2e/configs-legacy-payload.js";
 import { legacyPlaintextKeysFromConfigsResponse } from "./e2e/legacy-cleanup.js";
 import { KeysApiError } from "./e2e/keys-client.js";
+import {
+  AppConfigsSessionExpiredError,
+  isAbortLikeError,
+  isAppConfigsSessionExpiredError,
+} from "./app-config-errors.js";
+import { markAppConfigRemoteDirty } from "./app-config-remote-state.js";
+import {
+  AppConfigsAbortedError,
+  beginAppConfigsRun,
+  getSessionEpoch,
+  isAppConfigsAbortedError,
+  isLoggingOut,
+  throwIfAppConfigsAborted,
+  wasAppConfigsLogoutAbort,
+} from "./app-session-coordination.js";
 import type { E2eConfigsManifestPayload } from "./e2e/manifest-payload.js";
 import { generateExtensionsJson } from "./extensions.js";
 import { addSyncHistoryEntry, getLogger } from "./diagnostics.js";
@@ -139,6 +154,10 @@ export interface AppConfigsResponse {
 }
 
 const LOGIN_REQUIRED_MESSAGE = `Log in to Cursor Sync to sync with ${syncDestinationLabel("cursor-sync-storage")}.`;
+const SESSION_EXPIRED_MESSAGE =
+  "Your Cursor Sync session expired. Log in again to sync configs with the app.";
+const PUT_CONFIGS_TIMEOUT_MS = 15_000;
+const PARTIAL_COMMIT_RETRIES = 2;
 
 export async function hasAppSession(
   context: vscode.ExtensionContext
@@ -195,6 +214,7 @@ export async function fetchAppConfigs(
     recordAuthFailure?: boolean;
     recordHttpFailureInHistory?: boolean;
     authFailureDirection?: "push" | "pull";
+    signal?: AbortSignal;
   }
 ): Promise<AppConfigsResponse | undefined> {
   const trigger = options?.trigger ?? "manual";
@@ -206,11 +226,18 @@ export async function fetchAppConfigs(
     return undefined;
   }
 
-  const response = await authorizedAppApiFetch(
-    session,
-    `${appConfigsBaseUrl()}/configs`,
-    { method: "GET" }
-  );
+  let response: Response;
+  try {
+    response = await authorizedAppApiFetch(session, `${appConfigsBaseUrl()}/configs`, {
+      method: "GET",
+      signal: options?.signal,
+    });
+  } catch (err) {
+    if (options?.signal?.aborted || isAbortLikeError(err)) {
+      throw new AppConfigsAbortedError("logout");
+    }
+    throw err;
+  }
 
   if (response.status === 401) {
     const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
@@ -244,10 +271,67 @@ export async function fetchAppConfigs(
   return JSON.parse(bodyText) as AppConfigsResponse;
 }
 
+async function putAppConfigsWithSession(
+  session: string,
+  payload: AppConfigsPayloadV1,
+  options?: { signal?: AbortSignal }
+): Promise<AppConfigsResponse> {
+  const linkedSignal = options?.signal;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PUT_CONFIGS_TIMEOUT_MS);
+  const onRunAbort = () => controller.abort();
+  linkedSignal?.addEventListener("abort", onRunAbort);
+  try {
+    let response: Response;
+    try {
+      response = await authorizedAppApiFetch(session, `${appConfigsBaseUrl()}/configs`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ payload }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (isAppConfigsAbortedError(err)) {
+        throw err;
+      }
+      const logoutAbort = Boolean(linkedSignal?.aborted && isAbortLikeError(err));
+      if (logoutAbort) {
+        throw new AppConfigsAbortedError("logout");
+      }
+      if (isAbortLikeError(err) && !linkedSignal?.aborted) {
+        throw new Error(
+          `Push app configs timed out waiting for config PUT (${PUT_CONFIGS_TIMEOUT_MS / 1000}s)`
+        );
+      }
+      throw err;
+    }
+
+    if (response.status === 401) {
+      if (linkedSignal?.aborted) {
+        throw new AppConfigsAbortedError("logout");
+      }
+      throw new AppConfigsSessionExpiredError();
+    }
+
+    const bodyText = await response.text().catch(() => "");
+    if (!response.ok) {
+      throw new Error(
+        `Failed to push app configs (${response.status})${bodyText ? `: ${bodyText}` : ""}`
+      );
+    }
+    return JSON.parse(bodyText) as AppConfigsResponse;
+  } finally {
+    clearTimeout(timeout);
+    linkedSignal?.removeEventListener("abort", onRunAbort);
+  }
+}
+
 export async function putAppConfigs(
   context: vscode.ExtensionContext,
   payload: AppConfigsPayloadV1,
-  options?: { trigger?: AppConfigsSyncTrigger }
+  options?: { trigger?: AppConfigsSyncTrigger; signal?: AbortSignal }
 ): Promise<AppConfigsResponse | undefined> {
   const trigger = options?.trigger ?? "manual";
   const session = await requireAppSession(context);
@@ -255,30 +339,20 @@ export async function putAppConfigs(
     return undefined;
   }
 
-  const response = await authorizedAppApiFetch(session, `${appConfigsBaseUrl()}/configs`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ payload }),
-  });
-
-  if (response.status === 401) {
-    const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
-    await recordAppStorageAuthFailure(context, "push", trigger, message);
-    vscode.window.showErrorMessage(message);
-    return undefined;
+  try {
+    return await putAppConfigsWithSession(session, payload, { signal: options?.signal });
+  } catch (err) {
+    if (isAppConfigsAbortedError(err)) {
+      return undefined;
+    }
+    if (isAppConfigsSessionExpiredError(err)) {
+      const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
+      await recordAppStorageAuthFailure(context, "push", trigger, message);
+      vscode.window.showErrorMessage(message);
+      return undefined;
+    }
+    throw err;
   }
-
-  const bodyText = await response.text().catch(() => "");
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to push app configs (${response.status})${bodyText ? `: ${bodyText}` : ""}`
-    );
-  }
-
-  return JSON.parse(bodyText) as AppConfigsResponse;
 }
 
 export function countMeaningfulAppConfigKeys(
@@ -402,6 +476,33 @@ export function buildMetadataOnlyPayload(
   return {
     schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
     manifest,
+    files: metadataFiles,
+  };
+}
+
+export function mergeUploadedKeysIntoRemotePayload(
+  remote: AppConfigsPayloadV1,
+  local: AppConfigsPayloadV1,
+  uploadedKeys: string[]
+): AppConfigsPayloadV1 {
+  const manifestFiles = { ...remote.manifest.files };
+  const metadataFiles: AppConfigsPayloadV1["files"] = { ...remote.files };
+  for (const syncKey of uploadedKeys) {
+    const manifestEntry = local.manifest.files[syncKey];
+    const fileMeta = local.files[syncKey];
+    if (!manifestEntry || !fileMeta) {
+      continue;
+    }
+    manifestFiles[syncKey] = manifestEntry;
+    metadataFiles[syncKey] = {
+      checksum: fileMeta.checksum ?? manifestEntry.checksum,
+      sizeBytes: fileMeta.sizeBytes ?? manifestEntry.sizeBytes,
+      ...(manifestEntry.encoding ? { encoding: manifestEntry.encoding } : {}),
+    };
+  }
+  return {
+    schemaVersion: remote.schemaVersion,
+    manifest: { ...remote.manifest, files: manifestFiles },
     files: metadataFiles,
   };
 }
@@ -1171,7 +1272,8 @@ async function resolveRemoteFileContent(
   syncKey: string,
   file: AppConfigsPayloadFile,
   manifestEntry: ManifestFileEntry,
-  e2e?: { dek: Buffer; userId: string; keyVersion: number }
+  e2e?: { dek: Buffer; userId: string; keyVersion: number },
+  signal?: AbortSignal
 ): Promise<Buffer | undefined> {
   const credentials = await getR2StorageCredentials(context);
   if (credentials && e2e) {
@@ -1180,13 +1282,14 @@ async function resolveRemoteFileContent(
       e2e.dek,
       e2e.userId,
       e2e.keyVersion,
-      syncKey
+      syncKey,
+      { signal }
     );
     if (remote) {
       return remote;
     }
   } else if (credentials) {
-    const remote = await getR2Object(credentials, syncKey);
+    const remote = await getR2Object(credentials, syncKey, { signal });
     if (remote) {
       return remote;
     }
@@ -1224,6 +1327,66 @@ export type AppConfigsSyncOptions = {
   remoteDeletions?: string[];
 };
 
+async function commitPartialEncryptedAppConfigsPush(
+  context: vscode.ExtensionContext,
+  e2e: { dek: Buffer; userId: string; keyVersion: number },
+  remoteFiles: Manifest["files"],
+  localPayload: AppConfigsPayloadV1,
+  uploadedKeys: string[]
+): Promise<boolean> {
+  if (uploadedKeys.length === 0) {
+    return false;
+  }
+  const remoteBaseline: AppConfigsPayloadV1 = {
+    schemaVersion: APP_CONFIGS_PAYLOAD_SCHEMA_VERSION,
+    manifest: { ...localPayload.manifest, files: { ...remoteFiles } },
+    files: Object.fromEntries(
+      Object.entries(remoteFiles).map(([key, entry]) => [
+        key,
+        {
+          checksum: entry.checksum,
+          sizeBytes: entry.sizeBytes,
+          ...(entry.encoding ? { encoding: entry.encoding } : {}),
+        },
+      ])
+    ),
+  };
+  const merged = mergeUploadedKeysIntoRemotePayload(
+    remoteBaseline,
+    localPayload,
+    uploadedKeys
+  );
+  const payload = buildMetadataOnlyPayload(merged.manifest, merged.files);
+  const manifestPayload: E2eConfigsManifestPayload = {
+    schemaVersion: 1,
+    manifest: payload.manifest,
+    files: payload.files,
+  };
+  for (let attempt = 0; attempt < PARTIAL_COMMIT_RETRIES; attempt += 1) {
+    try {
+      await putConfigsManifestWithRetry(context, (expectedManifestVersion) => ({
+        manifestCiphertext: encryptManifestPayload(
+          e2e.dek,
+          e2e.userId,
+          e2e.keyVersion,
+          manifestPayload
+        ),
+        expectedManifestVersion,
+      }));
+      return true;
+    } catch (err) {
+      if (isAppConfigsAbortedError(err) || isAppConfigsSessionExpiredError(err)) {
+        throw err;
+      }
+      if (attempt + 1 >= PARTIAL_COMMIT_RETRIES) {
+        await markAppConfigRemoteDirty(context, "partial_commit_failed");
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 export async function executePushAppConfigs(
   context: vscode.ExtensionContext,
   options?: AppConfigsSyncOptions
@@ -1234,7 +1397,20 @@ export async function executePushAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Push app configs started`);
 
+  if (isLoggingOut()) {
+    vscode.window.showInformationMessage("Logging out…");
+    return false;
+  }
+
+  const run = beginAppConfigsRun("push");
+  const uploadedKeys: string[] = [];
+  let abortLocalPayload: AppConfigsPayloadV1 | undefined;
+  let abortRemoteFiles: Manifest["files"] | undefined;
+  let abortE2e: { dek: Buffer; userId: string; keyVersion: number } | undefined;
+  let remoteBaselineFetched = false;
+
   try {
+    throwIfAppConfigsAborted(run);
     const e2e = await requireE2eUnlocked(context);
     if (!isE2eDekUnlocked(e2e)) {
       vscode.window.showErrorMessage(
@@ -1242,9 +1418,11 @@ export async function executePushAppConfigs(
       );
       return false;
     }
+    abortE2e = e2e;
 
     const buildResult = await buildLocalAppConfigsPayload(context);
     const { payload: localPayload, roots, enumeratedCount, skippedReads } = buildResult;
+    abortLocalPayload = localPayload;
     const skipped: Array<{ syncKey: string; reason: string }> = skippedReads.map((s) => ({
       syncKey: s.relativeSyncKey,
       reason: s.reason,
@@ -1277,7 +1455,7 @@ export async function executePushAppConfigs(
       return false;
     }
 
-    const remoteBeforeConfigs = await fetchConfigsApi(context);
+    const remoteBeforeConfigs = await fetchConfigsApi(context, { signal: run.signal });
     if (!remoteBeforeConfigs) {
       await recordAppStorageAuthFailure(
         context,
@@ -1291,6 +1469,8 @@ export async function executePushAppConfigs(
       return false;
     }
     const remoteManifestFiles = remoteManifestFilesFromConfigsApi(remoteBeforeConfigs, e2e);
+    abortRemoteFiles = remoteManifestFiles;
+    remoteBaselineFetched = true;
 
     const sessionEarly = await getAppSession(context);
     const accountKeyEarly = sessionEarly
@@ -1484,7 +1664,6 @@ export async function executePushAppConfigs(
 
     let uploadedCount = 0;
     let deletedCount = 0;
-    const uploadedKeys: string[] = [];
     const deletedKeys: string[] = [];
     const unreadableSkipCount = skippedReads.length;
 
@@ -1511,13 +1690,15 @@ export async function executePushAppConfigs(
           ? Buffer.from(file.content, "base64")
           : Buffer.from(file.content, "utf-8");
       try {
+        throwIfAppConfigsAborted(run);
         await putEncryptedR2Object(
           credentials,
           e2e.dek,
           e2e.userId,
           e2e.keyVersion,
           syncKey,
-          body
+          body,
+          { signal: run.signal }
         );
         uploadedCount += 1;
         uploadedKeys.push(syncKey);
@@ -1525,6 +1706,13 @@ export async function executePushAppConfigs(
           `[${new Date().toISOString()}] Uploaded ${syncKey} (${body.length} bytes)`
         );
       } catch (err) {
+        if (
+          isAppConfigsAbortedError(err) ||
+          isAbortLikeError(err) ||
+          run.signal.aborted
+        ) {
+          throw new AppConfigsAbortedError("logout");
+        }
         const reason = err instanceof Error ? err.message : String(err);
         skipped.push({ syncKey, reason });
         logger.appendLine(
@@ -1625,16 +1813,21 @@ export async function executePushAppConfigs(
       extraKeysFromConfigs.length > 0 ||
       (migration && migration.phase !== "completed");
 
-    const result = await putConfigsManifestWithRetry(context, (expectedManifestVersion) => ({
-      manifestCiphertext: encryptManifestPayload(
-        e2e.dek,
-        e2e.userId,
-        e2e.keyVersion,
-        manifestPayload
-      ),
-      expectedManifestVersion,
-      ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
-    }));
+    throwIfAppConfigsAborted(run);
+    const result = await putConfigsManifestWithRetry(
+      context,
+      (expectedManifestVersion) => ({
+        manifestCiphertext: encryptManifestPayload(
+          e2e.dek,
+          e2e.userId,
+          e2e.keyVersion,
+          manifestPayload
+        ),
+        expectedManifestVersion,
+        ...(clearLegacyPayload ? { clearLegacyPayload: true } : {}),
+      }),
+      { signal: run.signal }
+    );
 
     const cleanupRun = await runAppStorageLegacyCleanup(context, {
       extraKeysFromConfigs,
@@ -1813,6 +2006,53 @@ export async function executePushAppConfigs(
     await tryCompleteMigration(context, "app");
     return true;
   } catch (err) {
+    const logoutAbort =
+      isAppConfigsAbortedError(err) ||
+      (isAbortLikeError(err) &&
+        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch()));
+    if (logoutAbort) {
+      if (
+        abortE2e &&
+        abortLocalPayload &&
+        remoteBaselineFetched &&
+        abortRemoteFiles &&
+        uploadedKeys.length > 0
+      ) {
+        const committed = await commitPartialEncryptedAppConfigsPush(
+          context,
+          abortE2e,
+          abortRemoteFiles,
+          abortLocalPayload,
+          uploadedKeys
+        );
+        if (!committed) {
+          logger.appendLine(
+            `[${new Date().toISOString()}] Push app configs partial commit failed after abort`
+          );
+        }
+      } else if (uploadedKeys.length > 0) {
+        await markAppConfigRemoteDirty(context, "partial_commit_no_baseline", uploadedKeys);
+      }
+      logger.appendLine(
+        `[${new Date().toISOString()}] Push app configs aborted (logout)`
+      );
+      vscode.window.showInformationMessage("Logged out, push cancelled.");
+      return false;
+    }
+    if (isAppConfigsSessionExpiredError(err)) {
+      if (uploadedKeys.length > 0) {
+        await markAppConfigRemoteDirty(
+          context,
+          "session_expired_after_upload",
+          uploadedKeys
+        );
+      }
+      vscode.window.showErrorMessage(SESSION_EXPIRED_MESSAGE);
+      return false;
+    }
+    if (uploadedKeys.length > 0) {
+      await markAppConfigRemoteDirty(context, "push_failed_after_upload", uploadedKeys);
+    }
     const message =
       err instanceof KeysApiError
         ? err.message
@@ -1835,6 +2075,8 @@ export async function executePushAppConfigs(
     }
     vscode.window.showErrorMessage(`Push to ${destinationLabel} failed: ${message}`);
     return false;
+  } finally {
+    run.end();
   }
 }
 
@@ -1848,14 +2090,21 @@ export async function executePullAppConfigs(
   const logger = getLogger();
   logger.appendLine(`[${new Date().toISOString()}] Pull app configs started`);
 
+  if (isLoggingOut()) {
+    vscode.window.showInformationMessage("Logging out…");
+    return "failure";
+  }
+
   const e2e = await requireE2eUnlocked(context);
   if (!isE2eDekUnlocked(e2e)) {
     vscode.window.showErrorMessage(e2e.ok ? "Unlock sync encryption first." : e2e.message);
     return "failure";
   }
 
+  const run = beginAppConfigsRun("pull");
   try {
-    const remote = await fetchConfigsApi(context);
+    throwIfAppConfigsAborted(run);
+    const remote = await fetchConfigsApi(context, { signal: run.signal });
     if (!remote) {
       return "failure";
     }
@@ -1940,6 +2189,7 @@ export async function executePullAppConfigs(
     const pullSkipReasonOverrides = new Map<string, import("./app-storage-delete-guard.js").PerFileHeldReason>();
 
     for (const [syncKey, manifestEntry] of Object.entries(manifest.files)) {
+      throwIfAppConfigsAborted(run);
       if (keyFilter && !keyFilter.has(syncKey)) {
         continue;
       }
@@ -2023,7 +2273,8 @@ export async function executePullAppConfigs(
         syncKey,
         file,
         manifestEntry,
-        e2e
+        e2e,
+        run.signal
       );
       if (!content) {
         missingRemoteKeys.push(syncKey);
@@ -2575,6 +2826,17 @@ export async function executePullAppConfigs(
     await tryCompleteMigration(context, "app");
     return "success";
   } catch (err) {
+    const logoutAbort =
+      isAppConfigsAbortedError(err) ||
+      (isAbortLikeError(err) &&
+        (wasAppConfigsLogoutAbort() || run.epoch !== getSessionEpoch()));
+    if (logoutAbort) {
+      logger.appendLine(
+        `[${new Date().toISOString()}] Pull app configs aborted (logout)`
+      );
+      vscode.window.showInformationMessage("Logged out, pull cancelled.");
+      return "failure";
+    }
     const message =
       err instanceof KeysApiError
         ? err.message
@@ -2597,6 +2859,8 @@ export async function executePullAppConfigs(
     }
     vscode.window.showErrorMessage(`Pull from ${destinationLabel} failed: ${message}`);
     return "failure";
+  } finally {
+    run.end();
   }
 }
 
