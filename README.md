@@ -1,6 +1,26 @@
 # Cursor Sync
 
-Sync user-level Cursor settings and `~/.cursor` assets to a private GitHub Gist, with manual push/pull, optional scheduled pull-push, export/import via private Gists (anyone with the gist URL can still open it), and configurable extension sync.
+Sync user-level Cursor settings and `~/.cursor` assets to a private GitHub Gist or to **Cursor Sync** cloud storage when signed in, with manual push/pull, optional scheduled sync, export/import via private Gists, and configurable extension sync.
+
+## Install (VSIX sideload)
+
+The **0.9.0** line is installed by sideloading a VSIX. It is **not** published to the Visual Studio Marketplace or Open VSX.
+
+1. Obtain a build artifact (for example `cursor-sync-0.9.0-staging.11.vsix` from CI or `npm run package` in this repository).
+2. In Cursor or VS Code, open the Extensions view, choose **Install from VSIX...**, and select the file.
+3. Reload the window when prompted.
+
+## Cursor Sync account (0.9.0)
+
+When logged in, settings and selected `~/.cursor` assets sync through the Cursor Sync API and **Cloudflare R2** using short-lived credentials minted by the API (`POST /v1/storage/credentials`).
+
+| Feature | Description |
+|---------|-------------|
+| **Sign in** | **Cursor Sync: Log in to Cursor Sync** opens `cursor-sync.com` (or the staging site). Complete sign-in in the browser, then paste the one-time login code in the extension (**Enter Login Code**). |
+| **Sign out** | **Cursor Sync: Log out** clears the app session from SecretStorage. |
+| **E2E encryption** | Argon2id key derivation and AES-256-GCM envelopes for app storage and encrypted Gist exports when unlocked. Unlock, lock, change passphrase, and rotate recovery key from the sidebar or Command Palette. |
+| **Gist sync** | GitHub PAT-based private Gist sync still works alongside or without an app session (scheduler skips Gist quietly when no token is configured). |
+| **Sidebar theme** | `cursorSync.appearance.theme`: **system** (default), **dark**, or **light** for the Cursor Sync sidebar webview. |
 
 ## What Is Synced
 
@@ -166,25 +186,25 @@ On push, the extension generates an `extensions.json` file listing all installed
 
 Extensions are installed at the latest available version; the synced list records versions for reference only.
 
-## Cursor Sync app (staging / custom API)
+## API and sign-in hosts
 
-Developer settings under **Cursor Sync: Developer environment** (`cursorSync.developer.environment`):
+Developer settings under **Cursor Sync: Developer** (`cursorSync.developer.environment`):
 
 | Preset | API | Website |
 |--------|-----|---------|
 | **staging** (default on the staging extension branch) | `https://api-staging.cursor-sync.com` | `https://staging.cursor-sync.com` |
-| **production** | `https://api.sync.bergamota.dev` | `https://sync.bergamota.dev` |
+| **production** | `https://api.cursor-sync.com` | `https://cursor-sync.com` |
 | **local** | `http://localhost:8100` | `http://localhost:3000` |
 | **custom** | `cursorSync.developer.apiUrl` | `cursorSync.developer.websiteUrl` |
 
-Use **custom** with the legacy staging hosts (`https://api-staging-sync.bergamota.dev`, `https://staging.sync.bergamota.dev`) if needed. App login opens only trusted website origins (presets above plus your custom website URL when environment is **custom**).
+Invalid or missing custom API/website URLs fail closed with a clear error (no silent fallback to another host). App login opens only trusted website origins (presets above plus your custom website URL when environment is **custom**).
 
 ## Security
 
-- Your GitHub PAT is stored exclusively in VS Code SecretStorage. It never appears in settings files, logs, or telemetry.
+- Your GitHub PAT and Cursor Sync app session token are stored in VS Code SecretStorage. They never appear in settings files, logs, or telemetry.
 - Sync uses a single **private** Gist per token (identified by description "Cursor Sync - Settings Backup"). Export creates an additional **private** Gist when you explicitly run Export; anyone with that URL can open it.
-- No data is sent to any service other than the GitHub Gist API for sync and export operations.
-- **Anonymous usage metrics**: The extension may send anonymous usage metrics (e.g. sync completed/failed, feature usage) to improve the extension. No sensitive data—tokens, gist IDs, file paths, or error messages—is included.
+- With an app session, config bytes are stored in your account’s R2 bucket using API-minted temporary credentials; payloads are encrypted client-side when E2E is enabled.
+- **Anonymous usage metrics**: When VS Code/Cursor telemetry is enabled, the extension may send anonymous usage events to `POST {apiBase}/v1/telemetry` on the configured Cursor Sync API (no API secret in the extension). Disable via the editor’s telemetry setting (`telemetry.telemetryLevel` / **Telemetry: Enable Telemetry**). Event payloads exclude tokens, gist IDs, file paths, and error message text.
 
 ## Conflict Resolution
 
