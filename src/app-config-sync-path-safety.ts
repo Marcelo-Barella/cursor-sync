@@ -544,3 +544,79 @@ export async function classifyPathUnderSyncRoot(
     baselineHasKeysUnderRoot
   );
 }
+
+
+async function resolvePathWithinSyncRoot(
+  absolutePath: string,
+  rootPath: string,
+  rootReal: string
+): Promise<string> {
+  const normalized = path.resolve(absolutePath);
+  const rootResolved = path.resolve(rootPath);
+  const relative = path.relative(rootResolved, normalized);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing path outside sync root: ${absolutePath}`);
+  }
+  if (relative === "") {
+    return rootReal;
+  }
+  const segments = relative.split(path.sep).filter(Boolean);
+  let currentReal = rootReal;
+  for (const segment of segments) {
+    const next = path.join(currentReal, segment);
+    currentReal = await fs.realpath(next).catch(async () => {
+      const parentReal = await fs.realpath(path.dirname(next)).catch(() => path.dirname(next));
+      if (!isRealpathInsideRoot(parentReal, rootReal)) {
+        throw new Error(`Refusing path outside sync root: ${absolutePath}`);
+      }
+      const joined = path.join(parentReal, path.basename(next));
+      if (!isRealpathInsideRoot(joined, rootReal)) {
+        throw new Error(`Refusing path outside sync root: ${absolutePath}`);
+      }
+      return joined;
+    });
+    if (!isRealpathInsideRoot(currentReal, rootReal)) {
+      throw new Error(`Refusing path outside sync root: ${absolutePath}`);
+    }
+  }
+  return currentReal;
+}
+
+/** Logout pull and journal replay refuse paths that escape the sync root. */
+export async function assertContainedSyncPath(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<void> {
+  const rootInfo = syncRootRealForKey(syncKey, resolved);
+  if (!rootInfo) {
+    throw new Error(`Unsupported sync key: ${syncKey}`);
+  }
+  await resolvePathWithinSyncRoot(absolutePath, rootInfo.rootPath, rootInfo.rootReal);
+}
+
+/** Pre-existing symlink whose target resolves outside the sync root (user-held). */
+export async function isHeldExternalSymlink(
+  absolutePath: string,
+  syncKey: string,
+  resolved: ResolvedSyncRoots
+): Promise<boolean> {
+  try {
+    const st = await fs.lstat(absolutePath);
+    if (!st.isSymbolicLink()) {
+      return false;
+    }
+    const linkTarget = await fs.readlink(absolutePath);
+    const resolvedTarget = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(absolutePath), linkTarget);
+    const targetReal = await fs.realpath(resolvedTarget).catch(() => path.resolve(resolvedTarget));
+    const rootInfo = syncRootRealForKey(syncKey, resolved);
+    if (!rootInfo) {
+      return false;
+    }
+    return !isRealpathInsideRoot(targetReal, rootInfo.rootReal);
+  } catch {
+    return false;
+  }
+}

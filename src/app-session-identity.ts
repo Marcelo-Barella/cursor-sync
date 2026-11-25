@@ -45,3 +45,17 @@ export function appStorageAccountKey(
   }
   return accountKeyFromAppSession(session);
 }
+
+export function resolveAppSessionEmail(sessionToken: string): string | undefined {
+  const payload = decodeJwtPayload(sessionToken);
+  if (!payload) {
+    return undefined;
+  }
+  for (const key of ["email", "user_email", "preferred_username"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}

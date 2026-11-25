@@ -3,6 +3,17 @@ import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
 import { SYNC_DESTINATION_APP_STORAGE_LABEL } from "./sync-destination.js";
+import { isAbortLikeError } from "./app-config-errors.js";
+import {
+  AppConfigsAbortedError,
+  isAppConfigsAbortedError,
+} from "./app-session-coordination.js";
+
+function throwIfR2RequestAborted(error: unknown, signal?: AbortSignal): void {
+  if (signal?.aborted || isAppConfigsAbortedError(error) || isAbortLikeError(error)) {
+    throw new AppConfigsAbortedError("logout");
+  }
+}
 
 export interface R2StorageCredentials {
   endpoint: string;
@@ -143,11 +154,13 @@ export async function mintR2StorageCredentials(
 
 export async function getR2StorageCredentials(
   context: vscode.ExtensionContext,
-  options?: { ttlSeconds?: number }
+  options?: { ttlSeconds?: number; silent?: boolean }
 ): Promise<R2StorageCredentials | undefined> {
   const session = await getAppSession(context);
   if (!session) {
-    vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    if (!options?.silent) {
+      vscode.window.showErrorMessage(LOGIN_REQUIRED_MESSAGE);
+    }
     return undefined;
   }
 
@@ -172,19 +185,27 @@ export async function getR2StorageCredentials(
 export async function putR2Object(
   credentials: R2StorageCredentials,
   syncKey: string,
-  body: Buffer
+  body: Buffer,
+  options?: { signal?: AbortSignal }
 ): Promise<number> {
   const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
 
-  const response = await client.fetch(url, {
-    method: "PUT",
-    body,
-    headers: {
-      "Content-Type": "application/octet-stream",
-    },
-  });
+  let response: Awaited<ReturnType<AwsClient["fetch"]>>;
+  try {
+    response = await client.fetch(url, {
+      method: "PUT",
+      body,
+      headers: {
+        "Content-Type": "application/octet-stream",
+      },
+      signal: options?.signal,
+    });
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -220,13 +241,20 @@ export async function deleteR2Object(
 
 export async function getR2Object(
   credentials: R2StorageCredentials,
-  syncKey: string
+  syncKey: string,
+  options?: { signal?: AbortSignal }
 ): Promise<Buffer | undefined> {
   const objectKey = buildScopedObjectKey(credentials.prefix, syncKey);
   const url = r2ObjectUrl(credentials, objectKey);
   const client = createAwsClient(credentials);
 
-  const response = await client.fetch(url, { method: "GET" });
+  let response: Awaited<ReturnType<AwsClient["fetch"]>>;
+  try {
+    response = await client.fetch(url, { method: "GET", signal: options?.signal });
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
 
   if (response.status === 404) {
     return undefined;
@@ -239,6 +267,12 @@ export async function getR2Object(
     );
   }
 
-  const arrayBuffer = await response.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+  try {
+    arrayBuffer = await response.arrayBuffer();
+  } catch (err) {
+    throwIfR2RequestAborted(err, options?.signal);
+    throw err;
+  }
   return Buffer.from(arrayBuffer);
 }

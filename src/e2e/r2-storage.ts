@@ -8,11 +8,12 @@ export async function putEncryptedR2Object(
   userId: string,
   keyVersion: number,
   logicalSyncKey: string,
-  plaintext: Buffer
+  plaintext: Buffer,
+  options?: { signal?: AbortSignal }
 ): Promise<void> {
   const envelope = encryptObjectPayload(dek, plaintext, userId, keyVersion, logicalSyncKey);
   const objectKey = deriveObjectStorageKeyHex(dek, logicalSyncKey);
-  await putR2Object(credentials, objectKey, envelope);
+  await putR2Object(credentials, objectKey, envelope, options);
 }
 
 export async function getEncryptedR2Object(
@@ -20,10 +21,11 @@ export async function getEncryptedR2Object(
   dek: Buffer,
   userId: string,
   keyVersion: number,
-  logicalSyncKey: string
+  logicalSyncKey: string,
+  options?: { signal?: AbortSignal }
 ): Promise<Buffer | undefined> {
   const objectKey = deriveObjectStorageKeyHex(dek, logicalSyncKey);
-  const envelope = await getR2Object(credentials, objectKey);
+  const envelope = await getR2Object(credentials, objectKey, options);
   if (!envelope) {
     return undefined;
   }

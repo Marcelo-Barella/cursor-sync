@@ -8,7 +8,11 @@ import { resolveE2eGateSnapshot } from "../e2e/gate.js";
 import { renderSyncPane } from "./sync-tab.js";
 import { buildSyncTabStateFromInputs } from "./sync-tab-state.js";
 import { activeScheduledRootHeldFingerprint } from "../storage-sync-ui-status.js";
-import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
+import {
+  renderSettingsPane,
+  readSettingsValues,
+  readSettingsAccountState,
+} from "./settings-tab.js";
 import { renderSidebarAppearanceTokenCss } from "./sidebar-appearance-tokens.js";
 import { getSidebarThemeController } from "./sidebar-theme-controller.js";
 
@@ -57,7 +61,8 @@ export async function renderSidebarHtml(
   webview: vscode.Webview
 ): Promise<string> {
   const state = await buildSyncTabState(context);
-  const settingsValues = readSettingsValues();
+  const account = await readSettingsAccountState(context);
+  const settingsValues = readSettingsValues(account);
   const syncPaneHtml = renderSyncPane(state);
   const settingsPaneHtml = renderSettingsPane(settingsValues);
   const appearanceTokenCss = renderSidebarAppearanceTokenCss();
@@ -600,6 +605,17 @@ export async function renderSidebarHtml(
       height: 14px;
       cursor: pointer;
     }
+    .settings-account-email {
+      font-size: 12px;
+      color: var(--cs-ink-80);
+      padding: 4px 2px 0;
+      word-break: break-word;
+    }
+    .settings-account-muted {
+      color: var(--cs-ink-32);
+      font-style: italic;
+    }
+
     .settings-row-theme {
       flex-direction: column;
       align-items: stretch;

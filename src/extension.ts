@@ -89,6 +89,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(registerAppAuthUriHandler(context));
   consumePendingAuthCallback(context);
+  void import("./app-auth.js").then(({ retryPendingSecretClearOnActivate }) =>
+    retryPendingSecretClearOnActivate(context)
+  );
+  void import("./app-config-pull-journal.js").then(({ replayIncompletePullJournals }) =>
+    replayIncompletePullJournals(context)
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("cursorSync.refreshImportedTranscripts", () => {
@@ -408,6 +414,12 @@ export async function executeSyncNow(
   }
 
   logger.appendLine(`[${new Date().toISOString()}] Sync Now triggered`);
+
+  const { isLoggingOut } = await import("./app-session-coordination.js");
+  if (isLoggingOut()) {
+    vscode.window.showInformationMessage("Logging out…");
+    return;
+  }
 
   if (!tryBeginSyncOperation()) {
     await recoverSyncOperationLatch(context, { force: true });

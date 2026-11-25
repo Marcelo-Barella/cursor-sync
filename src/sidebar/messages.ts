@@ -17,7 +17,8 @@ export type SidebarMessage =
         | "enterAppAuthCode"
         | "e2eUnlock"
         | "e2eRecheckEmail"
-        | "e2eRetryKeys";
+        | "e2eRetryKeys"
+        | "appLogout";
     }
   | { command: "chats:listLocal" }
   | { command: "chats:listImports" }
@@ -84,6 +85,9 @@ export async function dispatchSidebarMessage(
       break;
     case "e2eRetryKeys":
       await vscode.commands.executeCommand("cursorSync.e2e.retryKeys");
+      break;
+    case "appLogout":
+      await vscode.commands.executeCommand("cursorSync.app.logout");
       break;
     case "chats:listLocal": {
       const { listLocalConversations } = await import("./chats-tab.js");
@@ -165,8 +169,11 @@ export async function dispatchSidebarMessage(
       await webview.postMessage({ type: "chats:history-cleared" });
       break;
     case "settings:get": {
-      const { readSettingsValues } = await import("./settings-tab.js");
-      const values = readSettingsValues();
+      const { readSettingsValues, readSettingsAccountState } = await import(
+        "./settings-tab.js"
+      );
+      const account = await readSettingsAccountState(context);
+      const values = readSettingsValues(account);
       await webview.postMessage({ type: "settings:current", values });
       break;
     }

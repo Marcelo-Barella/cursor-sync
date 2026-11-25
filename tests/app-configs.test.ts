@@ -497,7 +497,8 @@ describe("app-configs R2 sync", () => {
       "user-1",
       1,
       "cursor-user/settings.json",
-      Buffer.from('{"x":1}')
+      Buffer.from('{"x":1}'),
+      expect.objectContaining({ signal: expect.anything() })
     );
     expect(putConfigsManifestWithRetryMock).toHaveBeenCalled();
     expect(appendLineMock).toHaveBeenCalledWith(

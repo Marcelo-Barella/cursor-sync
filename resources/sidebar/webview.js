@@ -294,6 +294,14 @@
       return;
     }
 
+    if (msg.type === "settings:account") {
+      var accountEl = document.getElementById("settings-account-section");
+      if (accountEl && msg.html) {
+        accountEl.innerHTML = msg.html;
+      }
+      return;
+    }
+
     if (msg.type === "settings:current") {
       var vals = msg.values;
       if (!vals) return;
