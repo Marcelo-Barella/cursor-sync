@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.13
+
+### Changed
+
+- Staging integration merge: retire bergamota hosts (#43), docs (#45), API telemetry (#44), pinned API origins and centralized bearer transport (#47), sidebar logout (#48).
+
 ## v0.9.0
 
 Release line combining Cursor Sync account sign-in, encrypted cloud storage, E2E encryption, sidebar appearance themes, and GitHub Gist sync. Staging builds use the `0.9.0-staging.*` version suffix until the production cut.
