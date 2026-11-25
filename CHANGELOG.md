@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## v0.9.0
+
+Release line combining Cursor Sync account sign-in, encrypted cloud storage, E2E encryption, sidebar appearance themes, and GitHub Gist sync. Staging builds use the `0.9.0-staging.*` version suffix until the production cut.
+
+### Added
+
+- Browser sign-in at `cursor-sync.com` / `staging.cursor-sync.com` with paste-one-time-code completion and protocol callback handling (`cursorSync.loginToCursorSync`, `cursorSync.enterAppAuthCode`, `cursorSync.logoutAppSession`).
+- App configs sync via `GET/PUT /v1/configs` with R2 object storage and API-minted short-lived SigV4 credentials.
+- Mandatory E2E encryption gate (Argon2id + AES-256-GCM) for app storage and encrypted Gist exports; unlock, lock, change passphrase, rotate recovery key; legacy plaintext migration and encrypted gist guard.
+- Sidebar appearance theme (`cursorSync.appearance.theme`): system, dark, light (from v0.8.4-staging.6).
+- Developer environment presets: production (`api.cursor-sync.com`, `cursor-sync.com`), staging (`api-staging.cursor-sync.com`, `staging.cursor-sync.com`), local, and custom URLs with fail-closed validation.
+
+### Changed
+
+- Default developer preset on the integration branch remains **staging**; production defaults target `cursor-sync.com` hosts.
+- Push/pull/sync-now route to Cursor Sync storage when an app session is active; Gist remains available with a PAT.
+- Anonymous usage metrics are intended to post to `{apiBase}/v1/telemetry` (see `cursor/telemetry-via-api`); respects editor telemetry opt-out.
+
+### Fixed
+
+- Session expiry, E2E lock, and rate-limit handling across sidebar, scheduler, and sync commands (fail-closed; no plaintext gist fallback when encrypted).
+- App storage UX: held/partial sync, baseline checksums, safe mode, conflict surfacing, and QA hardening through v0.8.4-staging.40 merged on staging.
+
+### Install
+
+- Distribute via sideloaded VSIX only (`npm run package`); not published to Marketplace or Open VSX.
+
 ## v0.9.0-staging.11
 
 ### Changed
@@ -427,7 +454,7 @@
 - Shorter Push/Pull toasts; storage safe-mode picker title uses **Cursor Sync storage** naming.
 
 ### Changed
-- Staging developer preset API/website URLs now point at `api-staging.cursor-sync.com` and `staging.cursor-sync.com`; legacy bergamota staging hosts remain available via the **custom** preset.
+- Staging developer preset API/website URLs now point at `api-staging.cursor-sync.com` and `staging.cursor-sync.com`; production defaults use `api.cursor-sync.com` and `cursor-sync.com`.
 
 ## v0.8.4-staging.7
 
