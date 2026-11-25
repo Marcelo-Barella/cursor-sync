@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.11
+
+### Changed
+- Merged QA app storage UX safety (through v0.8.4-staging.40) with end-to-end encrypted app sync on staging (v0.9.0-staging.10); app-storage push uses encrypted R2 objects and encrypted manifests while preserving held/partial sync UX.
+
 ## v0.9.0-staging.10
 
 ### Fixed
@@ -100,6 +105,337 @@
 
 ### Changed
 - Staging API preset targets `https://api-staging.cursor-sync.com` (separate env commit).
+
+## v0.8.4-staging.40
+
+### Fixed
+- G8 QA isolation: transport-chat Python children receive `HOME` / `USERPROFILE`, XDG, and `CURSOR_DOT_DIR` via `transportChatSubprocessEnv()` (`src/os-runtime.ts:113-124`, `src/chat-transport-scripts.ts:136-139`, `src/chat-import-activate.ts:755-759`).
+- `resolveEffectiveUserHome()` and Linux `defaultSyncRoots()` honor non-empty `process.env.HOME` for `~/.cursor` (`src/paths.ts:42-90`).
+- Python `effective_home()` / `dot_cursor_dir()` mirror TS rules for chats, projects, activation, and config fallbacks (`resources/transport-chat/scripts/cursor_chat_io_common.py:161-207`).
+
+### Tests
+- Isolated `HOME` / `CURSOR_DOT_DIR` for TS roots, spawn env, and Python `chats_root()` (`tests/paths.test.ts`, `tests/os-runtime-subprocess.test.ts`, `tests/transport-chat-path-isolation.test.ts`).
+
+## v0.8.4-staging.39
+
+### Security
+- `assertReadOnlySqliteQuery`: token-aware refusal of quoted shell functions (`writefile`, `readfile`, extension tables, etc.); PRAGMA limited to caller forms (`user_version;`, `table_info(...)`) with no `=` assignments (`src/sqlite-script-safety.ts:559-701`).
+- `runSqliteQuery`: requires sqlite3 `-safe` for CLI reads; otherwise Python `mode=ro` only; keeps `-readonly` (`src/transcripts-sqlite.ts:521-543`, `src/os-runtime.ts:404-407`).
+- AST guard: object destructure / `let` reassignment aliases for exec helpers; `runSqliteQuery` must retain `-readonly` and safe-or-Python gate (`tests/sqlite-runner-ast-guard.ts`).
+
+## v0.8.4-staging.38
+
+### Fixed
+- Scheduler: `none` / baseline refresh no longer clears held markers until `appStorageSyncRootsHealthyForHeldRecovery` passes (roots present, writable, scan not blocked).
+- Show Status: the “last direction” app-storage line follows `deriveStorageSyncPresentation` (held/partial/failed vs misleading succeeded).
+
+### Security
+- `runSqliteQuery`: `assertReadOnlySqliteQuery` plus sqlite3 `-readonly` and Python `mode=ro` URI (`src/transcripts-sqlite.ts:524-534`, `354-360`).
+- SQLite AST guard: unconditional `assertSafeSqlScript` / swallowed-try / `execFileWithStdinAsync` local aliases / `runSqliteQuery` read-only assert ordering.
+
+## v0.8.4-staging.37
+
+### Fixed
+- Show Status: app storage line uses `deriveStorageSyncPresentation` (same as status bar/sidebar) so held/partial are not shown as failed/synced from a stale push entry.
+- Scheduler: scheduled push success no longer clears pull-held markers; recovery history is written at most once when leaving held/partial/error, not on every idle tick; gist-only ticks skip app-storage recovery.
+
+### Tests
+- SQLite AST guard: nested `runSqliteScript`, aliased/env-gated/try-swallowed stdin, `os.execFileWithStdinAsync` inline `-c`, exported CLI writers without `assertSafeSqlScript`, and `runSqliteCliSafeStdin` assert ordering; production script bytes match test fixture.
+- F3-X safeMode false asserts overwrite via `writeFileWithoutFollow`; held/partial tests assert pull ran and push did not.
+
+## v0.8.4-staging.36
+
+### Tests
+- F3-X integration: local edit → manual pull (decline overwrite) → Sync Now push → remote drift surfaces as conflict; safeMode true/false variants.
+- Held/partial: scheduler pull-push and Sync Now do not push after held/partial; executePull warning bar aligned with `deriveStorageSyncPresentation`.
+- SQLite guard: compiler-API mutation tests (unchecked runner copy, re-export, compose bypass, missing `assertSafeSqlScript`); production `SQLITE_PYTHON_EXECUTESCRIPT` is module-private in `transcripts-sqlite.ts`.
+
+## v0.8.4-staging.35
+
+### Fixed
+- App storage UX: shared storage sync status derivation (`failure` > `held`/`partial` warning > `ok`) for status bar, sidebar, and Show Status; recovered clean scheduled ticks record recovery history and clear held fingerprints; successful push no longer masks an active held root; toast severity matches bar color.
+- Scheduler: end-of-tick status bar refresh no longer overwrites an error set in the same tick (Gist-only and session-expired cases); session-expired ticks show error instead of falling through to Setup.
+- Status bar: restore `cursorSync.loginToApp` on Sync Setup when no GitHub token and no gist is configured.
+- App storage pull: partial pulls are not success (`partial` result, history `success: false`, markers retained, pull-push does not continue to push); root-recovery clears held-toast dedupe; root-create toasts use plain language (raw errno kept in logs).
+- App storage pull: write-time `EACCES`/`ENOSPC`/`EROFS` skips use accurate skip reasons (not `unsafe_path`); symlink reconcile no longer advances baseline when local content differs from remote while remote is unchanged.
+- Tests: TypeScript compiler-API guard for unchecked SQLite executescript composition; test-only Python script constant; staging.35 coverage for status derivation, partial pull-push, and scheduler bar refresh.
+
+## v0.8.4-staging.34
+
+### Fixed
+- App storage: manual pull no longer advances baseline on local-only edits when remote is unchanged; scheduled held pulls show deduped warnings and a dedicated held/warning status bar state; partial pulls use warning toasts aligned with the status bar; never-synced symlink labels no longer double; write-time skip reasons flow through pull notices; scheduled ticks refresh the status bar after success.
+- Tests: unchecked SQLite executescript runner lives under `tests/` only; src AST guard enforces no unchecked runner symbol in production sources.
+
+## v0.8.4-staging.33
+
+### Fixed
+- App storage UX: scheduled held pulls return `held` (not success) so root-held dedupe fingerprints are not cleared every tick; partial scheduled pulls with progress show an informational toast; manual pull skips unreadable/symlink files when remote matches baseline; push skip labels restore `(never-synced symlink)`; pull skip toasts show `changed during write`; scheduled tick failures refresh the status bar.
+- Tests: CF fuzz asserts filter statement count ≥ SQLite oracle; bundle guard rejects `runSqlitePythonExecutescriptUnchecked` in dist.
+
+## v0.8.4-staging.32
+
+### Fixed
+- Scheduler/analytics: `sendEvent` no longer throws when `globalState` is missing or fails; `globalState.update` rejections are caught; scheduled timer ticks attach `.catch` so analytics cannot surface as unhandled rejections.
+- Vitest: fail on unhandled rejections (`dangerouslyIgnoreUnhandledErrors: false` + setup guard).
+
+## v0.8.4-staging.31
+
+### Fixed
+- SQL safety: stop stripping Unicode Cf before lexing; reject non-ASCII and format characters outside single-quoted string literals so fake `--`/`/*` openers cannot hide VACUUM/ATTACH; Python `_split_statements` / `_security_surface` match TS rules.
+
+## v0.8.4-staging.30
+
+### Fixed
+- App storage: excluded/oversize keys no longer enter `untracked` or `baseline_refresh`, so peer deletes are not undone when exclude/size limits toggle; empty-scan hold runs before baseline refresh when all tracked files are out of scope.
+- UX: single root-ensure warning on pull; scheduled root-held markers clear on clean ticks; scheduled pull history summarizes file count; manual pull shows up to date when nothing changes; never-synced symlink skip labels deduped; TOCTOU pull writes labeled changed during write.
+- SQL transport: preserve UTF-8 emoji/ZWJ/CJK in `runSqliteScript` (no surrogate-pair stripping); reject lone surrogates.
+- SQL engine: authorizer allow-by-action (SELECT/READ/INSERT/UPDATE/DELETE/TRANSACTION/SAVEPOINT/PRAGMA/safe FUNCTION only); `SQLITE_FUNCTION` checks arg2; `--` comments end at `\n` only (TS lexer + Python splitter).
+
+## v0.8.4-staging.29
+
+### Fixed
+- SQL safety: single-pass lexer tokenizes comments and quoted regions together (quotes inside `--`/`/* */` no longer desync masking); Python `executescript` runner adds `set_authorizer`, `SQLITE_LIMIT_ATTACHED` when available, and per-statement refusal of ATTACH/DETACH/VACUUM and forbidden functions.
+
+## v0.8.4-staging.28
+
+### Fixed
+- App storage UX: disk probe carries excluded/oversize/symlink-folder reasons on fresh devices; pull partial toasts count skipped files with per-file reasons; remote-update-held only when checksum differs; manual pull always warns on root ensure failures; scheduled sync handles `blocked` with deduped held history; scheduled UI suppression limited to root-only holds.
+
+## v0.8.4-staging.27
+
+### Fixed
+- SQL safety: mask string/blob/quoted identifiers before comment stripping and statement splitting so chat titles and message bodies with `;`, `attach`, `VACUUM`, etc. still sync; strip comments without joining tokens for keyword scans; reject NUL in `escapeSqlLiteral`.
+- Bundle guard: allow `node_modules` only for declared runtime dependencies and their transitive names from each package's `package.json` (not `require.resolve` hoisting tricks).
+
+## v0.8.4-staging.26
+
+### Fixed
+- SQL manifest safety: normalize scripts (strip Unicode Cf, collapse comments/whitespace), statement allowlist, block VACUUM/ATTACH/file functions; bundle guard checks every metafile input realpath (src or declared runtime `node_modules` without symlink escape); build/package run tsc + bundle meta + AST/bundle probe tests; AST allow `import { process as p }` and literal `environs`; absolute Python only via configured `chatImport.pythonPath`.
+
+## v0.8.4-staging.25
+
+### Fixed
+- App storage UX: per-reason held labels (unreadable, excluded, oversize, symlink); manual pull warns on held remote updates; push skip labels use baseline/remote tracking; warning toasts when skips are not only never-synced symlinks; scheduled pull stays silent on root-held with deduped held history; Sync Now recreation after delete confirm is informational, not a failed push.
+
+## v0.8.4-staging.24
+
+### Fixed
+- SQLite scripts: Python `executescript` with `enable_load_extension(False)`; no `.read` or unsafe `-safe` bypass; manifest SQL validated (dot-commands, ATTACH, load_extension, PRAGMA allowlist).
+- `SubprocessCommandNotFoundError` (ENOENT) restores Python fallback when `sqlite3` is missing on PATH.
+- Bundle guard: metafile inputs must `realpath` under `src/`; AST lexical scope for forbidden identifiers; expanded home-path rules; PATH skips relative/empty entries.
+
+## v0.8.4-staging.23
+
+### Fixed
+- `os-runtime`: allowlisted env only; PATH-resolved absolute executables; no caller `shell`/`env`; `sqlite3 -safe`; `python3.N` + machine-scoped `chatImport.pythonPath`.
+- AST guard: non-literal dynamic import; outside-`src/` imports; home-path literals via `paths` labels; free-identifier matching; metafile scan; bundle ban parity.
+- Esbuild: remove stale `extension.meta.json` on guard failure; watch mode keeps watching.
+- Scheduled push re-checks provably-absent explicit deletions (M17).
+- `npm test` typechecks all `tests/**` (`tsconfig.test.json`).
+
+## v0.8.4-staging.22
+
+### Fixed
+- AST guard: identifier ban (`require`, `process`, `global`, `globalThis`, `eval`, `Function`, `Reflect`, `module`), any `.constructor` access, expanded banned imports, `/proc/`/`environ` literals, `systemTmpDir()`+`..` traversal; scans all `src/**` sources; Tester probe fixtures.
+- Subprocess allowlist + scrubbed env in `os-runtime.ts` (`python3`, `python`, `py`, `sqlite3`, `chmod` only).
+- Esbuild writes bundle to a temp file and renames only after metafile guard passes; `ctx.dispose()` in `finally`.
+- Disk probe: unreadable files (e.g. chmod 000) are not “present”; root-held notice wins over per-file held; categorized held messages; manual pull held notice; manual push single toast with never-synced symlink labeling; local disk keys in push skip probe; Sync Now re-checks provably-absent for explicit deletions.
+- Root-creation pull warning once per session (including scheduled).
+
+### Changed
+- `npm test` typechecks `tests/` via `tsconfig.test.json`.
+- Decision table: root-held vs per-file messaging; subprocess allowlist documentation.
+
+## v0.8.4-staging.21
+
+### Fixed
+- `npm test` runs `tsc --noEmit` before build/tests so bundle/type errors cannot ship.
+- Esbuild metafile guard iterates `imports[].path`, checks all bundled inputs (including outside `src/`), and runs on watch rebuilds.
+- Manual push skip notice uses disk-probe classification over baseline, remote manifest, and on-disk keys (F3); integration test uses a real symlink on disk.
+- Pull creates missing sync roots before `realpath` resolution (b14); root creation failure skips only that root’s keys (b12/b16).
+- AST guard expanded (finite deny-list): `globalThis`/`eval`/`Function`/`Reflect`/`module`/`vm`, strict `require`, `.constructor.constructor`, `createRequire`, `.jsx`, and metafile-scoped sources.
+- Sync Now shows per-file held notice when paths are `skipped_unknown`; manual pull warns on empty remote manifest.
+
+### Changed
+- Decision table: per-root delete hold and b12/b16 root-creation failure rows.
+
+## v0.8.4-staging.20
+
+### Fixed
+- Fresh device: missing `~/.cursor` without baseline classifies as `absent_eligible` (pull allowed); root created only at write time. Baseline + missing/empty root stays `skipped_unknown`.
+- Symlinked empty sync root: classify below `realpath(root)` so new keys under the root can pull (b13 / N3b3).
+- Manual push shows classification-based skip notice (`Pushed N, skipped M`); disk probe no longer downgrades held roots to `proven_absent`.
+- Pull: per-key write failure skips with notice (no full rollback); tmp unlink only after successful `open`.
+- Sync Now / Pull show held-root notice when deletes are blocked (S3).
+
+### Changed
+- Two-layer path guard: expanded AST over all `src` sources + esbuild metafile bundle check; spawn env confined to `os-runtime.ts`.
+- Decision table rows for fresh-device pull and symlinked root.
+
+## v0.8.4-staging.19
+
+### Fixed
+- **P0 / case g:** Scan no longer creates missing sync roots; baseline + missing/empty root marks all keys under that root `skipped_unknown` and blocks deletes (inclusive 50% threshold and per-root all-absent guard).
+- Safe pull writes use random `O_EXCL|O_NOFOLLOW` temp files; local deletes re-check `lstat` + `realpath` before each `unlink`/`rmdir`.
+- Symlinked sync roots enumerate via `realpath`; fresh-device pull creates roots only when baseline has no keys under that root.
+- Refused/skipped pull keys excluded from pulled counts and baseline updates; push skip notice uses classification skips (`Pushed N, skipped M`).
+- Scheduler mass-delete block set recomputed each action evaluation; cleared when deletes no longer blocked (F4).
+
+### Changed
+- Decision table and hardcoded-path guard updated (`docs/app-storage-sync-decisions.md`, AST check in `tests/hardcoded-sync-paths.test.ts`).
+
+## v0.8.4-staging.18
+
+### Fixed
+- Symlink safety (F1/F2): strict `classifyLocalPath` with `realpath` roots and per-component `lstat`; no delete_remote through symlinked dirs; pull writes cannot escape sync root.
+- Scan does not list through symlink directories; removed provably_absent downgrade override.
+- Push skip toast includes symlink/skipped_unknown keys (F3); mass-delete dedupe resets on scheduler none when block set changes (F4).
+- Declines keyed to remote checksum for pull; keep-local expires on local checksum change or explicit push (F5).
+- Remote-only orphan baseline keys prune via baseline_refresh (F6); pull-push threshold-held deletes show warning not upload failure (F7).
+- Missing enabled sync roots are created on fresh devices before pull.
+
+### Changed
+- Decision table doc: excluded keys noop, symlink/missing-root/F6 rows (`docs/app-storage-sync-decisions.md`).
+- Hardcoded-path guard: structural rule (only `paths.ts` may import `os` or read `process.env`).
+
+## v0.8.4-staging.17
+
+### Fixed
+- Unified `classifyLocalPath` for decision and pull paths: missing parent dirs are `proven_absent` (ancestor walk); scan `provably_absent` is never downgraded (K26, K27).
+- Pull creates parent dirs via `mkdirParentsWithoutSymlinks`; manual pull skips generated `extensions.json`.
+- Declines feed `decideSyncKey` so scheduler/Sync Now respect declined overwrites and keep-local deletes (K28).
+- Per-key `pull-push` when different keys changed locally vs remotely (K29).
+- Excluded-but-tracked keys baseline-prune without blocking other keys; scope mismatch no longer blocks all deletes (K25).
+- Mass-delete warning dedupe resets when the blocked deletion set changes, including shrink after restore (K24).
+
+### Changed
+- Canonical decision table lives in `docs/app-storage-sync-decisions.md` (not source comments).
+- Manual push toasts unreadable/symlink skips; hardcoded-path guard patterns extended.
+
+## v0.8.4-staging.16
+
+### Fixed
+- Pull eligibility is proven per key via `lstat` (`absent_eligible` never inferred); excluded/oversize/symlink on disk stay `skipped_unknown`.
+- Symlink/non-regular keys are noop in both directions and no longer block pushes or force false conflicts.
+- Delete guard uses user-content enumeration only (ignores generated `extensions.json`); m2 empty-scan deletes blocked.
+- Nested directory deletes mark all tracked descendants provably absent (walk ancestors on readdir failure).
+- Declined pull/delete decisions block resurrection on push until checksum changes or explicit Push/Sync Now; declines store checksums.
+- Mass-delete dedupe resets after successful pull/push; exclude-glob scope updates via baseline_refresh before "already in sync".
+- `delete_local` requires `wasLocal`; empty-remote Sync Now shows warning only; hashed backup index unchanged.
+- Pull removes empty parent dirs after deletes; decision table doc updated (cells U1, N3, B8, B11, m2).
+
+## v0.8.4-staging.15
+
+### Fixed
+- Single sync decision table (`app-storage-sync-decisions.ts`) drives classify, scheduler filter, pull preselection, and tests.
+- Push delete batch returns a copied array (`resolveMassDeleteBatch`); delete-only push succeeds again.
+- Pull absent-local rule: safe absent under enabled roots without baseline provably-absent mark; scheduler auto-pulls tracked remote edits.
+- Directory-delete keys are provably absent only (not skipped); mutually exclusive scan states.
+- No-baseline local≠remote is conflict and not pull-preselected; pull writes honor scan skip/untracked/symlink via `shouldAllowPullWriteForKey`.
+- Declined pull overwrites are not re-uploaded on the next push; empty remote manifest refuses local deletes with warning/history.
+- Mass-delete and conflict scheduler warnings dedupe by signature and reset when resolved.
+- All-missing storage pull reports failure + history; backup files use hashed names (long paths).
+
+## v0.8.4-staging.14
+
+### Fixed
+- Mass-delete threshold uses OR logic (`> 3` or `> 50%` of tracked, plus delete-all-tracked); table-driven coverage for edge ratios.
+- Mass-delete guard on push and pull (Sync Now / manual), not only the scheduler; empty remote manifest cannot wipe local tracked files without confirmation.
+- Pull overwrite picker: baseline-tracked remote changes pre-selected; no-baseline local≠remote stays unselected (conflict).
+- Auto-pull and scheduled pull skip excluded, oversize, symlink, and unreadable on-disk files; only provably absent locals are pull candidates.
+- Pull aborts when pre-write backup fails instead of overwriting without a backup.
+- Removed directory trees mark descendant baseline keys provably absent so deletes sync.
+- Prune baseline entries for untracked keys when paths leave enabled scope; cancel mass-delete / empty picker is a no-op without failure history or “no files uploaded” toast.
+- Scheduler mass-delete blocks dedupe warn/history per distinct reason; path guard patterns extended (`userInfo` from `os`, `nodeOs.homedir`, `os["homedir"]`, destructured homedir alias, `USERPROFILE`).
+
+## v0.8.4-staging.13
+
+### Fixed
+- **P0 mass delete:** baseline keys are classified as present, provably absent, skipped/unknown, or untracked (config/size). Only provably absent keys may be deleted remotely; empty or untrusted scans block all deletes.
+- Mass-delete guard: scheduler never applies large delete batches; manual runs require a modal above 3 files or 50% of tracked keys.
+- Safe-mode remote/local delete pickers default to nothing selected; remote delete picker copy updated.
+- Reset clears app-storage baselines when paths/limits are reset.
+- No-baseline keys absent locally auto-pull on schedule and are pre-selected on manual pull; local present + different remains conflict.
+- `/configs` 5xx records a single history entry on Sync Now, scheduler, push, and pull (no duplicate outer catch).
+
+### Changed
+- Path guard patterns extended (`os` homedir import, `userInfo`, `process.env["HOME"]`); mixed pull+delete toast mentions both.
+
+## v0.8.4-staging.12
+
+### Fixed
+- No-baseline local≠remote is a **conflict** again (no silent first-sync overwrite); scheduled sync never auto-pulls keys without a baseline entry.
+- Safe-mode pull overwrite picker leaves keys without a baseline **unselected** (Enter does not overwrite).
+- Real local deletes propagate when a baseline key is missing from the scan and not unreadable (deleted files no longer require `enoentKeys` race).
+- Pull updates baseline for every reconciled manifest key, including identical files skipped on disk.
+- Mutual delete clears baseline without requiring `enoentKeys`; re-adding the same file is a push, not a remote delete.
+
+### Changed
+- Pull/delete toasts distinguish local removals from file pulls; push partial toast only when uploads were attempted.
+- `fetch` `/configs` 5xx records a storage history entry; path guard covers `node:os`, named `homedir` imports, and `os.userInfo().homedir`.
+- Status bar **Setup** (no Gist token) opens app login; symlinks/directories count as unreadable in local scan.
+
+## v0.8.4-staging.11
+
+### Fixed
+- Unreadable or non-ENOENT missing files are never treated as local deletes; unreadable keys are excluded from push, delete, and baseline updates with partial push reporting.
+- Remote deletions apply on pull even when no file keys are pulled; mutual local+remote delete clears baseline without a permanent conflict.
+- Push order is uploads, manifest PUT, then R2 deletes; failed uploads skip deletes and manifest drops.
+- Pull reports partial success when manifest keys are missing from storage (404).
+- Generated-only empty `extensions.json` on a fresh machine no longer false-conflicts on remote-only settings changes.
+- v1 baseline migrates only when attributable to the current session account; foreign v1 baselines are discarded.
+- Sync Now / scheduled 401 records history with trigger and "Session expired, log in again"; conflicts record history and show status-bar conflict state.
+- Login always opens the paste-code input when openExternal or clipboard fails; **Log out** clears session and keeps per-account baselines; reset preserves `schedule.enabled`.
+
+### Changed
+- Hardcoded sync-path guard covers `.config/Cursor/User` joins, `process.env.HOME`, and `require("os").homedir()`.
+
+## v0.8.4-staging.10
+
+### Fixed
+- App storage baseline is keyed by server `userId` and API base URL (multi-account store in `globalStorage/app-storage-baseline.json`); legacy single-file baselines migrate on load.
+- Remote-only sync no longer false-conflicts on generated `extensions.json`; remote file deletes apply locally on pull (safe-mode confirm); delete-only push updates manifest/R2 and shows a removal toast.
+- Push cancel on safe-mode delete picker shows an info toast; storage 401 on push records a single push failure; status bar shows error after a failed storage sync.
+- Login: if the browser cannot open, copy the sign-in URL to the clipboard, warn with **Copy URL**, and still open the paste-code input; successful login no longer auto-opens the Output panel.
+- Chat/transcript/activation paths use `resolveExtensionSyncRoots` / `CURSOR_DOT_DIR` consistently; hardcoded home-path guard tightened.
+
+### Changed
+- Paste-code prompt runs before sync-latch release so login is not blocked by status-bar refresh.
+
+## v0.8.4-staging.9
+
+### Fixed
+- App storage sync uses a persisted per-account baseline (`globalStorage/app-storage-baseline.json`) so **Sync Now** / scheduler push local edits instead of pull-then-push overwrites; conflicts are surfaced, never auto-resolved on schedule.
+- Storage **Pull** skips files whose local checksum already matches the remote manifest; safe-mode picker lists only differing files.
+- Storage push merges `/configs` with the remote manifest (no wiping remote keys); generated-only `extensions.json` (`[]`) counts as zero files for empty-profile guard.
+- Status bar shows **Sync: Storage** with last storage sync detail when logged in; refreshes on login, logout, and sync.
+- Login opens the paste-code input automatically after launching the browser.
+- 401 history entries record the real trigger (`manual`, `syncNow`, `scheduled`, `startup`); 503 text uses **Cursor Sync storage** naming.
+- Sidebar **Export** / **Import** moved under a **GitHub Gist** section separate from storage Push/Pull.
+
+### Changed
+- Chat/transcript path resolution uses extension `globalStorageUri` (and `CURSOR_DOT_DIR`) via `resolveExtensionSyncRoots`; workspace storage roots derive from the same User dir.
+
+## v0.8.4-staging.8
+
+### Fixed
+- Sync enumeration uses the Cursor **User** dir from `globalStorageUri` everywhere settings are packaged or written (Gist push, app storage, scheduler, conflicts, import/export).
+- App storage push skips unreadable files, logs real R2 HTTP status, fails partial uploads without updating `/configs` (R2 bytes may be newer until a full push succeeds).
+- **Sync Now** and scheduled sync use app storage when logged in; palette Push/Pull/Sync enable with Gist token or app session.
+- **Show Status** shows the latest storage attempt including failures, with local-formatted timestamps.
+- Sidebar status card reflects Cursor Sync storage history when logged in; redundant **Push storage** / **Pull storage** buttons removed (main Push/Pull route to storage).
+- Shorter Push/Pull toasts; storage safe-mode picker title uses **Cursor Sync storage** naming.
+
+### Changed
+- Staging developer preset API/website URLs now point at `api-staging.cursor-sync.com` and `staging.cursor-sync.com`; legacy bergamota staging hosts remain available via the **custom** preset.
+
+## v0.8.4-staging.7
+
+### Fixed
+- Sidebar **Push** / **Pull** route to Cursor Sync storage when an app session is active; dedicated **Push storage** / **Pull storage** actions when logged in.
+- Sync toasts and **Show Status** name the destination (GitHub Gist vs Cursor Sync storage); app-storage push counts only successful R2 uploads and logs each key to the Output channel.
+- Sync roots derive the Cursor **User** directory from `globalStorageUri` (supports `--user-data-dir`); `skills-cursor` is excluded from default sync paths.
+
 
 ## v0.8.4-staging.5
 

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { nodePlatform } from "./os-runtime.js";
 import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
 import { packageFiles } from "./packaging.js";
 import { GistClient } from "./gist.js";
@@ -42,10 +43,12 @@ export async function executeExport(context: vscode.ExtensionContext): Promise<v
   }
 
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = (await import("./paths.js")).resolveSyncRoots().cursorUser;
+  const { resolveSyncRoots } = await import("./paths.js");
+  const roots = resolveSyncRoots(nodePlatform(), context);
+  const cursorUserRoot = roots.cursorUser;
   await writeExtensionsFile(cursorUserRoot, extensionsJson);
 
-  const files = await enumerateSyncFiles();
+  const files = await enumerateSyncFiles(context, roots);
   if (files.length === 0) {
     vscode.window.showInformationMessage("No files found to export.");
     return;

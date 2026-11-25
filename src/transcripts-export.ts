@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
+import { nodePlatform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getLogger } from "./diagnostics.js";
@@ -63,7 +65,7 @@ export async function executeExportTranscripts(
 
   const projects = await discoverProjects();
   if (projects.length === 0) {
-    vscode.window.showInformationMessage("No Cursor projects found under ~/.cursor/projects/.");
+    vscode.window.showInformationMessage(`No Cursor projects found under ${USER_LABEL_DOT_CURSOR}/projects/.`);
     return;
   }
 
@@ -91,7 +93,7 @@ export async function executeExportTranscripts(
   const candidates = await discoverExportConversationCandidates(selectedProjects, maxBytes);
   if (candidates.length === 0) {
     vscode.window.showInformationMessage(
-      "No conversations found. Expected ~/.cursor/projects/<project>/agent-transcripts/<conversation-id>/ with jsonl files and/or a matching ~/.cursor/chats/*/store.db."
+      `No conversations found. Expected ${USER_LABEL_DOT_CURSOR}/projects/<project>/agent-transcripts/<conversation-id>/ with jsonl files and/or a matching ${USER_LABEL_DOT_CURSOR}/chats/*/store.db.`
     );
     return;
   }
@@ -350,7 +352,7 @@ export async function buildExportBundleV2(
       }
     } else {
       conversationState.warnings.push(
-        "Store snapshot was not found under ~/.cursor/chats; transcript JSONL will still be exported."
+        `Store snapshot was not found under ${USER_LABEL_DOT_CURSOR}/chats; transcript JSONL will still be exported.`
       );
     }
 
@@ -428,7 +430,7 @@ export async function buildExportBundleV2(
     type: "agent-transcripts",
     createdAt,
     sourceMachineId: computeTranscriptMachineId(),
-    sourceOS: process.platform,
+    sourceOS: nodePlatform(),
     sourceProjects,
     artifacts,
     conversations,

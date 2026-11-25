@@ -106,7 +106,7 @@ describe("buildChatBundle export title", () => {
     const { buildChatBundle } = await import("../src/chat-persistence.js");
     const context = {
       globalStorageUri: { fsPath: path.join(tempHome, "global-storage") },
-    } as import("vscode").ExtensionContext;
+    } as unknown as import("vscode").ExtensionContext;
 
     const { bundle } = await buildChatBundle(context, conversationId, { report: () => {} }, {
       workspaceKey,

@@ -2,9 +2,12 @@ import * as vscode from "vscode";
 import { hasAppSession } from "../app-configs.js";
 import { isAppSessionExpired } from "../app-auth.js";
 import { loadSyncState, loadSyncHistory } from "../diagnostics.js";
+import { isSyncOperationActive } from "../sync-operation.js";
 import type { E2eSidebarPhase, SyncTabState } from "./sync-tab.js";
 import { resolveE2eGateSnapshot } from "../e2e/gate.js";
 import { renderSyncPane } from "./sync-tab.js";
+import { buildSyncTabStateFromInputs } from "./sync-tab-state.js";
+import { activeScheduledRootHeldFingerprint } from "../storage-sync-ui-status.js";
 import { renderSettingsPane, readSettingsValues } from "./settings-tab.js";
 import { renderSidebarAppearanceTokenCss } from "./sidebar-appearance-tokens.js";
 import { getSidebarThemeController } from "./sidebar-theme-controller.js";
@@ -12,7 +15,6 @@ import { getSidebarThemeController } from "./sidebar-theme-controller.js";
 export async function buildSyncTabState(
   context: vscode.ExtensionContext
 ): Promise<SyncTabState> {
-  const { isSyncOperationActive } = await import("../sync-operation.js");
   const syncState = await loadSyncState(context);
   const history = await loadSyncHistory(context);
   const appSessionActive = await hasAppSession(context);
@@ -31,44 +33,16 @@ export async function buildSyncTabState(
               ? "keys_unavailable"
               : "no_app_session";
 
-  const base = {
+  return buildSyncTabStateFromInputs({
     history,
     appSessionActive,
     appSessionExpired,
     e2ePhase,
     ...(gate.keysStatusMessage ? { keysStatusMessage: gate.keysStatusMessage } : {}),
-  };
-
-  if (isSyncOperationActive()) {
-    return {
-      status: "syncing",
-      lastSyncTime: syncState?.lastSyncTimestamp,
-      lastSyncDirection: syncState?.lastSyncDirection,
-      fileCount: syncState ? Object.keys(syncState.localChecksums).length : 0,
-      gistId: syncState?.gistId,
-      ...base,
-    };
-  }
-
-  if (!syncState) {
-    return {
-      status: "not-synced",
-      lastSyncTime: undefined,
-      lastSyncDirection: undefined,
-      fileCount: 0,
-      gistId: undefined,
-      ...base,
-    };
-  }
-
-  return {
-    status: "synced",
-    lastSyncTime: syncState.lastSyncTimestamp,
-    lastSyncDirection: syncState.lastSyncDirection,
-    fileCount: Object.keys(syncState.localChecksums).length,
-    gistId: syncState.gistId,
-    ...base,
-  };
+    syncState,
+    isSyncOperationActive: isSyncOperationActive(),
+    activeHeldFingerprint: activeScheduledRootHeldFingerprint(context),
+  });
 }
 
 export async function renderSyncPaneHtml(
@@ -355,6 +329,19 @@ export async function renderSidebarHtml(
     .action-btn:hover .codicon {
       color: #6ee7b7;
     }
+    .action-btn-app {
+      border-color: rgba(125, 211, 252, 0.2);
+      background: var(--cs-surface-sunken);
+    }
+    .action-btn-app .codicon {
+      color: #7dd3fc;
+    }
+    .action-btn-app:hover {
+      border-color: rgba(125, 211, 252, 0.35);
+    }
+    .action-btn-app:hover .codicon {
+      color: #bae6fd;
+    }
 
     /* ── History List ── */
     .history-list { display: flex; flex-direction: column; gap: 2px; }
@@ -423,7 +410,6 @@ export async function renderSidebarHtml(
       text-align: center;
       padding: 20px 8px;
       color: var(--cs-ink-22);
-      font-size: 12px;
       font-style: italic;
     }
 

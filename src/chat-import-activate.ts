@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawnPython3Capture, transportChatSubprocessEnv } from "./os-runtime.js";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { ChatBundle } from "./chat-persistence.js";
@@ -18,7 +19,7 @@ import {
 } from "./chat-import-merge.js";
 import type { WorkspaceContext } from "./chat-workspace-context.js";
 import { stateDbPathForWorkspaceStorageId } from "./chat-workspace-context.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import { resolveComposerBridgeScript } from "./chat-transport-scripts.js";
 
 export const CREATE_NEW_COMPOSER_COMMAND_ID = "composer.createNew";
@@ -29,7 +30,20 @@ export const FOCUS_COMPOSER_COMMAND_ID = "composer.focusComposer";
 export const COMPOSER_URI_SCHEME = "cursor.composer";
 export const MANIFEST_VERSION = 1;
 
-export const ACTIVATION_DIR = path.join(os.homedir(), ".cursor", "import-activation");
+export function resolveActivationDir(context?: vscode.ExtensionContext): string {
+  return path.join(resolveExtensionSyncRoots(context).dotCursor, "import-activation");
+}
+
+export function activationPaths(context?: vscode.ExtensionContext): ActivationPaths {
+  const activationDir = resolveActivationDir(context);
+  return {
+    activationDir,
+    pendingPath: path.join(activationDir, "pending.json"),
+    resultPath: path.join(activationDir, "result.json"),
+  };
+}
+
+export const ACTIVATION_DIR = resolveActivationDir();
 export const ACTIVATION_PENDING_PATH = path.join(ACTIVATION_DIR, "pending.json");
 export const ACTIVATION_RESULT_PATH = path.join(ACTIVATION_DIR, "result.json");
 
@@ -108,13 +122,12 @@ export interface ActivationManifest {
   stagedAt: string;
 }
 
-export function defaultActivationPaths(): ActivationPaths {
-  const activationDir = path.join(os.homedir(), ".cursor", "import-activation");
-  return {
-    activationDir,
-    pendingPath: path.join(activationDir, "pending.json"),
-    resultPath: path.join(activationDir, "result.json"),
-  };
+export function defaultActivationPaths(context?: vscode.ExtensionContext): ActivationPaths {
+  return activationPaths(context);
+}
+
+function resolveUserHomeFromSyncRoots(context?: vscode.ExtensionContext): string {
+  return path.dirname(resolveExtensionSyncRoots(context).dotCursor);
 }
 
 export function utcNowIso(): string {
@@ -162,10 +175,11 @@ export function normalizeActivationManifest(
     throw new Error("manifest.workspaceFolder (absolute path) is required");
   }
   let folder = workspaceFolderRaw.trim();
+  const userHome = resolveUserHomeFromSyncRoots();
   if (folder === "~") {
-    folder = os.homedir();
-  } else if (folder.startsWith("~/")) {
-    folder = path.join(os.homedir(), folder.slice(2));
+    folder = userHome;
+  } else if (folder.startsWith(USER_LABEL_HOME_TILDE_PREFIX)) {
+    folder = path.join(userHome, folder.slice(USER_LABEL_HOME_TILDE_PREFIX.length));
   }
   const workspaceFolder = path.resolve(folder);
 
@@ -353,7 +367,7 @@ export async function enrichManifestPartialStateFromDisk(
   if (partialStateHasConversationContent(partial)) {
     return false;
   }
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const dbPaths = [
     stateDbPathForWorkspaceStorageId(workspaceStorageId),
     path.join(cursorUser, "globalStorage", "state.vscdb"),
@@ -596,7 +610,7 @@ export async function tryActivateViaComposerHandle(
 
   log(
     `composer.getComposerHandleById returned no handle for composerId=${manifest.composerId} ` +
-      "(store.db may be missing under ~/.cursor/chats/<workspace-key>/)"
+      `(store.db may be missing under ${USER_LABEL_DOT_CURSOR}/chats/<workspace-key>/)`
   );
   return null;
 }
@@ -723,7 +737,7 @@ export async function runPythonComposerBridge(
   }
 
   const tmpPath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-activation-${Date.now()}.json`
   );
   const args = [scriptPath, "--manifest", tmpPath];
@@ -738,24 +752,11 @@ export async function runPythonComposerBridge(
       "utf8"
     );
 
-    const { exitCode, stdout, stderr } = await new Promise<{
-      exitCode: number;
-      stdout: string;
-      stderr: string;
-    }>((resolve, reject) => {
-      const proc = spawn("python3", args, { cwd: rawManifest.workspaceFolder });
-      let stdout = "";
-      let stderr = "";
-      proc.stdout?.on("data", (chunk: Buffer | string) => {
-        stdout += String(chunk);
-      });
-      proc.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr += String(chunk);
-      });
-      proc.on("error", reject);
-      proc.on("close", (code) => {
-        resolve({ exitCode: code ?? 1, stdout, stderr });
-      });
+    const { exitCode, stdout, stderr } = await spawnPython3Capture({
+      args,
+      cwd: rawManifest.workspaceFolder,
+      env: transportChatSubprocessEnv(),
+      log: (line) => log(`bridge: ${line}`),
     });
 
     if (stderr.trim()) {
@@ -831,7 +832,7 @@ export async function runPostImportActivation(
     const partial = manifest.partialState as Record<string, unknown>;
     const dbPath = stateDbPathForWorkspaceStorageId(workspaceCtx.workspaceStorageId);
     await repairComposerDataAfterActivation(dbPath, conversationId, partial);
-    const { cursorUser } = resolveSyncRoots();
+    const { cursorUser } = resolveExtensionSyncRoots();
     const globalDb = path.join(cursorUser, "globalStorage", "state.vscdb");
     await repairComposerDataAfterActivation(globalDb, conversationId, partial);
     return activationOutcome;

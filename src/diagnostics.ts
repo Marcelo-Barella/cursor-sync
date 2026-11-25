@@ -2,6 +2,14 @@ import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { SyncState, SyncHistoryEntry } from "./types.js";
+import { syncDestinationLabel } from "./sync-destination.js";
+import type { SyncDestinationId } from "./sync-destination.js";
+import {
+  deriveStorageSyncPresentation,
+  formatAppStorageLastDirectionDescription,
+  latestStorageHistoryEntry,
+  storageSyncSidebarStatusDetail,
+} from "./storage-sync-ui-status.js";
 
 const MAX_HISTORY_ENTRIES = 50;
 
@@ -14,39 +22,137 @@ export function getLogger(): vscode.OutputChannel {
   return outputChannel;
 }
 
+function latestHistoryAttempt(
+  history: SyncHistoryEntry[],
+  destination: SyncDestinationId
+): SyncHistoryEntry | undefined {
+  return history.find(
+    (entry) => (entry.destination ?? "github-gist") === destination
+  );
+}
+
+export function formatStatusTimestamp(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    return iso;
+  }
+  return parsed.toLocaleString();
+}
+
+function formatAppStorageStatusDescription(
+  history: SyncHistoryEntry[],
+  activeHeldFingerprint?: string
+): string {
+  const presentation = deriveStorageSyncPresentation({
+    history,
+    activeHeldFingerprint,
+  });
+  const entry = latestStorageHistoryEntry(history);
+  return storageSyncSidebarStatusDetail(presentation, entry);
+}
+
+function formatHistoryAttemptDescription(
+  entry: SyncHistoryEntry,
+  options?: { history?: SyncHistoryEntry[]; activeHeldFingerprint?: string }
+): string {
+  if (entry.destination === "cursor-sync-storage" && options?.history) {
+    return formatAppStorageLastDirectionDescription(
+      entry,
+      options.history,
+      options.activeHeldFingerprint
+    );
+  }
+  const when = formatStatusTimestamp(entry.timestamp);
+  if (entry.success) {
+    const summary = entry.error ? ` — ${entry.error}` : "";
+    return `${when} — succeeded (${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"})${summary}`;
+  }
+  return `${when} — failed${entry.error ? `: ${entry.error}` : ""}`;
+}
+
+export function buildStatusQuickPickItems(
+  syncState: SyncState | undefined,
+  history: SyncHistoryEntry[],
+  options?: { activeHeldFingerprint?: string }
+): vscode.QuickPickItem[] {
+  const items: vscode.QuickPickItem[] = [];
+
+  const gistAttempt = latestHistoryAttempt(history, "github-gist");
+  const appAttempt = latestHistoryAttempt(history, "cursor-sync-storage");
+
+  if (!syncState && !gistAttempt && !appAttempt) {
+    items.push({ label: "Status", description: "No sync performed yet" });
+    return items;
+  }
+
+  if (syncState) {
+    items.push({
+      label: "GitHub Gist — last sync",
+      description: formatStatusTimestamp(syncState.lastSyncTimestamp),
+    });
+    items.push({
+      label: "GitHub Gist — direction",
+      description: syncState.lastSyncDirection,
+    });
+    items.push({
+      label: "GitHub Gist — gist ID",
+      description: syncState.gistId,
+    });
+    items.push({
+      label: "GitHub Gist — URL",
+      description: `https://gist.github.com/${syncState.gistId}`,
+    });
+    items.push({
+      label: "GitHub Gist — files tracked",
+      description: String(Object.keys(syncState.localChecksums).length),
+    });
+  } else if (gistAttempt) {
+    items.push({
+      label: `GitHub Gist — last ${gistAttempt.direction}`,
+      description: formatHistoryAttemptDescription(gistAttempt),
+    });
+    items.push({
+      label: "GitHub Gist — destination",
+      description: syncDestinationLabel("github-gist"),
+    });
+  }
+
+  if (appAttempt) {
+    const storageDetail = formatAppStorageStatusDescription(
+      history,
+      options?.activeHeldFingerprint
+    );
+    items.push({
+      label: "Cursor Sync storage — status",
+      description: storageDetail,
+    });
+    items.push({
+      label: `Cursor Sync storage — last ${appAttempt.direction}`,
+      description: formatHistoryAttemptDescription(appAttempt, {
+        history,
+        activeHeldFingerprint: options?.activeHeldFingerprint,
+      }),
+    });
+    items.push({
+      label: "Cursor Sync storage — destination",
+      description: syncDestinationLabel("cursor-sync-storage"),
+    });
+  }
+
+  return items;
+}
+
 export async function showStatus(
   context: vscode.ExtensionContext
 ): Promise<void> {
   const syncState = await loadSyncState(context);
-  const items: vscode.QuickPickItem[] = [];
-
-  if (!syncState) {
-    items.push({ label: "Status", description: "No sync performed yet" });
-    vscode.window.showQuickPick(items, { title: "Cursor Sync Status" });
-    return;
-  }
-
-  items.push({
-    label: "Last Sync",
-    description: syncState.lastSyncTimestamp,
+  const history = await loadSyncHistory(context);
+  const { activeScheduledRootHeldFingerprint } = await import(
+    "./storage-sync-ui-status.js"
+  );
+  const items = buildStatusQuickPickItems(syncState, history, {
+    activeHeldFingerprint: activeScheduledRootHeldFingerprint(context),
   });
-  items.push({
-    label: "Direction",
-    description: syncState.lastSyncDirection,
-  });
-  items.push({
-    label: "Gist ID",
-    description: syncState.gistId,
-  });
-  items.push({
-    label: "Gist URL",
-    description: `https://gist.github.com/${syncState.gistId}`,
-  });
-  items.push({
-    label: "Files Synced",
-    description: String(Object.keys(syncState.localChecksums).length),
-  });
-
   vscode.window.showQuickPick(items, { title: "Cursor Sync Status" });
 }
 
@@ -104,6 +210,72 @@ export async function loadSyncHistory(
   } catch {
     return [];
   }
+}
+
+const STORAGE_RECOVERY_HISTORY_MESSAGE = "Recovered — already in sync";
+
+export async function recordStorageSyncRecovery(
+  context: vscode.ExtensionContext,
+  trigger: SyncHistoryEntry["trigger"]
+): Promise<void> {
+  const history = await loadSyncHistory(context);
+  const latestStorage = history.find(
+    (entry) => entry.destination === "cursor-sync-storage"
+  );
+  if (latestStorage?.error === STORAGE_RECOVERY_HISTORY_MESSAGE) {
+    return;
+  }
+  await addSyncHistoryEntry(context, {
+    timestamp: new Date().toISOString(),
+    direction: "pull",
+    trigger,
+    fileCount: 0,
+    success: true,
+    destination: "cursor-sync-storage",
+    error: STORAGE_RECOVERY_HISTORY_MESSAGE,
+  });
+}
+
+export async function maybeFinalizeAppStorageRecovery(
+  context: vscode.ExtensionContext,
+  trigger: SyncHistoryEntry["trigger"]
+): Promise<void> {
+  const { activeScheduledRootHeldFingerprint } = await import(
+    "./storage-sync-ui-status.js"
+  );
+  const heldFp = activeScheduledRootHeldFingerprint(context);
+  const history = await loadSyncHistory(context);
+  const latest = latestStorageHistoryEntry(history);
+  const wasDegraded =
+    Boolean(heldFp) ||
+    Boolean(latest?.held) ||
+    Boolean(latest?.error?.startsWith("held:")) ||
+    Boolean(latest?.partial) ||
+    Boolean(
+      latest &&
+        !latest.success &&
+        !latest.held &&
+        !latest.partial &&
+        !latest.conflict
+    );
+
+  if (!wasDegraded) {
+    return;
+  }
+
+  if (heldFp) {
+    const { appStorageSyncRootsHealthyForHeldRecovery } = await import(
+      "./app-config-local-scan.js"
+    );
+    const rootsHealthy = await appStorageSyncRootsHealthyForHeldRecovery(context);
+    if (!rootsHealthy) {
+      return;
+    }
+  }
+
+  const { clearScheduledRootHeldMarkers } = await import("./app-configs.js");
+  await clearScheduledRootHeldMarkers(context);
+  await recordStorageSyncRecovery(context, trigger);
 }
 
 export async function addSyncHistoryEntry(

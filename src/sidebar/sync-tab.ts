@@ -9,11 +9,12 @@ export type E2eSidebarPhase =
   | "keys_unavailable";
 
 export interface SyncTabState {
-  status: "synced" | "not-synced" | "syncing" | "error";
+  status: "synced" | "not-synced" | "syncing" | "error" | "warning";
   lastSyncTime: string | undefined;
   lastSyncDirection: "push" | "pull" | undefined;
   fileCount: number;
   gistId: string | undefined;
+  statusDetail: string | undefined;
   history: SyncHistoryEntry[];
   appSessionActive: boolean;
   appSessionExpired: boolean;
@@ -173,19 +174,27 @@ export function renderSyncPane(state: SyncTabState): string {
     "not-synced": "warning",
     syncing: "sync~spin",
     error: "error",
+    warning: "warning",
   };
   const statusLabelMap = {
     synced: "Synced",
     "not-synced": "Not Synced",
     syncing: "Syncing...",
     error: "Sync Error",
+    warning: "Sync Warning",
   };
 
   const statusIcon = statusIconMap[state.status];
   const statusLabel = statusLabelMap[state.status];
   const lastSyncText = state.lastSyncTime ? relativeTime(state.lastSyncTime) : "Never";
+  const localTimeText = state.lastSyncTime
+    ? new Date(state.lastSyncTime).toLocaleString()
+    : "";
   const directionIcon = state.lastSyncDirection === "push" ? "arrow-up" : state.lastSyncDirection === "pull" ? "arrow-down" : "";
   const directionLabel = state.lastSyncDirection === "push" ? "Push" : state.lastSyncDirection === "pull" ? "Pull" : "";
+  const storageActionsHeader = state.appSessionActive
+    ? "Cursor Sync storage"
+    : "Actions";
 
   const cursorLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 746.78 746.78">
     <rect fill="transparent" width="746.78" height="746.78"/>
@@ -231,8 +240,10 @@ export function renderSyncPane(state: SyncTabState): string {
       <div class="status-meta">
         <span>${lastSyncText}</span>
         ${directionLabel ? `<span class="codicon codicon-${directionIcon}"></span><span>${directionLabel}</span>` : ""}
+        ${state.statusDetail ? `<span>· ${escapeHtml(state.statusDetail)}</span>` : ""}
       </div>
-      ${state.fileCount > 0 ? `<div class="file-count">${state.fileCount} file${state.fileCount !== 1 ? "s" : ""} tracked</div>` : ""}
+      ${localTimeText ? `<div class="file-count">${escapeHtml(localTimeText)}</div>` : ""}
+      ${state.fileCount > 0 ? `<div class="file-count">${state.fileCount} file${state.fileCount !== 1 ? "s" : ""}</div>` : ""}
     </div>
   </div>
 
@@ -243,10 +254,16 @@ export function renderSyncPane(state: SyncTabState): string {
   </button>
 
   <div class="section">
-    <div class="section-header">Actions</div>
+    <div class="section-header">${storageActionsHeader}</div>
     <div class="action-grid">
       <button class="action-btn" data-command="push"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-upload"></span> Push</button>
       <button class="action-btn" data-command="pull"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-cloud-download"></span> Pull</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">GitHub Gist</div>
+    <div class="action-grid">
       <button class="action-btn" data-command="export"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-export"></span> Export</button>
       <button class="action-btn" data-command="import"${hardBlockAttr}${softGatedTitle}><span class="codicon codicon-desktop-download"></span> Import</button>
     </div>

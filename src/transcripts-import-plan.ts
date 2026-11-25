@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getLogger } from "./diagnostics.js";
@@ -406,7 +407,7 @@ async function resolveV1ImportStoreChatsWorkspaceKey(defaultKey: string): Promis
   picks.unshift({ label: `Use default (${defaultKey})`, description: defaultKey });
   picks.push({ label: "Enter custom workspace key…", description: "__custom__" });
   const selected = await vscode.window.showQuickPick(picks, {
-    title: "Legacy bundle: restore store.db under which ~/.cursor/chats key?",
+    title: `Legacy bundle: restore store.db under which ${USER_LABEL_DOT_CURSOR}/chats key?`,
     placeHolder: "Chats workspace hash is not the Cursor project folder name",
   });
   if (!selected?.description) {
@@ -414,7 +415,7 @@ async function resolveV1ImportStoreChatsWorkspaceKey(defaultKey: string): Promis
   }
   if (selected.description === "__custom__") {
     const raw = await vscode.window.showInputBox({
-      prompt: "Target directory name under ~/.cursor/chats/",
+      prompt: `Target directory name under ${USER_LABEL_DOT_CURSOR}/chats/`,
       validateInput: (v) => {
         if (!v || !isSafeWorkspaceKeySegment(v.trim())) {
           return "Use one non-empty path segment without slashes.";
@@ -677,7 +678,7 @@ export async function promptForWorkspaceMapping(
     picks.unshift({ label: "(Cancel import)", description: "__cancel__" });
 
     const selected = await vscode.window.showQuickPick(picks, {
-      title: `Map source chats workspace "${src}" to a local ~/.cursor/chats subdirectory`,
+      title: `Map source chats workspace "${src}" to a local ${USER_LABEL_DOT_CURSOR_CHATS} subdirectory`,
       placeHolder: "Select the destination workspace key for store.db restoration",
     });
 
@@ -690,7 +691,7 @@ export async function promptForWorkspaceMapping(
 
     if (selected.description === "__custom__") {
       const raw = await vscode.window.showInputBox({
-        prompt: `Target workspace key for source "${src}" (single directory name under ~/.cursor/chats/)`,
+        prompt: `Target workspace key for source "${src}" (single directory name under ${USER_LABEL_DOT_CURSOR_CHATS}/)`,
         validateInput: (v) => {
           if (!v || !isSafeWorkspaceKeySegment(v.trim())) {
             return "Use one non-empty path segment without slashes.";

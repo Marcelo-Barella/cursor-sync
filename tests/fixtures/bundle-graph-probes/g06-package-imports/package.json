@@ -1,0 +1,7 @@
+{
+  "name": "g06-probe-pkg",
+  "type": "module",
+  "imports": {
+    "#outside": "../../../qa23-outside/home.ts"
+  }
+}

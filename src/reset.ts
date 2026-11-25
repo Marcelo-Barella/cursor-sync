@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { clearAppSession, clearPersistedAuthHandoff } from "./app-auth.js";
+import { clearAllAppStorageBaselines } from "./app-storage-baseline.js";
 import { clearToken } from "./auth.js";
 import { clearAllStoredDeks } from "./e2e/dek-storage.js";
 import { onAppSessionCleared, refreshE2eGateAfterCryptoChange } from "./e2e/gate.js";
@@ -32,9 +33,11 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
   await clearPersistedAuthHandoff(context);
 
   await clearSyncState(context);
+  await clearAllAppStorageBaselines(context);
 
   // Reset Configuration Settings
   const config = vscode.workspace.getConfiguration("cursorSync");
+  const scheduleEnabled = config.get<boolean>("schedule.enabled");
   const keys = [
     "enabledPaths",
     "excludeGlobs",
@@ -47,6 +50,14 @@ export async function executeReset(context: vscode.ExtensionContext): Promise<vo
 
   for (const key of keys) {
     await config.update(key, undefined, vscode.ConfigurationTarget.Global);
+  }
+
+  if (scheduleEnabled !== undefined) {
+    await config.update(
+      "schedule.enabled",
+      scheduleEnabled,
+      vscode.ConfigurationTarget.Global
+    );
   }
 
   // Update UI Context

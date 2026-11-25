@@ -37,7 +37,7 @@ export async function detectConflicts(
     return [];
   }
 
-  const localFiles = await enumerateSyncFiles();
+  const localFiles = await enumerateSyncFiles(context);
   const localChecksums: Record<string, string> = {};
 
   for (const file of localFiles) {

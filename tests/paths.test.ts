@@ -50,6 +50,41 @@ describe("paths", () => {
       expect(roots.dotCursor).toBe(path.join(home, ".cursor"));
     });
 
+    it("derives cursorUser from extension globalStorageUri", async () => {
+      const { deriveCursorUserDirFromGlobalStorage, resolveSyncRoots } = await import(
+        "../src/paths.js"
+      );
+      const userDir = "/custom/user-data/User";
+      const globalStorage = `${userDir}/globalStorage/MarceloBarella.cursor-sync`;
+      expect(deriveCursorUserDirFromGlobalStorage({ fsPath: globalStorage } as never)).toBe(
+        userDir
+      );
+      const roots = resolveSyncRoots("linux", {
+        globalStorageUri: { fsPath: globalStorage },
+      } as never);
+      expect(roots.cursorUser).toBe(userDir);
+    });
+
+    it("honors CURSOR_DOT_DIR for dotCursor", async () => {
+      const { resolveSyncRoots } = await import("../src/paths.js");
+      process.env["CURSOR_DOT_DIR"] = "/alt/dot-cursor";
+      const roots = resolveSyncRoots("linux");
+      expect(roots.dotCursor).toBe("/alt/dot-cursor");
+      delete process.env["CURSOR_DOT_DIR"];
+    });
+
+    it("uses process.env.HOME for dotCursor when set (QA isolation)", async () => {
+      const { resolveSyncRoots, resolveEffectiveUserHome } = await import("../src/paths.js");
+      process.env["HOME"] = "/tmp/iso-home";
+      delete process.env["CURSOR_DOT_DIR"];
+      expect(resolveEffectiveUserHome("linux")).toBe("/tmp/iso-home");
+      const roots = resolveSyncRoots("linux");
+      expect(roots.dotCursor).toBe(path.join("/tmp/iso-home", ".cursor"));
+      expect(roots.cursorUser).toBe(
+        path.join("/tmp/iso-home", ".config", "Cursor", "User")
+      );
+    });
+
     it("resolves Linux paths with custom XDG_CONFIG_HOME", async () => {
       const { resolveSyncRoots } = await import("../src/paths.js");
       process.env["XDG_CONFIG_HOME"] = "/custom/config";
@@ -112,6 +147,11 @@ describe("paths", () => {
         path.join(dotCursor, "skills", "coding", "SKILL.md"),
         "skill"
       );
+      await fs.mkdir(path.join(dotCursor, "skills-cursor", "demo"), { recursive: true });
+      await fs.writeFile(
+        path.join(dotCursor, "skills-cursor", "demo", "SKILL.md"),
+        "builtin"
+      );
       await fs.writeFile(
         path.join(dotCursor, "skills", "coding", "template.txt"),
         "template"
@@ -133,7 +173,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as unknown as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).toContain("cursor-user/settings.json");
@@ -143,6 +186,7 @@ describe("paths", () => {
       expect(keys).toContain("dot-cursor/rules/test.mdc");
       expect(keys).toContain("dot-cursor/skills/coding/SKILL.md");
       expect(keys).toContain("dot-cursor/skills/coding/template.txt");
+      expect(keys).not.toContain("dot-cursor/skills-cursor/demo/SKILL.md");
 
       expect(keys).not.toContain("dot-cursor/extensions/ext.json");
       expect(keys).not.toContain("dot-cursor/logs/app.log");
@@ -158,7 +202,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as unknown as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).not.toContain("cursor-user/settings.json");
@@ -174,7 +221,10 @@ describe("paths", () => {
         cursorUser: path.join(tmpDir, "cursorUser"),
         dotCursor: path.join(tmpDir, "dotCursor"),
       };
-      const files = await enumerateSyncFiles(roots);
+      const mockContext = {
+        globalStorageUri: { fsPath: path.join(tmpDir, "cursorUser", "globalStorage", "ext") },
+      } as unknown as import("vscode").ExtensionContext;
+      const files = await enumerateSyncFiles(mockContext, roots);
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).toContain("cursor-user/vsix/big.vsix");

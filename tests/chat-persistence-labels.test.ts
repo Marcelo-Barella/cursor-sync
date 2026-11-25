@@ -69,7 +69,9 @@ describe("chat persistence project picker labels", () => {
     const projectDirName = "home-user-dev-cursor-sync-abcdef12";
     await fs.mkdir(path.join(projectsRoot, projectDirName), { recursive: true });
 
+    const { PATHS_MOCK_USER_LABELS } = await import("./paths-mock-labels.js");
     vi.doMock("../src/paths.js", () => ({
+      ...PATHS_MOCK_USER_LABELS,
       resolveSyncRoots: () => ({
         cursorUser,
         dotCursor: path.join(tmpRoot, ".cursor"),

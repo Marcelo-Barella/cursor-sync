@@ -1,9 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
+import type * as vscode from "vscode";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 
-export function resolveChatsRoot(): string {
-  return path.join(os.homedir(), ".cursor", "chats");
+export function resolveChatsRoot(context?: vscode.ExtensionContext): string {
+  const roots = resolveExtensionSyncRoots(context);
+  return path.join(roots.dotCursor, "chats");
 }
 
 async function storeDbExists(storePath: string): Promise<boolean> {
@@ -16,11 +18,13 @@ async function storeDbExists(storePath: string): Promise<boolean> {
 }
 
 export async function findWorkspaceKeysForConversation(
-  conversationId: string
+  conversationId: string,
+  context?: vscode.ExtensionContext
 ): Promise<string[]> {
+  const chatsRoot = resolveChatsRoot(context);
   let workspaceEntries: import("node:fs").Dirent[];
   try {
-    workspaceEntries = await fs.readdir(resolveChatsRoot(), { withFileTypes: true });
+    workspaceEntries = await fs.readdir(chatsRoot, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -29,7 +33,7 @@ export async function findWorkspaceKeysForConversation(
   for (const workspaceEntry of workspaceEntries) {
     if (!workspaceEntry.isDirectory()) continue;
     const storePath = path.join(
-      resolveChatsRoot(),
+      chatsRoot,
       workspaceEntry.name,
       conversationId,
       "store.db"
@@ -42,15 +46,16 @@ export async function findWorkspaceKeysForConversation(
 }
 
 export async function findStoreDbForConversation(
-  conversationId: string
+  conversationId: string,
+  context?: vscode.ExtensionContext
 ): Promise<{ absolutePath: string; workspaceKey: string } | undefined> {
-  const workspaceKeys = await findWorkspaceKeysForConversation(conversationId);
+  const workspaceKeys = await findWorkspaceKeysForConversation(conversationId, context);
   const workspaceKey = workspaceKeys[0];
   if (!workspaceKey) {
     return undefined;
   }
   return {
-    absolutePath: path.join(resolveChatsRoot(), workspaceKey, conversationId, "store.db"),
+    absolutePath: path.join(resolveChatsRoot(context), workspaceKey, conversationId, "store.db"),
     workspaceKey,
   };
 }

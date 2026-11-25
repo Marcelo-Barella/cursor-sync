@@ -16,6 +16,13 @@ const { isCommandMissingError, isExecFileTimeoutError, querySqliteRowsImpl } =
   __transcriptsTestUtils;
 
 describe("isCommandMissingError", () => {
+  it("detects SubprocessCommandNotFoundError", async () => {
+    const { SubprocessCommandNotFoundError } = await import("../src/subprocess-errors.js");
+    expect(isCommandMissingError(new SubprocessCommandNotFoundError("sqlite3"), "sqlite3")).toBe(
+      true
+    );
+  });
+
   it("detects POSIX spawn ENOENT", () => {
     expect(isCommandMissingError(new Error("spawn sqlite3 ENOENT"), "sqlite3")).toBe(true);
     expect(isCommandMissingError(new Error("spawn python3 ENOENT"), "python3")).toBe(true);

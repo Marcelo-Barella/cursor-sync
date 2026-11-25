@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as vscode from "vscode";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import {
   resolveConversationDisplayTitle,
 } from "./transcript-bundle.js";
@@ -20,9 +20,9 @@ export interface TranscriptFileEntry {
   projectKey: string;
 }
 
-export function resolveProjectsRoot(): string {
-  const home = os.homedir();
-  return path.join(home, ".cursor", "projects");
+export function resolveProjectsRoot(context?: vscode.ExtensionContext): string {
+  const roots = resolveExtensionSyncRoots(context);
+  return path.join(roots.dotCursor, "projects");
 }
 
 export async function discoverProjects(

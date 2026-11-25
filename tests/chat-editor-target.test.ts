@@ -67,6 +67,7 @@ async function createTranscript(
 describe("chat-editor-target", () => {
   beforeEach(async () => {
     env.home = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-chat-target-"));
+    process.env.HOME = env.home;
     env.workspaceFolders = [];
     env.activeTabInput = undefined;
     vi.resetModules();

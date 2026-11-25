@@ -166,6 +166,19 @@ On push, the extension generates an `extensions.json` file listing all installed
 
 Extensions are installed at the latest available version; the synced list records versions for reference only.
 
+## Cursor Sync app (staging / custom API)
+
+Developer settings under **Cursor Sync: Developer environment** (`cursorSync.developer.environment`):
+
+| Preset | API | Website |
+|--------|-----|---------|
+| **staging** (default on the staging extension branch) | `https://api-staging.cursor-sync.com` | `https://staging.cursor-sync.com` |
+| **production** | `https://api.sync.bergamota.dev` | `https://sync.bergamota.dev` |
+| **local** | `http://localhost:8100` | `http://localhost:3000` |
+| **custom** | `cursorSync.developer.apiUrl` | `cursorSync.developer.websiteUrl` |
+
+Use **custom** with the legacy staging hosts (`https://api-staging-sync.bergamota.dev`, `https://staging.sync.bergamota.dev`) if needed. App login opens only trusted website origins (presets above plus your custom website URL when environment is **custom**).
+
 ## Security
 
 - Your GitHub PAT is stored exclusively in VS Code SecretStorage. It never appears in settings files, logs, or telemetry.

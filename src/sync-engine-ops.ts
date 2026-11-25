@@ -1,36 +1,34 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
+import type * as vscode from "vscode";
 import {
   escapeSqlLiteral,
   mergeComposerHeadersChain,
 } from "./composer-merge.js";
+import { getActiveExtensionContext } from "./extension-host-context.js";
+import { deriveCursorUserDirFromGlobalStorage } from "./paths.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 
 const { querySqliteRows, runSqliteScript, listGlobalStateVscdbPaths } = __chatPersistenceInternals;
 
-export function getWorkspaceStorageRootCandidates(): string[] {
-  const home = os.homedir();
-  if (process.platform === "darwin") {
-    return [
-      path.join(home, "Library", "Application Support", "Cursor", "User", "workspaceStorage"),
-      path.join(home, "Library", "Application Support", "Cursor Nightly", "User", "workspaceStorage"),
-    ];
+export function getWorkspaceStorageRootCandidates(
+  context?: vscode.ExtensionContext
+): string[] {
+  const ctx = context ?? getActiveExtensionContext();
+  if (ctx?.globalStorageUri) {
+    const cursorUser = deriveCursorUserDirFromGlobalStorage(ctx.globalStorageUri);
+    if (cursorUser) {
+      return [path.join(cursorUser, "workspaceStorage")];
+    }
   }
-  if (process.platform === "win32") {
-    return [
-      path.join(home, "AppData", "Roaming", "Cursor", "User", "workspaceStorage"),
-      path.join(home, "AppData", "Roaming", "Cursor Nightly", "User", "workspaceStorage"),
-    ];
-  }
-  return [
-    path.join(home, ".config", "Cursor", "User", "workspaceStorage"),
-    path.join(home, ".config", "Cursor Nightly", "User", "workspaceStorage"),
-  ];
+  return [];
 }
 
-export async function resolveWorkspaceStateDbPath(folderId: string): Promise<string | undefined> {
-  for (const root of getWorkspaceStorageRootCandidates()) {
+export async function resolveWorkspaceStateDbPath(
+  folderId: string,
+  context?: vscode.ExtensionContext
+): Promise<string | undefined> {
+  for (const root of getWorkspaceStorageRootCandidates(context)) {
     const candidate = path.join(root, folderId, "state.vscdb");
     try {
       await fs.access(candidate);
@@ -45,7 +43,10 @@ export interface StateTargetSpec {
   workspaceStorageFolderId?: string;
 }
 
-export async function resolveLiveStateDbPath(spec: StateTargetSpec): Promise<string | undefined> {
+export async function resolveLiveStateDbPath(
+  spec: StateTargetSpec,
+  context?: vscode.ExtensionContext
+): Promise<string | undefined> {
   if (spec.stateTarget === "global") {
     const candidates = await listGlobalStateVscdbPaths();
     return candidates[0];
@@ -54,7 +55,7 @@ export async function resolveLiveStateDbPath(spec: StateTargetSpec): Promise<str
   if (!id) {
     return undefined;
   }
-  return resolveWorkspaceStateDbPath(id);
+  return resolveWorkspaceStateDbPath(id, context);
 }
 
 export async function copyStateDbTriple(

@@ -168,7 +168,7 @@ describe("sync-debug", () => {
   });
 
   describe("showSyncFailureWithDebug", () => {
-    const mockContext = {} as vscode.ExtensionContext;
+    const mockContext = {} as unknown as vscode.ExtensionContext;
 
     it("calls createComposer when Debug with Cursor is selected", async () => {
       __setRegisteredCommands([

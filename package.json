@@ -2,7 +2,7 @@
   "name": "cursor-sync",
   "displayName": "Cursor Sync",
   "description": "Sync user-level Cursor settings and assets to a private GitHub Gist",
-  "version": "0.9.0-staging.10",
+  "version": "0.9.0-staging.11",
   "icon": "assets/icon.png",
   "publisher": "MarceloBarella",
   "repository": {
@@ -93,7 +93,7 @@
         "command": "cursorSync.syncNow",
         "title": "Cursor Sync: Sync Now",
         "icon": "$(sync)",
-        "enablement": "cursorSync.configured || cursorSync.e2e.locked || cursorSync.e2e.needsSetup || cursorSync.e2e.unlocked"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive || cursorSync.e2e.locked || cursorSync.e2e.needsSetup || cursorSync.e2e.unlocked"
       },
       {
         "command": "cursorSync.configureGithub",
@@ -108,6 +108,10 @@
         "title": "Cursor Sync: Enter Login Code"
       },
       {
+        "command": "cursorSync.app.logout",
+        "title": "Cursor Sync: Log out of Cursor Sync Storage"
+      },
+      {
         "command": "cursorSync.pullAppConfigs",
         "title": "Cursor Sync: Pull App Configs"
       },
@@ -119,13 +123,13 @@
         "command": "cursorSync.push",
         "title": "Cursor Sync: Push Now",
         "icon": "$(cloud-upload)",
-        "enablement": "cursorSync.configured"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive"
       },
       {
         "command": "cursorSync.pull",
         "title": "Cursor Sync: Pull Now",
         "icon": "$(cloud-download)",
-        "enablement": "cursorSync.configured"
+        "enablement": "cursorSync.configured || cursorSync.appSessionActive"
       },
       {
         "command": "cursorSync.showStatus",
@@ -369,7 +373,8 @@
         "cursorSync.chatImport.pythonPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to a Python 3 interpreter for chat-transport scripts. Empty = auto-detect (python3, python)."
+          "scope": "machine",
+          "description": "Python 3 interpreter basename or absolute path for chat-transport scripts (python, python3, python3.N, py). Empty = auto-detect. Workspace values are ignored."
         },
         "cursorSync.chatImport.transportChatScriptDir": {
           "type": "string",
@@ -439,10 +444,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.mjs",
+    "build": "tsc --noEmit -p tsconfig.json && node esbuild.mjs && node verify-bundle-meta.mjs && vitest run tests/hardcoded-sync-paths.test.ts tests/bundle-graph-probes.test.ts",
     "watch": "node esbuild.mjs --watch",
-    "test": "vitest run",
-    "package": "vsce package --no-dependencies",
+    "test": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && node esbuild.mjs && vitest run",
+    "package": "npm run build && vsce package --no-dependencies",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {

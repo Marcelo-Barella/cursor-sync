@@ -11,6 +11,10 @@ vi.mock("../src/statusbar.js", () => ({
   updateStatusBar: updateStatusBarMock,
 }));
 
+vi.mock("../src/sync-status-bar.js", () => ({
+  refreshSyncStatusBar: vi.fn(async () => {}),
+}));
+
 vi.mock("../src/auth.js", () => ({
   clearToken: vi.fn(async () => {}),
   getToken: vi.fn(async () => undefined),
@@ -42,6 +46,7 @@ vi.mock("../src/e2e/gate.js", () => ({
 vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({
+      get: () => undefined,
       update: async () => {},
     }),
   },

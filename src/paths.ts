@@ -10,6 +10,12 @@ export interface SyncRoots {
   dotCursor: string;
 }
 
+/** User-facing path shorthand (not for filesystem resolution). Centralized for AST home-path guard. */
+export const USER_LABEL_DOT_CURSOR = "~/.cursor";
+export const USER_LABEL_DOT_CURSOR_PROJECTS = `${USER_LABEL_DOT_CURSOR}/projects`;
+export const USER_LABEL_DOT_CURSOR_CHATS = `${USER_LABEL_DOT_CURSOR}/chats`;
+export const USER_LABEL_HOME_TILDE_PREFIX = "~/";
+
 const DENYLIST_DIRS = [
   "extensions",
   "logs",
@@ -33,37 +39,139 @@ const DENYLIST_GLOBS = ["Cookies*", "*.db", "*.db-journal", "*.db-wal", "*.log"]
 
 const MAX_SYNC_VSIX_BYTES = 50 * 1024 * 1024;
 
-export function resolveSyncRoots(
+/** Effective user home for ~/.cursor resolution (honors non-empty HOME / USERPROFILE). */
+export function resolveEffectiveUserHome(
   platform: NodeJS.Platform = process.platform
-): SyncRoots {
+): string {
   if (platform === "win32") {
-    const appData = process.env["APPDATA"] || path.join(os.homedir(), "AppData", "Roaming");
-    const userProfile = process.env["USERPROFILE"] || os.homedir();
+    const profile = process.env["USERPROFILE"]?.trim();
+    if (profile) {
+      return profile;
+    }
+  } else {
+    const home = process.env["HOME"]?.trim();
+    if (home) {
+      return home;
+    }
+  }
+  return os.homedir();
+}
+
+function defaultSyncRoots(platform: NodeJS.Platform): SyncRoots {
+  const effectiveHome = resolveEffectiveUserHome(platform);
+  if (platform === "win32") {
+    const appData =
+      process.env["APPDATA"]?.trim() ||
+      path.join(effectiveHome, "AppData", "Roaming");
     return {
       cursorUser: path.join(appData, "Cursor", "User"),
-      dotCursor: path.join(userProfile, ".cursor"),
+      dotCursor: path.join(effectiveHome, ".cursor"),
     };
   }
 
   if (platform === "darwin") {
-    const home = os.homedir();
     return {
-      cursorUser: path.join(home, "Library", "Application Support", "Cursor", "User"),
-      dotCursor: path.join(home, ".cursor"),
+      cursorUser: path.join(
+        effectiveHome,
+        "Library",
+        "Application Support",
+        "Cursor",
+        "User"
+      ),
+      dotCursor: path.join(effectiveHome, ".cursor"),
     };
   }
 
-  const configHome = process.env["XDG_CONFIG_HOME"] || path.join(os.homedir(), ".config");
+  const configHome =
+    process.env["XDG_CONFIG_HOME"]?.trim() ||
+    path.join(effectiveHome, ".config");
   return {
     cursorUser: path.join(configHome, "Cursor", "User"),
-    dotCursor: path.join(os.homedir(), ".cursor"),
+    dotCursor: path.join(effectiveHome, ".cursor"),
   };
 }
 
-export async function enumerateSyncFiles(
-  roots?: SyncRoots
-): Promise<SyncFileEntry[]> {
-  const resolved = roots ?? resolveSyncRoots();
+export function deriveCursorUserDirFromGlobalStorage(
+  globalStorageUri: vscode.Uri
+): string | undefined {
+  const globalStoragePath = globalStorageUri.fsPath;
+  const globalStorageDir = path.dirname(globalStoragePath);
+  if (path.basename(globalStorageDir) !== "globalStorage") {
+    return undefined;
+  }
+  const userDir = path.dirname(globalStorageDir);
+  if (path.basename(userDir) !== "User") {
+    return undefined;
+  }
+  return userDir;
+}
+
+function resolveDotCursorDir(platform: NodeJS.Platform, fallback: string): string {
+  const fromEnv = process.env["CURSOR_DOT_DIR"]?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return fallback;
+}
+
+export function globalStateVscdbPathsFromRoots(roots: SyncRoots): string[] {
+  const primary = path.join(roots.cursorUser, "globalStorage", "state.vscdb");
+  const nightlyUser = roots.cursorUser.replace(
+    /([/\\])Cursor([/\\])User$/,
+    "$1Cursor Nightly$2User"
+  );
+  if (nightlyUser === roots.cursorUser) {
+    return [primary];
+  }
+  return [primary, path.join(nightlyUser, "globalStorage", "state.vscdb")];
+}
+
+export function workspaceStorageRootsFromCursorUser(cursorUser: string): string[] {
+  const primary = path.join(cursorUser, "workspaceStorage");
+  const nightlyUser = cursorUser.replace(
+    /([/\\])Cursor([/\\])User$/,
+    "$1Cursor Nightly$2User"
+  );
+  if (nightlyUser === cursorUser) {
+    return [primary];
+  }
+  return [primary, path.join(nightlyUser, "workspaceStorage")];
+}
+
+export function resolveSyncRoots(
+  platform: NodeJS.Platform = process.platform,
+  context?: vscode.ExtensionContext
+): SyncRoots {
+  const defaults = defaultSyncRoots(platform);
+
+  if (context?.globalStorageUri !== undefined) {
+    const fromContext = deriveCursorUserDirFromGlobalStorage(context.globalStorageUri);
+    if (fromContext) {
+      return {
+        cursorUser: fromContext,
+        dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
+      };
+    }
+  }
+
+  return {
+    cursorUser: defaults.cursorUser,
+    dotCursor: resolveDotCursorDir(platform, defaults.dotCursor),
+  };
+}
+
+export interface SyncEnumerationConfig {
+  enabledPaths: string[];
+  excludeGlobs: string[];
+  maxFileSizeKB: number;
+  maxBytes: number;
+  cursorUserGlobs: string[];
+  dotCursorGlobs: string[];
+}
+
+export function getSyncEnumerationConfig(
+  context: vscode.ExtensionContext
+): SyncEnumerationConfig {
   const config = vscode.workspace.getConfiguration("cursorSync");
   const enabledPaths = config.get<string[]>("enabledPaths") ?? getDefaultEnabledPaths();
   const excludeGlobs = config.get<string[]>("excludeGlobs") ?? [];
@@ -80,10 +188,139 @@ export async function enumerateSyncFiles(
   );
   const dotCursorGlobs = enabledPaths.filter(
     (g) =>
-      g.startsWith("skills") ||
+      (g.startsWith("skills") && !g.startsWith("skills-cursor")) ||
       g.startsWith("commands") ||
       g.startsWith("rules")
   );
+
+  return {
+    enabledPaths,
+    excludeGlobs,
+    maxFileSizeKB,
+    maxBytes,
+    cursorUserGlobs,
+    dotCursorGlobs,
+  };
+}
+
+export function syncKeyToAbsolutePath(
+  syncKey: string,
+  roots: SyncRoots
+): string | undefined {
+  if (syncKey.startsWith("cursor-user/")) {
+    const rel = syncKey.slice("cursor-user/".length);
+    return path.join(roots.cursorUser, ...rel.split("/"));
+  }
+  if (syncKey.startsWith("dot-cursor/")) {
+    const rel = syncKey.slice("dot-cursor/".length);
+    return path.join(roots.dotCursor, ...rel.split("/"));
+  }
+  return undefined;
+}
+
+export function isSyncKeyExcludedByConfig(
+  syncKey: string,
+  enumConfig: SyncEnumerationConfig
+): boolean {
+  const slash = syncKey.indexOf("/");
+  if (slash < 0) {
+    return true;
+  }
+  const prefix = syncKey.slice(0, slash);
+  const rel = syncKey.slice(slash + 1);
+  if (prefix !== "cursor-user" && prefix !== "dot-cursor") {
+    return true;
+  }
+  if (isDenylisted(rel)) {
+    return true;
+  }
+  if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
+    return true;
+  }
+  const globs =
+    prefix === "cursor-user" ? enumConfig.cursorUserGlobs : enumConfig.dotCursorGlobs;
+  const matchesInclude = globs.some((g) => minimatch(rel, g));
+  if (!matchesInclude) {
+    return true;
+  }
+  return enumConfig.excludeGlobs.some((g) => minimatch(rel, g));
+}
+
+/** Symlink paths under sync roots (not returned by enumerateSyncFiles). */
+export async function listSymlinkSyncKeysUnderRoots(
+  context: vscode.ExtensionContext,
+  roots?: SyncRoots
+): Promise<string[]> {
+  const resolved = roots ?? resolveSyncRoots(process.platform, context);
+  const enumConfig = getSyncEnumerationConfig(context);
+  const keys: string[] = [];
+
+  const scanRoot = async (
+    rootDir: string,
+    prefix: string,
+    includeGlobs: string[],
+    excludeGlobs: string[]
+  ): Promise<void> => {
+    const queue: string[] = [rootDir];
+    while (queue.length > 0) {
+      const dir = queue.pop()!;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        try {
+          const st = await fs.lstat(fullPath);
+          if (st.isSymbolicLink()) {
+            const rel = path.relative(rootDir, fullPath).split(path.sep).join("/");
+            if (isDenylisted(rel)) {
+              continue;
+            }
+            if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
+              continue;
+            }
+            const matchesInclude = includeGlobs.some((g) => minimatch(rel, g));
+            const matchesExclude = excludeGlobs.some((g) => minimatch(rel, g));
+            if (matchesInclude && !matchesExclude) {
+              keys.push(`${prefix}/${rel}`);
+            }
+            continue;
+          }
+          if (st.isDirectory()) {
+            queue.push(fullPath);
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  };
+
+  await scanRoot(
+    resolved.cursorUser,
+    "cursor-user",
+    enumConfig.cursorUserGlobs,
+    enumConfig.excludeGlobs
+  );
+  await scanRoot(
+    resolved.dotCursor,
+    "dot-cursor",
+    enumConfig.dotCursorGlobs,
+    enumConfig.excludeGlobs
+  );
+  return keys.sort();
+}
+
+export async function enumerateSyncFiles(
+  context: vscode.ExtensionContext,
+  roots?: SyncRoots
+): Promise<SyncFileEntry[]> {
+  const resolved = roots ?? resolveSyncRoots(process.platform, context);
+  const enumConfig = getSyncEnumerationConfig(context);
+  const { excludeGlobs, maxBytes, cursorUserGlobs, dotCursorGlobs } = enumConfig;
 
   const entries: SyncFileEntry[] = [];
 
@@ -120,11 +357,32 @@ async function collectFiles(
     return;
   }
 
-  const allFiles = await walkDirectory(rootDir);
+  let walkRoot = rootDir;
+  try {
+    const rootStat = await fs.lstat(rootDir);
+    if (rootStat.isSymbolicLink()) {
+      walkRoot = await fs.realpath(rootDir);
+      const targetStat = await fs.stat(walkRoot);
+      if (!targetStat.isDirectory()) {
+        return;
+      }
+    } else if (!rootStat.isDirectory()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  const allFiles = await walkDirectory(walkRoot);
   for (const absPath of allFiles) {
-    const rel = path.relative(rootDir, absPath).split(path.sep).join("/");
+    const rel = path.relative(walkRoot, absPath).split(path.sep).join("/");
+    const logicalAbs = path.join(rootDir, ...rel.split("/"));
 
     if (isDenylisted(rel)) {
+      continue;
+    }
+
+    if (prefix === "dot-cursor" && rel.split("/")[0] === "skills-cursor") {
       continue;
     }
 
@@ -139,7 +397,10 @@ async function collectFiles(
     }
 
     try {
-      const stat = await fs.stat(absPath);
+      const stat = await fs.lstat(logicalAbs);
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        continue;
+      }
       const sizeLimit = rel.toLowerCase().endsWith(".vsix")
         ? MAX_SYNC_VSIX_BYTES
         : maxBytes;
@@ -151,7 +412,7 @@ async function collectFiles(
     }
 
     result.push({
-      absolutePath: absPath,
+      absolutePath: logicalAbs,
       relativeSyncKey: `${prefix}/${rel}`,
     });
   }
@@ -191,10 +452,19 @@ async function walkDirectory(dir: string): Promise<string[]> {
   }
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
+    let st: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      st = await fs.lstat(fullPath);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      continue;
+    }
+    if (st.isDirectory()) {
       const sub = await walkDirectory(fullPath);
       results.push(...sub);
-    } else if (entry.isFile()) {
+    } else if (st.isFile()) {
       results.push(fullPath);
     }
   }
@@ -218,7 +488,6 @@ export function getDefaultEnabledPaths(): string[] {
     "extensions.json",
     "vsix/**",
     "skills/**",
-    "skills-cursor/**/SKILL.md",
     "commands/**/*.md",
     "rules/*.mdc",
   ];

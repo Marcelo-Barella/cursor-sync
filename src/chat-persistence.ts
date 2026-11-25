@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
+import { USER_LABEL_DOT_CURSOR_CHATS } from "./paths.js";
 import { getLogger } from "./diagnostics.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
 import {
@@ -357,8 +357,9 @@ async function exportChatSelectionToBundleFile(
         const { jsonForFile, warnings, primaryTitle, bundles, defaultSaveBasename } =
           await buildChatExportPayload(context, selection, progress);
 
+        const { resolveUserHomeDir } = await import("./sync-roots.js");
         const defaultUri = vscode.Uri.file(
-          path.join(os.homedir(), "Downloads", defaultSaveBasename)
+          path.join(resolveUserHomeDir(), "Downloads", defaultSaveBasename)
         );
         const saveUri = await vscode.window.showSaveDialog({
           defaultUri,
@@ -466,7 +467,7 @@ export async function buildChatBundle(
   } else {
     warnings.push(
       options?.workspaceKey
-        ? `store.db not found at ~/.cursor/chats/${options.workspaceKey}/${conversationId}/store.db; only transcripts will be saved.`
+        ? `store.db not found at ${USER_LABEL_DOT_CURSOR_CHATS}/${options.workspaceKey}/${conversationId}/store.db; only transcripts will be saved.`
         : `store.db not found for conversation ${conversationId}; only transcripts will be saved.`
     );
   }
@@ -535,7 +536,7 @@ export async function buildChatBundle(
       });
       if (!diskKvSnapshot) {
         warnings.push(
-          `No cursorDiskKV rows for ${conversationId} in global state.vscdb; import will synthesize text-only composer bubbles (tool/MCP UI may show [REDACTED]). Open the chat in Composer on the source machine and re-export.`
+          `No cursorDiskKV rows (conversation ${conversationId}) in Cursor state.vscdb; import will synthesize text-only composer bubbles (tool/MCP UI may show [REDACTED]). Open the chat in Composer on the source machine and re-export.`
         );
       }
     } catch (err) {

@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import * as os from "node:os";
+import { deviceIdentitySalt } from "./os-runtime.js";
 
 export const TRANSCRIPT_MANIFEST_FILE_NAME = "transcript-manifest.json";
 
@@ -110,7 +110,7 @@ export function gistFileNameToSyncKey(gistFileName: string): string {
 }
 
 export function computeTranscriptMachineId(): string {
-  const raw = `${os.hostname()}:${os.userInfo().username}`;
+  const raw = deviceIdentitySalt();
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 

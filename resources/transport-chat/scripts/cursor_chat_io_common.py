@@ -158,27 +158,64 @@ def escape_sql_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+def effective_home() -> Path:
+    """Match extension resolveEffectiveUserHome + transportChatSubprocessEnv HOME."""
+    for key in ("HOME", "USERPROFILE"):
+        raw = os.environ.get(key, "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    return Path.home()
+
+
+def dot_cursor_dir() -> Path:
+    from_env = os.environ.get("CURSOR_DOT_DIR", "").strip()
+    if from_env:
+        return Path(from_env).expanduser()
+    return effective_home() / ".cursor"
+
+
 def cursor_config_root() -> Path:
-    home = Path.home()
+    home = effective_home()
     system = platform.system()
     if system == "Darwin":
         return home / "Library" / "Application Support" / "Cursor" / "User"
     if system == "Windows":
-        return Path(os.environ.get("APPDATA", home)) / "Cursor" / "User"
-    return home / ".config" / "Cursor" / "User"
+        app_data = os.environ.get("APPDATA", "").strip()
+        base = Path(app_data).expanduser() if app_data else home / "AppData" / "Roaming"
+        return base / "Cursor" / "User"
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    config_home = Path(xdg).expanduser() if xdg else home / ".config"
+    return config_home / "Cursor" / "User"
 
 
 def projects_root() -> Path:
-    return Path.home() / ".cursor" / "projects"
+    return dot_cursor_dir() / "projects"
 
 
 def chats_root() -> Path:
-    return Path.home() / ".cursor" / "chats"
+    return dot_cursor_dir() / "chats"
 
 
-ACTIVATION_DIR = Path.home() / ".cursor" / "import-activation"
-ACTIVATION_PENDING_PATH = ACTIVATION_DIR / "pending.json"
-ACTIVATION_RESULT_PATH = ACTIVATION_DIR / "result.json"
+def activation_dir() -> Path:
+    return dot_cursor_dir() / "import-activation"
+
+
+def activation_pending_path() -> Path:
+    return activation_dir() / "pending.json"
+
+
+def activation_result_path() -> Path:
+    return activation_dir() / "result.json"
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ACTIVATION_DIR":
+        return activation_dir()
+    if name == "ACTIVATION_PENDING_PATH":
+        return activation_pending_path()
+    if name == "ACTIVATION_RESULT_PATH":
+        return activation_result_path()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 COMPOSER_BRIDGE_SCRIPT = Path(__file__).resolve().parent / "cursor_composer_bridge.py"
 
 

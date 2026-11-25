@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as path from "node:path";
 import { getLogger } from "./diagnostics.js";
 import { getToken } from "./auth.js";
@@ -99,7 +100,7 @@ export async function executeImportTranscripts(
   const localProjects = await discoverProjects();
   if (localProjects.length === 0) {
     vscode.window.showErrorMessage(
-      "No local Cursor projects found under ~/.cursor/projects/. " +
+      `No local Cursor projects found under ${USER_LABEL_DOT_CURSOR}/projects/. ` +
         "Open a project in Cursor first to create a project directory."
     );
     return;
@@ -132,7 +133,7 @@ export async function executeImportTranscripts(
     const target = findProjectMatchingOpenWorkspaceFolder(localProjects);
     if (!target) {
       vscode.window.showErrorMessage(
-        "No projects mapped. Open the correct repo folder in Cursor (File > Open Folder) so a ~/.cursor/projects/ entry matches this workspace, or map projects manually when prompted."
+        `No projects mapped. Open the correct repo folder in Cursor (File > Open Folder) so a ${USER_LABEL_DOT_CURSOR}/projects/ entry matches this workspace, or map projects manually when prompted.`
       );
       return;
     }

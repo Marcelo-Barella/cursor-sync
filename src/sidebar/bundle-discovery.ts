@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
+import { systemTmpDir } from "../os-runtime.js";
 import * as path from "node:path";
 import type * as vscode from "vscode";
 
@@ -14,7 +14,7 @@ export async function listLocalBundles(
   context: vscode.ExtensionContext
 ): Promise<BundleDiscoveryEntry[]> {
   const out: BundleDiscoveryEntry[] = [];
-  const tmpDir = os.tmpdir();
+  const tmpDir = systemTmpDir();
   try {
     const entries = await fs.readdir(tmpDir);
     for (const name of entries) {

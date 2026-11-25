@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isWin32Platform } from "./os-runtime.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -80,7 +81,7 @@ function buildCurrentWorkspaceIdentifier(): Record<string, unknown> | undefined 
     uri: {
       $mid: 1,
       fsPath,
-      _sep: process.platform === "win32" ? 1 : 47,
+      _sep: isWin32Platform() ? 1 : 47,
       external: folder.uri.toString(),
       path: folder.uri.path,
       scheme: folder.uri.scheme,

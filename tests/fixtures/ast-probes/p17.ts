@@ -1,0 +1,1 @@
+const G = (function* () {}).constructor;

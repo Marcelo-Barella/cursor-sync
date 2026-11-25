@@ -1,0 +1,1336 @@
+--[q'x
+ VACUUM INTO 'f243.db'; -- x']q
+
+-- ` 
+ VACUUM INTO 'f3629.db' /* 
+`x */
+/* x[a"b */VACUUM INTO 'f528.db'/*x]a\*/
+/*]q'x*/-- a''b'; 
+VACUUM INTO 'f4158.db'
+----[x
+ VACUUM INTO 'f2571.db' ; /* /*]-- */
+--a"b'
+
+ VACUUM INTO 'f3213.db'; -- /*"a''b
+
+--a`b[ 
+/*]q`/**/ATTACH 'f4442.db' AS z4442;
+/*sel[/**/VACUUM INTO 'f5080.db' ;--a\]a''b
+
+--  'a\
+ ATTACH 'f509.db' AS z509 /*a''b']q*/
+--a\'sel
+ATTACH 'f667.db' AS z667 ;/* 
+'a\ */
+/* 
+`-- */ ATTACH 'f1516.db' AS z1516 --x`--
+
+--*/'sel
+ ATTACH 'f1584.db' AS z1584; --x'*/
+
+/*  '  */ -- a"b'--
+ VACUUM INTO 'f2628.db' ;
+-- a"b[sel
+VACUUM INTO 'f4581.db' ;-- /*[a"b
+
+/*x`x*/VACUUM INTO 'f4813.db' ;/* a''b'a`b */
+/* a\"]q */
+ATTACH 'f555.db' AS z555;
+-- 'a"b
+
+/* a''b'  */ VACUUM INTO 'f749.db' --sel`it's
+
+--[q'a\
+/* p */VACUUM INTO 'f1288.db'-- /*]*/
+
+/* /*`;  */
+VACUUM INTO 'f1914.db';
+-- /*"a`b
+
+/* a`b[[q */-- it's"a`b
+VACUUM INTO 'f5190.db'
+/* 
+[a\ */-- /*]; 
+ATTACH 'f5551.db' AS z5551;
+/* ; "/* */VACUUM INTO 'f5757.db' ;/*a"b]sel*/
+/*]q"x*/ /* p */VACUUM INTO 'f732.db'; -- [q" 
+
+/*a`b[]q*/
+ATTACH 'f769.db' AS z769 ;
+-- ; `*/
+
+--  "it's
+ATTACH 'f3459.db' AS z3459/* --"-- */
+--a''b`*/
+ ATTACH 'f5914.db' AS z5914 -- a"b`x
+
+--a\"x
+
+--a\`; 
+
+VACUUM INTO 'f815.db'
+/*a"b] */
+--a\"]q
+/*it's]a"b*/ATTACH 'f2814.db' AS z2814 ;
+-- a\'
+
+/* p */VACUUM INTO 'f4133.db';-- a"b']q
+
+-- x` 
+
+ATTACH 'f412.db' AS z412
+--x]
+
+
+-- `a''b
+
+--sel`a\
+ /* p */VACUUM INTO 'f651.db'; -- --`/*
+
+/* ]q[a''b */
+ATTACH 'f886.db' AS z886 ;
+--/*]/*
+
+-- */'a''b
+ /* 
+'a''b */ VACUUM INTO 'f1728.db' ;
+-- a"b]*/
+VACUUM INTO 'f3303.db'/*
+'it's*/-- "a\
+
+-- a''b"a''b
+ VACUUM INTO 'f3534.db' ; /*  "a\ */
+-- [q]a\
+/*a"b] */VACUUM INTO 'f4058.db'-- a\"; 
+
+--  "
+
+/* p */VACUUM INTO 'f4563.db';/*a''b`a"b*/
+/*a''b[sel*/
+ATTACH 'f1904.db' AS z1904;
+/*a"b]x*/
+--  "it's
+
+ATTACH 'f2054.db' AS z2054 ;
+/*; ]a"b*/
+--a"b'a\
+SELECT 1; VACUUM INTO 'f2259.db'/*x]a"b*/
+--; `[q
+
+/*[q[x*/
+VACUUM INTO 'f3761.db';
+--a\`--
+
+-- `]q
+ /* p */VACUUM INTO 'f3835.db' ; -- ; "a`b
+
+-- a"b`x
+ /* p */VACUUM INTO 'f3860.db'; /*; "*/*/
+/* a''b"[q */
+ATTACH 'f4606.db' AS z4606;
+--x]a"b
+
+--a''b[
+
+VACUUM INTO 'f380.db';/**/]it's*//* 
+'  */
+--; [[q
+
+VACUUM INTO 'f425.db';
+--
+]a''b
+
+/*a\]]q*/
+--sel'sel
+VACUUM INTO 'f1560.db';/*[q[x*/-- sel']q
+
+-- [q"a`b
+/* sel]/* *//* p */VACUUM INTO 'f1686.db'
+-- a\[/*
+VACUUM INTO 'f1809.db' ;/*x"a\*//*a`b]a\*/
+/*--'--*/ /* p */ATTACH 'f2486.db' AS z2486 /*
+' */
+/*it's] */--a\'a\
+SELECT 1; VACUUM INTO 'f3898.db';
+/*; `/**/
+ATTACH 'f4278.db' AS z4278 ;
+-- it's'a`b
+
+/* [q'  */SELECT 1; ATTACH 'f522.db' AS z522--*/]]q
+
+-- --'sel
+ /* p */ATTACH 'f716.db' AS z716 ; --x'--
+
+-- [q`
+
+ /* p */ATTACH 'f2919.db' AS z2919 --a`b]; 
+
+-- it's"a\
+
+ATTACH 'f3125.db' AS z3125 ;
+-- a\"it's
+
+-- [q'a\
+ATTACH 'f3324.db' AS z3324/*a"b]a\*//*x] */
+--a''b" 
+
+/* p */VACUUM INTO 'f3477.db' ;
+-- a`b"]q
+
+-- a"b`a`b
+
+VACUUM INTO 'f4764.db'
+--a\'x
+
+/*]q"; */
+/*  '
+ */VACUUM INTO 'f5062.db' ;-- a`b'
+
+/* --]
+ */
+--; `/*
+/* p */ATTACH 'f717.db' AS z717;/* a''b`]q */
+/*/*'a\*/
+ATTACH 'f742.db' AS z742 ;
+--]q`[q
+
+--x'; 
+
+-- a\'[q
+ATTACH 'f754.db' AS z754 ;-- a\'--
+-- ]q]--
+
+--  `a\
+VACUUM INTO 'f978.db'/*a''b'a''b*//*sel[a`b*/
+/* /*[a''b */ ATTACH 'f1194.db' AS z1194 ; -- sel]; 
+
+--a"b[]q
+/* p */ATTACH 'f1826.db' AS z1826 ;--a\]a"b
+
+--a"b"it's
+/* p */ATTACH 'f2655.db' AS z2655--a\'sel
+
+-- sel`--
+
+/* p */ATTACH 'f3041.db' AS z3041
+/*--` */
+/*; " */
+SELECT 1; VACUUM INTO 'f3145.db';
+--sel`a"b
+
+--sel"it's
+ SELECT 1; VACUUM INTO 'f3194.db'; -- 
+"
+
+
+-- a''b`[q
+
+/* p */VACUUM INTO 'f3362.db';
+/*  `]q */
+/*  `it's *//* p */VACUUM INTO 'f3420.db' ;-- sel`/*
+
+/*  `  */
+/* p */ATTACH 'f3516.db' AS z3516
+--sel`*/
+
+----[
+
+
+VACUUM INTO 'f3624.db' ;
+-- "
+
+
+/* it's"]q */
+--a"b[/*
+
+--; ]it's
+
+VACUUM INTO 'f4342.db'
+-- a"b]x
+
+--]q[a"b
+ /*
+]]q*/ SELECT 1; VACUUM INTO 'f5120.db' ;
+-- */`/*
+
+/* x[[q */
+ATTACH 'f59.db' AS z59;
+--  "a`b
+
+/* ; "-- */ -- sel"
+
+ SELECT 1; VACUUM INTO 'f302.db';
+/* /*[a"b */ VACUUM INTO 'f714.db' -- [q"[q
+ /*[q]]q*/
+/*x`a\*/
+-- it's`/*
+
+SELECT 1; VACUUM INTO 'f910.db' ;
+/*x`sel*/SELECT 1; ATTACH 'f1391.db' AS z1391;--/*`; 
+
+--]q`]q
+ VACUUM INTO 'f1515.db'; -- */'[q
+ /* ; `/* */
+-- it's[--
+/* p */ATTACH 'f2388.db' AS z2388;-- /*'--
+
+-- a''b] 
+
+--a''b`/*
+
+VACUUM INTO 'f2780.db'
+--it's`x
+
+--it's[; 
+ ATTACH 'f3925.db' AS z3925 ----]x
+ --  'a\
+
+----[[q
+
+/* p */ATTACH 'f4219.db' AS z4219 ;
+-- /*"]q
+
+-- sel"[q
+/* ; `a"b */SELECT 1; VACUUM INTO 'f4276.db'
+-- x"a\
+ /* p */ATTACH 'f4451.db' AS z4451; -- a''b" 
+
+/* 
+[a"b */
+ATTACH 'f4723.db' AS z4723 ;
+/* it's"]q */
+-- a''b`sel
+/*x`]q*//* p */ATTACH 'f4848.db' AS z4848;
+-- x][q
+ /* p */ATTACH 'f5737.db' AS z5737 ; --; ]sel
+
+/*/*'; */ /* p */ATTACH 'f1352.db' AS z1352 ; -- a`b'x
+
+/* x`
+ */
+SELECT 1; ATTACH 'f1549.db' AS z1549
+-- a\`
+
+
+----"--
+
+-- sel]]q
+
+ATTACH 'f1626.db' AS z1626
+--/*"]q
+
+/* /*[a\ */ /* ]q"
+ */ VACUUM INTO 'f1803.db' --]q"sel
+
+--it's[--
+ /* [q]]q */ VACUUM INTO 'f2666.db' /* 
+'x */
+/*; "a`b*/SELECT 1; ATTACH 'f3424.db' AS z3424--; "sel
+
+/*--[a\*/ ATTACH 'f4654.db' AS z4654; --  ]/*
+ --a\[]q
+
+-- sel"
+
+ /* p */ATTACH 'f4680.db' AS z4680; /*--[a"b*/
+--a"b`it's
+/*/*" */SELECT 1; ATTACH 'f4793.db' AS z4793
+/* '/**/
+ATTACH 'f5608.db' AS z5608;
+--
+'/*
+
+-- a"b"a\
+
+/* it's"/* */
+/*x`[q*/
+VACUUM INTO 'f190.db' ;
+-- */'*/
+
+-- sel"a''b
+
+VACUUM INTO 'f212.db';
+-- sel"; 
+
+--sel]]q
+
+-- a''b'a\
+ SELECT 1; VACUUM INTO 'f287.db'; /*/*'a''b*/
+/*
+'--*/ ATTACH 'f538.db' AS z538 ; /* */][q */ --; '--
+
+/*it's`]q*/ ATTACH 'f545.db' AS z545; --x[a\
+ --  `it's
+
+/* "x*/ ATTACH 'f1398.db' AS z1398 ; /*a\"a\*/ -- --]a\
+
+-- a"b' 
+
+-- x]sel
+
+ATTACH 'f3190.db' AS z3190
+-- ; "; 
+
+-- ]q[[q
+ --[q`/*
+ ATTACH 'f3786.db' AS z3786 -- a"b]*/
+
+/* a\"  */
+VACUUM INTO 'f4665.db';
+--[q][q
+
+/* a''b"
+ */
+--*/`it's
+ ATTACH 'f186.db' AS z186; /*sel"]q*/ --]q[a`b
+
+/* a\[it's */
+-- a`b`]q
+
+SELECT 1; VACUUM INTO 'f367.db';
+--; '
+
+/* p */ATTACH 'f575.db' AS z575;/*/*`[q*/--; 'sel
+
+-- x]a\
+ --sel`[q
+ /* p */VACUUM INTO 'f858.db' ; --]q`x
+
+/* ]q']q */--x[
+
+ATTACH 'f1159.db' AS z1159 ;-- sel`it's
+
+-- a''b[a''b
+VACUUM INTO 'f1915.db' ;-- [q`*/
+/* sel]x */
+--/*"it's
+ /* p */ATTACH 'f2980.db' AS z2980 ; --a\"a''b
+
+--  [--
+
+VACUUM INTO 'f3377.db';
+/*/*[a`b*/
+/* ]q'it's */
+/*a''b[--*/--]q[]q
+SELECT 1; ATTACH 'f3733.db' AS z3733 ;
+/* ; [sel */
+--a\`a''b
+
+VACUUM INTO 'f3986.db';
+/* x]
+ */
+-- */`x
+ ATTACH 'f4835.db' AS z4835 /*  '  */ /*a"b`sel*/
+/*a\'/**/
+-- [q'
+
+
+SELECT 1; ATTACH 'f5180.db' AS z5180 ;
+-- */[/*
+ /*--]; */ SELECT 1; ATTACH 'f5395.db' AS z5395;
+--sel`sel
+ VACUUM INTO 'f125.db'; /* [q"[q */ /* a\'a`b */
+-- x[x
+SELECT 1; VACUUM INTO 'f639.db';-- [q"[q
+--it's]a\
+
+-- a"b]sel
+ SELECT 1; ATTACH 'f1064.db' AS z1064 ; -- 
+" 
+
+-- it's"a\
+ ATTACH 'f1395.db' AS z1395 ; --]q] 
+ /*a\'*/*/
+/* a`b'  */
+/*a`b"a''b*/
+VACUUM INTO 'f1427.db'
+-- /*"sel
+
+-- */'sel
+--it's'*/
+/* p */VACUUM INTO 'f1751.db';--[q'a\
+
+/* [q[a`b */SELECT 1; ATTACH 'f2150.db' AS z2150 ;/*x]; */
+-- x"a\
+/* a`b"]q */SELECT 1; ATTACH 'f2231.db' AS z2231 ;
+--it's[a\
+/* p */VACUUM INTO 'f3586.db'-- a''b"--
+-- x'*/
+
+/*a\]; */--it's]*/
+ATTACH 'f3747.db' AS z3747 ;/* a\']q */
+-- --'a\
+
+SELECT 1; ATTACH 'f4389.db' AS z4389
+-- /*"it's
+
+/*  "-- *//*a''b[a`b*/VACUUM INTO 'f5754.db' ;/* a"b];  */
+-- --'a''b
+ /* p */ATTACH 'f952.db' AS z952 ; /* [q[it's */
+/* --`
+ */ATTACH 'f1312.db' AS z1312 ;/*sel"a''b*//**/`--*/
+/*a''b[sel*/ ATTACH 'f2082.db' AS z2082 -- a`b[
+
+ --a`b]--
+
+-- "*/
+ /* p */ATTACH 'f2134.db' AS z2134 /* 
+"  */ --*/]
+
+
+/*it's] */ --a"b'/*
+ SELECT 1; ATTACH 'f2319.db' AS z2319 ;
+--; `
+
+
+/* p */VACUUM INTO 'f3774.db';
+-- a\"a`b
+
+/*x`a`b*/
+--; ` 
+/*  []q */VACUUM INTO 'f4256.db'-- /*`a''b
+-- ]q[]q
+
+--/*' 
+
+/* p */VACUUM INTO 'f4884.db';
+/**/`]q*/
+/* 
+'*/ */
+/*sel"a\*/
+/*a`b'
+*/
+VACUUM INTO 'f4894.db' ;
+/* sel'a"b */
+--*/[sel
+
+/*a"b[[q*/
+/* p */VACUUM INTO 'f5620.db'
+--/*"]q
+
+/* ; `;  */--x]*/
+/* p */ATTACH 'f45.db' AS z45;/* x`a''b */
+--a"b`a`b
+--x[ 
+SELECT 1; ATTACH 'f58.db' AS z58 ;/*a`b"--*/
+/*]q[a`b*/ /*a`b[; */ ATTACH 'f469.db' AS z469 ; /* /*`]q */
+--a''b`/*
+
+SELECT 1; ATTACH 'f960.db' AS z960 ;
+/* /*`sel */
+/* ; '[q */
+-- a"b'sel
+
+SELECT 1; ATTACH 'f1066.db' AS z1066
+/*a`b[a"b*/-- --"
+
+SELECT 1; VACUUM INTO 'f1829.db' ;--/*` 
+
+--a\[*/
+-- "[q
+SELECT 1; ATTACH 'f2110.db' AS z2110;--a"b] 
+
+/*a''b' */ SELECT 1; ATTACH 'f3698.db' AS z3698 --a''b]it's
+
+--/*[ 
+/* p */ATTACH 'f4066.db' AS z4066/*a\]--*/-- sel]sel
+
+-- /*[; 
+--it's`a\
+/* p */VACUUM INTO 'f4148.db' ;-- sel`]q
+
+-- ]q[ 
+/* --[a`b */SELECT 1; VACUUM INTO 'f4852.db'--[q`]q
+
+/* sel'/* */
+/* p */ATTACH 'f5130.db' AS z5130
+/* ; `it's */
+--*/"/*
+ /* p */ATTACH 'f988.db' AS z988 /* --']q */ --a`b"
+
+
+--/*][q
+ ATTACH 'f2642.db' AS z2642 /* 
+"a\ */ /* a''b]sel */
+-- /*'--
+/*sel'a\*/SELECT 1; VACUUM INTO 'f3265.db';-- --]/*
+
+-- a''b"sel
+ /*; [x*/ /* p */VACUUM INTO 'f3448.db'; --x]a"b
+
+--it's[*/
+
+--[q]--
+
+/* p */VACUUM INTO 'f3778.db';
+/*a`b'/**/
+-- ]q`]q
+ ATTACH 'f3959.db' AS z3959; /*it's[--*/ /* a\`]q */
+-- ]q]x
+/*  `/* *//* p */ATTACH 'f4524.db' AS z4524-- ; ]a`b
+
+/*--"/**//* x'a`b */SELECT 1; VACUUM INTO 'f4646.db'-- */"*/
+
+/* --[a''b */ SELECT 1; VACUUM INTO 'f5201.db' ; --it's]a''b
+
+/* a"b[sel */
+-- */"
+
+
+SELECT 1; ATTACH 'f5622.db' AS z5622 ;
+/*a\"it's*/
+/* p */VACUUM INTO 'f5711.db';
+/*  `  */
+-- x"/*
+
+/* 
+[/* */SELECT 1; VACUUM INTO 'f5927.db';--/*"sel
+-- ]a''b
+
+-- a''b`[q
+
+ATTACH 'f5957.db' AS z5957 ;
+-- ; [a\
+
+-- --'a`b
+
+-- /*"sel
+/*a"b"--*/SELECT 1; VACUUM INTO 'f1381.db';/*; "; */
+-- [*/
+ -- a`b'; 
+ SELECT 1; VACUUM INTO 'f2796.db' --a''b]; 
+
+/*--[it's*/ ATTACH 'f2976.db' AS z2976; /* a\`sel */ /*a\]; */
+-- a`b"sel
+
+/* it's[a\ */
+VACUUM INTO 'f3188.db' ;
+-- a''b`--
+
+/* --`a"b */ /* a''b[x */ ATTACH 'f3422.db' AS z3422; -- --` 
+
+--a`b'it's
+/* ]--*//* p */VACUUM INTO 'f3876.db' ;/* [q[a`b */
+----]
+
+/*it's`a\*/ATTACH 'f4291.db' AS z4291;-- ; `a\
+/*
+']q*/
+--; [[q
+
+/* p */VACUUM INTO 'f4355.db';
+-- a`b]a"b
+
+--a\"a''b
+
+/* a`b"it's */--a\]/*
+/* p */VACUUM INTO 'f4468.db' ;/*]q`; */
+-- it's`a"b
+ /*a\[x*/ /* p */VACUUM INTO 'f4538.db' --; `it's
+
+/* sel'a''b */
+SELECT 1; ATTACH 'f4808.db' AS z4808 ;
+/* ']q*/
+-- a\`[q
+
+/* [q[]q */
+ATTACH 'f5896.db' AS z5896;
+/* [q]a`b */
+-- `a''b
+ SELECT 1; ATTACH 'f371.db' AS z371 ; --a"b]x
+ --  `
+
+
+--  "; 
+ /*; ' */ SELECT 1; VACUUM INTO 'f443.db' ; /*sel'a"b*/
+-- a''b`a''b
+ ATTACH 'f1084.db' AS z1084; --a"b"a`b
+ -- /*"a"b
+
+-- it's]
+
+ /* p */VACUUM INTO 'f2695.db' ; -- [q`*/
+ --a\'a''b
+
+/* a`b][q */
+/*
+"a"b*/
+/* p */VACUUM INTO 'f2737.db'
+-- /*`sel
+
+/*a''b`[q*//* p */ATTACH 'f2920.db' AS z2920 ;--*/'
+
+-- a\'a`b
+
+/* /*]x */ /* ; [a''b */ ATTACH 'f3058.db' AS z3058 ; --it's] 
+
+/*]q'a`b*/SELECT 1; VACUUM INTO 'f3216.db'/*; ]--*//* a''b'  */
+--it's"a\
+ -- */[x
+ SELECT 1; VACUUM INTO 'f3606.db'; -- a`b'
+
+
+--a"b]
+
+
+--a`b[a''b
+
+/* p */VACUUM INTO 'f4258.db'
+/* a`b"/* */
+/*/*'; */ /* p */VACUUM INTO 'f4811.db' ; /* --"x */ /*it's] */
+-- /*[a`b
+/* p */VACUUM INTO 'f5117.db';-- a`b'sel
+-- it's]sel
+
+--a`b[ 
+
+SELECT 1; VACUUM INTO 'f5232.db'
+-- ]q[; 
+
+/*]q`a''b*/
+-- 'sel
+ /* p */ATTACH 'f5644.db' AS z5644 /*a"b"; */ /*/*'a\*/
+-- ]
+
+ --*/"it's
+ VACUUM INTO 'f5982.db'; --x[; 
+ /*a''b"a''b*/
+-- */`--
+ /* /*[-- */ /* p */ATTACH 'f68.db' AS z68; /*a''b`]q*/
+-- --`[q
+ --a''b]; 
+ /* p */ATTACH 'f300.db' AS z300 /*]q`a''b*/
+/* sel"]q */
+/* 
+]a\ */
+/* p */VACUUM INTO 'f975.db' ;
+/*[q"--*/
+-- ; '
+
+
+-- ; "/*
+
+/* p */VACUUM INTO 'f1179.db';
+/* sel'a''b */
+/*a''b' *//*a\]]q*/SELECT 1; VACUUM INTO 'f1263.db' ;/**/`it's*/
+/* a`b]/* */-- a"b'a\
+/* p */ATTACH 'f1359.db' AS z1359--a`b]a\
+
+-- /*[*/
+ SELECT 1; VACUUM INTO 'f1571.db' ; /*x[[q*/ --a''b"]q
+
+/* ; "  */ --sel][q
+ /* p */ATTACH 'f2151.db' AS z2151; -- x"*/
+
+/* [
+*/
+-- ]q"--
+
+SELECT 1; ATTACH 'f2408.db' AS z2408
+--]q'a"b
+
+/*[q`--*/SELECT 1; ATTACH 'f3064.db' AS z3064--*/[[q
+/* a\[]q */
+-- sel]
+
+
+-- it's]
+
+
+SELECT 1; VACUUM INTO 'f3966.db';
+--; 'sel
+
+/* "[q*/
+/* p */ATTACH 'f4180.db' AS z4180;
+/* ] */
+-- it's[a"b
+
+/* a''b"a"b *//*]q[ */SELECT 1; VACUUM INTO 'f4234.db';-- ; ]; 
+
+-- x"; 
+ -- /*]; 
+ SELECT 1; VACUUM INTO 'f4733.db' /*a''b"sel*/
+--sel[
+
+
+SELECT 1; VACUUM INTO 'f5153.db' ;
+--a\[]q
+
+/*; ]a''b*/
+--]q][q
+/*; `x*//* p */VACUUM INTO 'f751.db';/* ; `x */-- it's]x
+
+/*a\"[q*/ SELECT 1; VACUUM INTO 'f1445.db'; /* sel]]q */ --
+"sel
+
+/* --[a"b */ /* 
+"a"b */ /* p */VACUUM INTO 'f1586.db' ; -- 
+`]q
+
+/* a"b`a`b *//* p */VACUUM INTO 'f2363.db';/* ]q[a\ *//* */"]q */
+/*x` */ /* p */ATTACH 'f2394.db' AS z2394 -- ]q"a''b
+ -- it's`--
+
+--sel`sel
+
+/* p */ATTACH 'f2413.db' AS z2413
+--x`a"b
+
+/* ; "/* */
+--/*` 
+
+SELECT 1; VACUUM INTO 'f2983.db';
+/*a''b[x*/
+/* a"b`/* */
+--a"b] 
+
+-- [q[]q
+
+SELECT 1; VACUUM INTO 'f3158.db' ;
+/* */"a\ */
+/* x[;  *//* [a"b*/VACUUM INTO 'f3226.db' ;-- a`b]--
+/* --`a`b */
+-- [q'[q
+
+/* ; `/* */
+SELECT 1; VACUUM INTO 'f3647.db'
+--]q'it's
+
+-- /*' 
+/* --]x *//* p */ATTACH 'f3667.db' AS z3667 ;-- a`b`it's
+
+/* ; '/* */ /*[q[--*/ VACUUM INTO 'f4718.db' ; -- x"; 
+ -- ; ']q
+
+-- [q`; 
+/* p */ATTACH 'f4783.db' AS z4783;/*it's`it's*/-- ; ']q
+
+--a''b`; 
+/*a"b[a"b*//* p */ATTACH 'f5037.db' AS z5037 ;--/*]a`b
+
+/* a`b[
+ */
+--; ]
+
+
+/* p */ATTACH 'f5603.db' AS z5603
+-- it's`*/
+
+--x[/*
+ SELECT 1; ATTACH 'f5923.db' AS z5923; /*x`a''b*/ --*/]; 
+
+/*a''b" */ --a''b[]q
+ ATTACH 'f470.db' AS z470 --[q'x
+ /*a"b]sel*/
+/* [q`a''b */
+-- --[/*
+
+/* p */VACUUM INTO 'f892.db';
+--a''b]a''b
+
+/* a\']q */ SELECT 1; VACUUM INTO 'f916.db' ; -- a''b'--
+ /*; ]
+*/
+/*; [sel*//* sel[-- *//* p */ATTACH 'f1538.db' AS z1538;/* */]  */
+/* a"b`
+ */ SELECT 1; VACUUM INTO 'f1543.db' ; -- [q]a''b
+ --  "x
+
+/* ; `;  */
+/* p */ATTACH 'f1654.db' AS z1654 ;
+/*/*`a\*/
+--  ]; 
+
+/*; "/**/ SELECT 1; ATTACH 'f1937.db' AS z1937 ; --]q"a\
+ --[q]]q
+
+--x[*/
+----'[q
+SELECT 1; ATTACH 'f2105.db' AS z2105 ;/* it's[]q */
+/*--`]q*//* p */ATTACH 'f2426.db' AS z2426 ;/* /*[a''b */--sel`]q
+
+/* ; ][q */SELECT 1; VACUUM INTO 'f3545.db';/*it's]; *//* ]q[]q */
+/* /*]x */-- /*"a`b
+/* p */VACUUM INTO 'f4235.db';/*]q'x*/--*/"--
+
+/* a"b]it's */SELECT 1; VACUUM INTO 'f4416.db'-- a"b`; 
+--it's`--
+
+/*/*]; */
+/* "a\*/
+SELECT 1; ATTACH 'f5776.db' AS z5776;
+--a\`a"b
+
+/* 
+'a`b */ -- [q']q
+ ATTACH 'f31.db' AS z31; /*]q'it's*/ -- ]a''b
+
+/* ]q"a\ */ -- a`b[sel
+ SELECT 1; ATTACH 'f654.db' AS z654 --/*"a\
+
+/* a"b]
+ */
+/* a''b[a`b */
+VACUUM INTO 'f1006.db'
+--]q`x
+
+--a`b"--
+
+/*--[sel*/
+-- ; `; 
+
+SELECT 1; VACUUM INTO 'f1315.db' ;
+-- [q]a''b
+
+-- sel[a''b
+-- */`*/
+SELECT 1; VACUUM INTO 'f1350.db'-- 'x
+--; ']q
+
+/* /*]  */
+--it's`*/
+
+SELECT 1; ATTACH 'f1945.db' AS z1945;
+--[q'x
+
+--a`b]a`b
+ --*/[--
+ SELECT 1; ATTACH 'f2305.db' AS z2305 --a''b]*/
+
+-- sel"; 
+ SELECT 1; ATTACH 'f5000.db' AS z5000 --a''b]a"b
+ /* ] */
+/*
+`sel*/-- a''b"a''b
+/* p */ATTACH 'f5189.db' AS z5189 ;/*/*"a`b*/
+-- a"b]a"b
+/* a\[/* */ATTACH 'f5847.db' AS z5847 ;-- --`--
+-- x]/*
+
+-- */"a''b
+ --]q'; 
+ SELECT 1; ATTACH 'f433.db' AS z433 ; /*a"b]; */
+/* it's`[q */ SELECT 1; ATTACH 'f753.db' AS z753 /*
+]; */ /* a\'  */
+--sel][q
+ /* sel]/* */ SELECT 1; ATTACH 'f1413.db' AS z1413 --]q]*/
+
+/* [q';  */
+/* p */ATTACH 'f2021.db' AS z2021 ;
+/*[q"; */
+/*sel]/**/
+/* a''b'[q */ --; "[q
+ VACUUM INTO 'f2028.db' ; -- --[ 
+ /*a''b'; */
+/*]q`--*//* ]q"-- *//* p */VACUUM INTO 'f2240.db';/**/`/**/-- */]a\
+
+-- a"b`a`b
+ /* /*];  */ SELECT 1; VACUUM INTO 'f2474.db' ; -- /*"--
+
+----`[q
+-- [q"--
+/* p */VACUUM INTO 'f2536.db' ;/* 
+'a`b */-- */]*/
+
+/* it's`  */ SELECT 1; VACUUM INTO 'f2939.db' ; /* */`a`b */ ----'
+
+
+/* a''b]it's */SELECT 1; VACUUM INTO 'f5101.db';--a''b"[q
+/* ]q'x */
+/* a`b`a`b */SELECT 1; VACUUM INTO 'f5558.db'----[a`b
+/* a''b`a`b */
+/* ; "-- */ -- [q`x
+ ATTACH 'f318.db' AS z318 ; /* */[/* */ --a''b"x
+
+/* a\";  */-- x]sel
+/* p */VACUUM INTO 'f1380.db';/*; ]sel*//* `a"b*/
+/*sel`/**/ /*a\'it's*/ ATTACH 'f1557.db' AS z1557; --; ]a"b
+ /*x`/**/
+/*; " */
+--]q'/*
+
+SELECT 1; VACUUM INTO 'f2791.db' ;
+/*
+] */
+----"a\
+
+-- [q`/*
+/* a"b`sel */SELECT 1; ATTACH 'f3108.db' AS z3108 ;-- /*]]q
+
+----] 
+ --a"b'[q
+ SELECT 1; VACUUM INTO 'f3994.db'; --]q"--
+ --  ]]q
+
+/*]q"]q*/
+SELECT 1; ATTACH 'f4142.db' AS z4142
+-- x[a''b
+
+/*/*"a''b*/
+/* a`b"a`b */ /*; `a''b*/ SELECT 1; VACUUM INTO 'f4401.db' ; -- 
+`/*
+
+--; "sel
+
+SELECT 1; VACUUM INTO 'f5461.db';
+--it's`a''b
+
+/* [q]a"b */
+-- /*'a`b
+
+--[q"]q
+
+SELECT 1; ATTACH 'f5687.db' AS z5687;
+-- ]q'a''b
+
+-- --`]q
+ /* p */ATTACH 'f5741.db' AS z5741; /* a`b';  */ /* */'*/ */
+-- a\]a`b
+
+/*--]/**/
+/* p */ATTACH 'f671.db' AS z671
+-- a\]a\
+
+--a\` 
+
+/*[q"a"b*/
+/* ; "[q */
+ATTACH 'f1196.db' AS z1196;
+-- [q'a`b
+
+--]q]*/
+
+/* ; [sel */
+/* p */ATTACH 'f1512.db' AS z1512 ;
+/*/*"*/*/
+/* --]]q */
+-- */][q
+/*x]it's*/SELECT 1; ATTACH 'f1513.db' AS z1513--/*`/*
+--  'x
+
+/*a''b'it's*/ /*a"b][q*/ SELECT 1; ATTACH 'f1518.db' AS z1518; -- 
+"x
+
+----'a"b
+/*a"b`/**/SELECT 1; VACUUM INTO 'f1757.db'/*  "-- *//*]q'/**/
+-- x" 
+ /*  "a"b */ SELECT 1; ATTACH 'f2954.db' AS z2954 ; /* [q"-- */
+/* ; 'a"b */
+--a''b"/*
+
+SELECT 1; ATTACH 'f3111.db' AS z3111;
+-- a\' 
+
+-- a''b"]q
+
+--; ] 
+
+ATTACH 'f3613.db' AS z3613;
+-- /*"x
+
+/* --'it's */
+/* it's`x */
+/*a''b]/**/
+/* p */ATTACH 'f3692.db' AS z3692
+-- --`it's
+
+--[q'a"b
+
+/*a\" */
+ATTACH 'f4027.db' AS z4027 ;
+/*]q'/**/
+/*sel'a''b*/
+/* [q]it's */ SELECT 1; VACUUM INTO 'f4462.db'; /* a\`a`b */ --sel'/*
+
+--it's`a\
+ SELECT 1; ATTACH 'f5875.db' AS z5875; /*a\`[q*/ /*a\'a''b*/
+/* it's';  */
+/* /*]a"b */
+VACUUM INTO 'f5944.db'
+--a''b[/*
+
+--a"b]; 
+
+/* it's`
+ *//* x"  *//* p */ATTACH 'f531.db' AS z531;--x" 
+/* 
+`it's */
+-- a\`
+
+ -- sel]; 
+ SELECT 1; VACUUM INTO 'f798.db' --sel'*/
+ /* ]a`b*/
+/* it's]it's */
+-- sel"]q
+
+SELECT 1; VACUUM INTO 'f1929.db';
+/*sel"*/*/
+-- a`b`[q
+ /* a\`a\ */ SELECT 1; ATTACH 'f3031.db' AS z3031 ; /*]q]]q*/
+/* ]q]a`b */
+--x]; 
+
+SELECT 1; ATTACH 'f4554.db' AS z4554 ;
+/**/`a''b*/
+--a''b'it's
+ /* it's]a"b */ /* p */ATTACH 'f4616.db' AS z4616 -- [it's
+
+/* ; `sel */
+-- x'*/
+
+/* p */ATTACH 'f5046.db' AS z5046;
+/* a"b`a''b */
+--[q`a`b
+
+--a\'x
+
+SELECT 1; VACUUM INTO 'f930.db' ;
+/* x'a\ */
+-- --]*/
+
+/* a"b"a"b */
+/*sel]it's*/
+/* p */ATTACH 'f1696.db' AS z1696 ;
+/*; "a\*/
+/*a''b]it's*/ /*
+[a`b*/ SELECT 1; ATTACH 'f3137.db' AS z3137; /* ; '
+ */
+/* a"b`a''b */
+SELECT 1; VACUUM INTO 'f3342.db' ;
+--it's[a`b
+
+/*a"b]; */
+/*--[/**/
+--*/"--
+
+SELECT 1; VACUUM INTO 'f4043.db' ;
+--it's[/*
+
+--x"]q
+
+--a"b"--
+
+--a"b]; 
+
+SELECT 1; VACUUM INTO 'f4260.db';
+--a`b']q
+
+--x[a"b
+
+/* a"b[sel */
+SELECT 1; ATTACH 'f5682.db' AS z5682 ;
+/* a"b][q */
+--x]x
+
+/*a`b"sel*/
+/*  [a\ */
+SELECT 1; VACUUM INTO 'f309.db'
+/*/*`a\*/
+--a`b`x
+
+/* sel`]q */--; ]--
+/* p */ATTACH 'f780.db' AS z780 ;/* 'a"b*//*sel`sel*/
+--sel[a`b
+ /* 
+[a"b */ ATTACH 'f2924.db' AS z2924 ; -- a\`[q
+ --a''b]sel
+
+----`
+
+ /* ]q[a\ */ SELECT 1; ATTACH 'f4754.db' AS z4754 ; /* a''b'a`b */
+/*]q]/**/
+-- --']q
+
+/* p */VACUUM INTO 'f5756.db';
+--[q`*/
+
+/* ; "it's */
+-- */'/*
+ /*
+[it's*/ /* p */ATTACH 'f488.db' AS z488 ; -- "; 
+ /* [q"/* */
+--a`b'; 
+ /* a''b`a`b */ SELECT 1; ATTACH 'f1109.db' AS z1109; -- */`a''b
+
+/* ; ]it's */
+SELECT 1; ATTACH 'f1153.db' AS z1153 ;
+--/*[/*
+
+/* sel'/* */
+/* x[[q */
+--*/`x
+
+SELECT 1; VACUUM INTO 'f1611.db' ;
+/*a"b"--*/
+-- --"]q
+
+/* /*[a''b */ --a"b"x
+ ATTACH 'f2058.db' AS z2058 ; /*--'--*/ /* a"b]]q */
+/* a"b`x */ --  ]a\
+ SELECT 1; VACUUM INTO 'f3528.db' -- /*]x
+ /* ; ";  */
+-- [q"sel
+/*
+"a"b*//* p */ATTACH 'f4152.db' AS z4152;-- ; `a"b
+/* a"b]  */
+-- a''b'--
+/*]q"sel*/SELECT 1; ATTACH 'f1193.db' AS z1193;----"x
+--/*[it's
+
+/* ; [-- */ /* a"b]it's */ VACUUM INTO 'f2461.db' /*  `a"b */ /* /*]it's */
+/*]q]
+*/ -- --]a"b
+ SELECT 1; VACUUM INTO 'f3078.db'; /**/`/**/ /* */"]q */
+--a"b'/*
+
+-- [[q
+
+/* p */ATTACH 'f4257.db' AS z4257 ;
+-- ]sel
+
+/* */'a"b */
+/*it's]a"b*/--sel`]q
+SELECT 1; VACUUM INTO 'f4398.db' ;-- --"sel
+-- it's]x
+
+--it's][q
+ /* it's]  */ SELECT 1; ATTACH 'f4494.db' AS z4494; /* */'it's */
+/* a\`sel *//* it's[sel */ATTACH 'f4866.db' AS z4866 ;/*sel'
+*//* a\'a`b */
+--it's[it's
+
+/*]q'a\*/
+/* p */VACUUM INTO 'f147.db' ;
+-- ]q]; 
+
+/*a"b"it's*/
+/* ; "  */
+--a"b`[q
+
+SELECT 1; ATTACH 'f310.db' AS z310 ;
+--a\'*/
+
+-- */`]q
+
+/* /*'-- *//*it's[[q*/SELECT 1; ATTACH 'f1718.db' AS z1718 ;--*/]; 
+/*--] */
+--]q'x
+--x'a"b
+SELECT 1; ATTACH 'f1806.db' AS z1806 ;/* --'sel */-- a"b"a"b
+
+-- sel"--
+ -- ; ] 
+ SELECT 1; ATTACH 'f1839.db' AS z1839; --a\`a"b
+ --/*]*/
+
+-- a"b[sel
+/* --'sel */SELECT 1; VACUUM INTO 'f1920.db'-- sel[a"b
+-- */`a`b
+
+-- x'a''b
+ /* /*[]q */ /* p */ATTACH 'f2236.db' AS z2236 /*; `; */ -- /*'; 
+
+/* it's[  */ --a\]a"b
+ SELECT 1; VACUUM INTO 'f2665.db' ; -- ]q`[q
+ -- 
+'--
+
+/* a"b[a''b */ SELECT 1; ATTACH 'f4436.db' AS z4436 ; -- it's[/*
+ /*a`b"/**/
+--  "a''b
+ /*a`b]--*/ /* p */VACUUM INTO 'f5036.db' ; --it's'it's
+ --a"b[]q
+
+--]q]sel
+
+/* 
+"-- */
+SELECT 1; VACUUM INTO 'f5332.db';
+--x"a"b
+
+/* sel"-- */
+--it's`--
+
+SELECT 1; ATTACH 'f2405.db' AS z2405 ;
+/* */[a"b */
+/* it's]sel */
+-- /*`[q
+ /* sel'
+ */ SELECT 1; VACUUM INTO 'f4093.db' --it's'it's
+ /*a"b` */
+-- --[sel
+
+-- it's`
+
+
+/* p */ATTACH 'f4888.db' AS z4888;
+-- */'sel
+
+-- --]; 
+
+/*a`b'a"b*//*a`b'sel*//* p */ATTACH 'f2118.db' AS z2118 ;/*a"b]a''b*/--sel'--
+
+/* --'a`b */ /*it's`[q*/ /* p */VACUUM INTO 'f2601.db'; /* --`a\ */ /* [q]
+ */
+/* [q`sel */ /* a`b[/* */ ATTACH 'f4217.db' AS z4217 /*/*`a`b*/ /* a''b]sel */
+-- */"/*
+ --it's]a\
+ SELECT 1; ATTACH 'f4978.db' AS z4978; -- [q]x
+ /* ; "  */
+--a\'--
+
+-- a\"*/
+
+SELECT 1; ATTACH 'f1222.db' AS z1222;
+/*  `[q */
+/* [q']q */
+/*it's"; */ /* a\]  */ /* p */ATTACH 'f1858.db' AS z1858 ; /*a`b'a"b*/ /*]q"x*/
+-- it's`]q
+-- [q[sel
+SELECT 1; VACUUM INTO 'f2450.db';-- sel`a"b
+/* a''b'sel */
+/*[q`[q*/
+/* ]q[[q */
+SELECT 1; ATTACH 'f4353.db' AS z4353;
+-- a\'[q
+
+-- [q']q
+
+/*a"b]x*/ --/*`]q
+ SELECT 1; ATTACH 'f4963.db' AS z4963 ; /* x'*/ */ /**/]a"b*/
+/*--[a`b*/
+/* [q`
+ */
+SELECT 1; VACUUM INTO 'f2212.db';
+/* it's`a`b */
+/* ; ]
+ */
+--a`b"it's
+
+/*a`b']q*/
+/* p */ATTACH 'f5635.db' AS z5635 ;
+/* --`a"b */
+/*it's]*/*/
+/* [q`a''b */ -- sel"--
+ SELECT 1; ATTACH 'f696.db' AS z696; /* a"b`a"b */ -- [q[]q
+
+-- /*[a"b
+
+/*  "a\ */
+SELECT 1; ATTACH 'f5420.db' AS z5420 ;
+/* it's[*/ */
+/*[q[]q*/
+/*sel"it's*/ /* a"b[-- */ SELECT 1; ATTACH 'f4760.db' AS z4760 /*  ]]q */ /*]q]a''b*/
+/* a"b]sel */
+/* sel[it's */
+SELECT 1; ATTACH 'f2952.db' AS z2952
+/* 
+`a\ */
+/*a\"--*/SELECT 1 --\r'
+; ATTACH 'f-cr-lf.db' AS z1;
+
+SELECT 1 --\r\nstill comment
+; ATTACH 'f-crlf.db' AS z2;
+
+SELECT 1 --ATTACH on same line
+; ATTACH 'f-lone-cr.db' AS z3;

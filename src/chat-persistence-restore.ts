@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
+import { USER_LABEL_DOT_CURSOR, USER_LABEL_DOT_CURSOR_CHATS, USER_LABEL_DOT_CURSOR_PROJECTS, USER_LABEL_HOME_TILDE_PREFIX } from "./paths.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
+import { systemTmpDir } from "./os-runtime.js";
 import { getLogger } from "./diagnostics.js";
 import { pruneOldBackups } from "./rollback.js";
 import { __chatPersistenceInternals } from "./transcripts.js";
@@ -19,7 +20,7 @@ import {
   buildChatsKeyToFolderMap,
 } from "./chat-workspace-context.js";
 import { emitChatImportProgress } from "./chat-progress-events.js";
-import { resolveSyncRoots } from "./paths.js";
+import { resolveExtensionSyncRoots } from "./sync-roots.js";
 import {
   pingServerProbe,
   runPostImportActivation,
@@ -98,8 +99,11 @@ export async function ensurePythonReady(): Promise<string> {
   const candidates = configured ? [configured] : ["python3", "python"];
   for (const cand of candidates) {
     try {
-      const { spawnSync } = await import("node:child_process");
-      const res = spawnSync(cand, ["--version"], { encoding: "utf-8" });
+      const { registerConfiguredAbsolutePythonPath, spawnSyncCapture } = await import(
+        "./os-runtime.js"
+      );
+      registerConfiguredAbsolutePythonPath(cand);
+      const res = spawnSyncCapture(cand, ["--version"], { encoding: "utf-8" });
       if (res.status === 0) {
         pythonInterpreterMemo = cand;
         return cand;
@@ -293,7 +297,7 @@ export async function restoreChatBundle(
     options.workspaceFolder?.trim() || (await pickImportWorkspaceFolder());
   if (!folderFsPath) {
     throw new Error(
-      "Open a workspace folder in Cursor before importing a chat bundle (required for ~/.cursor/chats/<md5(folder)> store.db path)."
+      `Open a workspace folder in Cursor before importing a chat bundle (required for ${USER_LABEL_DOT_CURSOR}/chats/<md5(folder)> store.db path).`
     );
   }
   const wsCtx = await requireWorkspaceContext({ workspaceFolder: folderFsPath });
@@ -353,7 +357,7 @@ export async function restoreChatBundle(
       : folderToProjectKey(wsCtx.folderFsPath);
 
   const workspaceStateDb = path.join(
-    resolveSyncRoots().cursorUser,
+    resolveExtensionSyncRoots().cursorUser,
     "workspaceStorage",
     wsCtx.workspaceStorageId,
     "state.vscdb"
@@ -389,7 +393,7 @@ export async function restoreChatBundle(
 
   const remappedBundle = applyProjectMappingToBundle(workingBundle, projectMapping);
   const tmpBundlePath = path.join(
-    os.tmpdir(),
+    systemTmpDir(),
     `cursor-sync-import-${conversationId}-${Date.now()}.json`
   );
   try {
@@ -482,7 +486,7 @@ export async function restoreChatBundle(
     if (options.activate) {
       if (!storeWritten) {
         warnings.push(
-          "Bundle has no store.db snapshot; IDE activation usually requires store.db at ~/.cursor/chats/<md5(workspace)>/<conversationId>/store.db. Re-export from a machine where that file exists."
+          `Bundle has no store.db snapshot; IDE activation usually requires store.db at ${USER_LABEL_DOT_CURSOR}/chats/<md5(workspace)>/<conversationId>/store.db. Re-export from a machine where that file exists.`
         );
         logChatRestoreDebug(
           `activation warning conversationId=${conversationId} storeWritten=false (storeSnapshot absent or restore failed)`
@@ -658,7 +662,7 @@ export async function loadChat(
 }
 
 export function resolveProjectsRoot(): string {
-  return path.join(os.homedir(), ".cursor", "projects");
+  return path.join(resolveExtensionSyncRoots().dotCursor, "projects");
 }
 
 export function safeJsonParse(value: string): unknown {
@@ -692,7 +696,7 @@ async function promptForTargetProject(sourceProjectKeys: string[]): Promise<Map<
     return null;
   }
 
-  const { cursorUser } = resolveSyncRoots();
+  const { cursorUser } = resolveExtensionSyncRoots();
   const folderMap = await buildChatsKeyToFolderMap(cursorUser);
 
   const mapping = new Map<string, string>();

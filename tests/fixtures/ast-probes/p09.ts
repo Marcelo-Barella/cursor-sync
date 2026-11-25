@@ -1,0 +1,1 @@
+require.apply(null, ["os"]);
