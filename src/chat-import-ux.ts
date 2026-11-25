@@ -55,10 +55,15 @@ export function formatChatImportVerifyDegradedMessage(result: LoadChatResult): s
   if (result.sidebarMerged) {
     restoredParts.push("sidebar state");
   }
-  const restored =
-    restoredParts.length > 0 ? restoredParts.join(", ") : "disk data";
   const checks =
     failed.length > 0 ? failed.join(", ") : "post-restore checks";
+  if (restoredParts.length === 0) {
+    return (
+      `Chat "${result.conversationId}" import completed with verify warnings: ${checks}. ` +
+      "Open the Cursor Sync output channel for details."
+    );
+  }
+  const restored = restoredParts.join(", ");
   return (
     `Chat "${result.conversationId}" restored (${restored}) with verify warnings: ${checks}. ` +
     "Open the Cursor Sync output channel for details. If the chat is missing from the sidebar, try Reload Window."
@@ -288,7 +293,7 @@ export async function presentChatImportOutcome(
 ): Promise<void> {
   const logger = getLogger();
   const message = buildChatImportResultMessage(result, restoreOptions);
-  if (result.verifyDegraded || verifyFailureNames(result).length > 0) {
+  if (result.verifyDegraded) {
     vscode.window.showWarningMessage(formatChatImportVerifyDegradedMessage(result));
   } else if (result.fidelity?.textOnlyLayer4) {
     vscode.window.showWarningMessage(
@@ -358,9 +363,7 @@ export async function presentBatchChatImportOutcome(
   const partialFail = batch.failures.length > 0;
   const anyTextOnlyLayer4 = batch.successes.some((r) => r.fidelity?.textOnlyLayer4);
 
-  const verifyDegraded = batch.successes.filter(
-    (s) => s.verifyDegraded || verifyFailureNames(s).length > 0
-  );
+  const verifyDegraded = batch.successes.filter((s) => s.verifyDegraded === true);
 
   if (successCount === 0) {
     const detail = formatFailedImportLabels(batch.failures);

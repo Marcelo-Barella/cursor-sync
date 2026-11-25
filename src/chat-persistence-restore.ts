@@ -595,7 +595,7 @@ export async function restoreChatBundle(
   const verifyDegraded =
     verifyChecks.length > 0 &&
     !verifyChecksAllOk(verifyChecks) &&
-  (storeWritten || transcriptsWritten > 0 || sidebarMerged);
+    (storeWritten || transcriptsWritten > 0 || sidebarMerged);
 
   const result: LoadChatResult = {
     conversationId,
