@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { appStorageAccountKey } from "./app-session-identity.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { authorizedAppApiFetch } from "./app-api-http.js";
 import {
   deleteR2Object,
   getR2Object,
@@ -187,13 +188,6 @@ function appConfigsBaseUrl(): string {
   return getAppApiUrl();
 }
 
-function authHeaders(session: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${session}`,
-    Accept: "application/json",
-  };
-}
-
 export async function fetchAppConfigs(
   context: vscode.ExtensionContext,
   options?: {
@@ -212,10 +206,11 @@ export async function fetchAppConfigs(
     return undefined;
   }
 
-  const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
-    method: "GET",
-    headers: authHeaders(session),
-  });
+  const response = await authorizedAppApiFetch(
+    session,
+    `${appConfigsBaseUrl()}/configs`,
+    { method: "GET" }
+  );
 
   if (response.status === 401) {
     const message = `Cursor Sync storage session expired or invalid. ${LOGIN_REQUIRED_MESSAGE}`;
@@ -260,10 +255,9 @@ export async function putAppConfigs(
     return undefined;
   }
 
-  const response = await fetch(`${appConfigsBaseUrl()}/configs`, {
+  const response = await authorizedAppApiFetch(session, `${appConfigsBaseUrl()}/configs`, {
     method: "PUT",
     headers: {
-      ...authHeaders(session),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ payload }),

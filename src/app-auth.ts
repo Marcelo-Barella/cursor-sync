@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { nodeProcessArgv } from "./os-runtime.js";
 import * as vscode from "vscode";
-import { getAppApiUrl, getAppWebsiteUrl, isTrustedAppWebsiteUrl } from "./config/urls.js";
+import {
+  getAppApiUrl,
+  getAppWebsiteUrl,
+  isTrustedAppWebsiteUrl,
+  InvalidAppApiUrlError,
+} from "./config/urls.js";
+import { appApiFetch } from "./app-api-http.js";
+import { UntrustedAppApiOriginError } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 import { releaseSyncLatchForAuthRetry } from "./sync-operation.js";
 import { refreshSyncCommandContextsAndStatusBar } from "./sync-context.js";
@@ -313,12 +320,15 @@ export async function exchangeCodeForSessionToken(
   }
   let response: Response;
   try {
-    response = await fetch(`${base}/auth/token`, {
+    response = await appApiFetch(`${base}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch (err) {
+    if (err instanceof InvalidAppApiUrlError || err instanceof UntrustedAppApiOriginError) {
+      throw err;
+    }
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Could not reach Cursor Sync API at ${base} (${detail}). Check your network and Cursor Sync: Developer environment / API URL settings.`

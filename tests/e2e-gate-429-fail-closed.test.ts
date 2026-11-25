@@ -7,6 +7,7 @@ vi.mock("vscode", () => ({
     showInputBox: vi.fn(async () => "any-secret-input"),
     showInformationMessage: vi.fn(async () => undefined),
     showErrorMessage: vi.fn(async () => undefined),
+    createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), show: vi.fn() })),
   },
 }));
 
@@ -36,9 +37,13 @@ vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: vi.fn(),
 }));
 
-vi.mock("../src/config/urls.js", () => ({
-  getAppApiUrl: () => "https://api-staging.cursor-sync.com",
-}));
+vi.mock("../src/config/urls.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config/urls.js")>();
+  return {
+    ...actual,
+    getAppApiUrl: () => "https://api-staging.cursor-sync.com",
+  };
+});
 
 vi.mock("../src/e2e/gate.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();

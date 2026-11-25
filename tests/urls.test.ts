@@ -83,17 +83,27 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
     expect(resolveAppApiUrlFromInputs(inputs({ environment: "staging" }))).toBe(STAGING_API_URL);
   });
 
-  it("uses custom explicit API URL", () => {
+  it("uses custom loopback API URL", () => {
     expect(
       resolveAppApiUrlFromInputs(
         inputs({
           environment: "custom",
-          explicitApiUrl: "https://custom.api.example/",
+          explicitApiUrl: "http://127.0.0.1:8100/",
         })
       )
-    ).toBe("https://custom.api.example");
+    ).toBe("http://127.0.0.1:8100");
   });
 
+  it("rejects custom non-loopback API URL", () => {
+    expect(() =>
+      resolveAppApiUrlFromInputs(
+        inputs({
+          environment: "custom",
+          explicitApiUrl: "https://api-staging-sync.evil.example",
+        })
+      )
+    ).toThrow(InvalidAppApiUrlError);
+  });
   it("ignores legacy appApiUrl when environment preset is production", () => {
     expect(
       resolveAppApiUrlFromInputs(
@@ -131,11 +141,11 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
       resolveAppApiUrlFromInputs(
         inputs({
           environment: "custom",
-          explicitApiUrl: "https://new.api.example",
+          explicitApiUrl: "http://127.0.0.1:9999",
           legacyApiUrl: "http://localhost:8100",
         })
       )
-    ).toBe("https://new.api.example");
+    ).toBe("http://127.0.0.1:9999");
   });
 
   it("throws for invalid custom API URL instead of falling back to production", () => {
@@ -179,15 +189,15 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
     );
   });
 
-  it("uses custom explicit website URL", () => {
+  it("uses custom loopback website URL", () => {
     expect(
       resolveAppWebsiteUrlFromInputs(
         inputs({
           environment: "custom",
-          explicitWebsiteUrl: "https://custom.web.example/",
+          explicitWebsiteUrl: "http://localhost:3000/",
         })
       )
-    ).toBe("https://custom.web.example");
+    ).toBe(LOCAL_WEBSITE_URL);
   });
 
   it("throws for invalid custom website URL instead of falling back to production", () => {
@@ -214,20 +224,25 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
 });
 
 describe("config/urls trusted website origins", () => {
-  it("allows staging sign-in URLs", () => {
+  it("allows staging and production sign-in URLs", () => {
     expect(
       isTrustedAppWebsiteUrl(
         "https://staging.cursor-sync.com/sign-in?redirect_uri=x&state=y"
       )
     ).toBe(true);
+    expect(
+      isTrustedAppWebsiteUrl(
+        `https://cursor-sync.com/sign-in?redirect_uri=x&state=y`
+      )
+    ).toBe(true);
   });
 
-  it("allows custom preset website origin", () => {
+  it("allows custom loopback website via custom preset", () => {
     expect(
-      isTrustedAppWebsiteUrl("https://custom.example.com/sign-in", {
+      isTrustedAppWebsiteUrl("http://localhost:3000/sign-in", {
         environment: "custom",
-        explicitApiUrl: "https://api.custom.example.com",
-        explicitWebsiteUrl: "https://custom.example.com",
+        explicitApiUrl: LOCAL_API_URL,
+        explicitWebsiteUrl: LOCAL_WEBSITE_URL,
         legacyApiUrl: undefined,
       })
     ).toBe(true);
@@ -247,13 +262,14 @@ describe("config/urls live configuration", () => {
     vi.doMock("vscode", () => ({
       workspace: {
         getConfiguration: () => ({
-          get: (key: string, defaultValue?: string) => {
-            if (key === "developer.environment") {
-              return environment ?? defaultValue;
-            }
-            return defaultValue;
-          },
+          get: (_key: string, defaultValue?: string) => defaultValue,
           inspect: (key: string) => {
+            if (key === "developer.environment") {
+              return {
+                globalValue: environment,
+                defaultValue: DEFAULT_DEVELOPER_ENVIRONMENT,
+              };
+            }
             const value = inspectValues[key];
             return value === undefined ? undefined : { globalValue: value };
           },
@@ -277,8 +293,8 @@ describe("config/urls live configuration", () => {
     environment = "production";
     expect(getAppApiUrl()).toBe(DEFAULT_PRODUCTION_API_URL);
 
-    environment = undefined;
-    inspectValues["appApiUrl"] = "http://localhost:8100";
-    expect(getAppApiUrl()).toBe(STAGING_API_URL);
+    environment = "custom";
+    inspectValues["developer.apiUrl"] = "http://localhost:8100";
+    expect(getAppApiUrl()).toBe(LOCAL_API_URL);
   });
 });

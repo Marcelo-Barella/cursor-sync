@@ -2,6 +2,7 @@ import { AwsClient } from "aws4fetch";
 import * as vscode from "vscode";
 import { getAppSession } from "./app-auth.js";
 import { getAppApiUrl } from "./config/urls.js";
+import { authorizedAppApiFetch } from "./app-api-http.js";
 import { SYNC_DESTINATION_APP_STORAGE_LABEL } from "./sync-destination.js";
 
 export interface R2StorageCredentials {
@@ -108,15 +109,17 @@ export async function mintR2StorageCredentials(
       ? JSON.stringify({ ttlSeconds: options.ttlSeconds })
       : undefined;
 
-  const response = await fetch(`${appStorageBaseUrl()}/v1/storage/credentials`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session}`,
-      Accept: "application/json",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    ...(body ? { body } : {}),
-  });
+  const response = await authorizedAppApiFetch(
+    session,
+    `${appStorageBaseUrl()}/v1/storage/credentials`,
+    {
+      method: "POST",
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body } : {}),
+    }
+  );
 
   if (response.status === 401) {
     clearR2CredentialsCache();

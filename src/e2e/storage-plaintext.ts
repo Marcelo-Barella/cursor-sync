@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { getAppApiUrl } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
+import { authorizedAppApiFetch } from "../app-api-http.js";
 
 export type PlaintextObjectDeleteStatus = "deleted" | "not_found" | "failed";
 
@@ -75,12 +76,8 @@ export async function listPlaintextObjectKeys(
     return [];
   }
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await fetch(`${base}/v1/storage/plaintext-objects`, {
+  const response = await authorizedAppApiFetch(session, `${base}/v1/storage/plaintext-objects`, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${session}`,
-      Accept: "application/json",
-    },
   });
   if (response.status === 401) {
     return [];
@@ -110,15 +107,17 @@ export async function deletePlaintextR2Objects(
     throw new Error("App session required");
   }
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await fetch(`${base}/v1/storage/plaintext-objects/delete`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ keys }),
-  });
+  const response = await authorizedAppApiFetch(
+    session,
+    `${base}/v1/storage/plaintext-objects/delete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ keys }),
+    }
+  );
 
   const text = await response.text().catch(() => "");
   let data: unknown = {};

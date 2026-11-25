@@ -7,6 +7,7 @@ vi.mock("vscode", () => ({
     showInputBox: vi.fn(async () => "long-passphrase-ok-12"),
     showInformationMessage: vi.fn(async () => undefined),
     showErrorMessage: vi.fn(async () => undefined),
+    createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), show: vi.fn() })),
   },
 }));
 
@@ -35,9 +36,13 @@ vi.mock("../src/sidebar/index.js", () => ({
   refreshSidebar: vi.fn(),
 }));
 
-vi.mock("../src/config/urls.js", () => ({
-  getAppApiUrl: () => "http://127.0.0.1:9",
-}));
+vi.mock("../src/config/urls.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config/urls.js")>();
+  return {
+    ...actual,
+    getAppApiUrl: () => "http://127.0.0.1:9",
+  };
+});
 
 vi.mock("../src/e2e/gate.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/e2e/gate.js")>();

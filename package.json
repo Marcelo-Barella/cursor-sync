@@ -13,6 +13,17 @@
   "engines": {
     "vscode": "^1.74.0"
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "cursorSync.developer.environment",
+        "cursorSync.developer.apiUrl",
+        "cursorSync.developer.websiteUrl",
+        "cursorSync.appApiUrl"
+      ]
+    }
+  },
   "categories": [
     "Other"
   ],
@@ -389,8 +400,9 @@
         "cursorSync.appApiUrl": {
           "type": "string",
           "default": "",
+          "scope": "application",
           "markdownDeprecationMessage": "Deprecated. Use **Cursor Sync: Developer › Api Url** (`cursorSync.developer.apiUrl`) instead.",
-          "description": "Deprecated. Use cursorSync.developer.apiUrl."
+          "description": "Deprecated. Use cursorSync.developer.apiUrl. Workspace values are ignored."
         }
       }
     },
@@ -426,17 +438,20 @@
             "custom"
           ],
           "default": "staging",
-          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging.cursor-sync.com and https://staging.cursor-sync.com. **production** uses https://api.cursor-sync.com and https://cursor-sync.com. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** uses cursorSync.developer.apiUrl and cursorSync.developer.websiteUrl; explicit URL values win over presets only when environment is **custom**."
+          "scope": "application",
+          "description": "Target Cursor Sync app environment. **staging** (default on this branch) uses https://api-staging.cursor-sync.com and https://staging.cursor-sync.com. **production** uses https://api.cursor-sync.com and https://cursor-sync.com. **local** uses http://localhost:8100 (API) and http://localhost:3000 (website). **custom** allows loopback URLs only in cursorSync.developer.apiUrl / websiteUrl for local API development. Workspace values are ignored."
         },
         "cursorSync.developer.apiUrl": {
           "type": "string",
-          "default": "https://api.cursor-sync.com",
-          "description": "Base URL for session token exchange, configs API, and R2 credential minting. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production**, **staging**, and **local** presets unless migrating from deprecated cursorSync.appApiUrl."
+          "default": "http://localhost:8100",
+          "scope": "application",
+          "description": "Loopback API base URL when **Developer: Environment** is **custom** (localhost, 127.0.0.1, or [::1] only). Ignored for **production**, **staging**, and **local** presets. Workspace values are ignored."
         },
         "cursorSync.developer.websiteUrl": {
           "type": "string",
-          "default": "https://cursor-sync.com",
-          "description": "Sign-in website opened in the browser for Cursor Sync login. Used when **Developer: Environment** is **custom** (explicit value wins). Ignored for **production**, **staging**, and **local** presets."
+          "default": "http://localhost:3000",
+          "scope": "application",
+          "description": "Loopback sign-in website URL when **Developer: Environment** is **custom**. Ignored for **production**, **staging**, and **local** presets. Workspace values are ignored."
         }
       }
     }

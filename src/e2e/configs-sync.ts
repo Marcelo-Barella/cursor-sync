@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getAppApiUrl } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
-import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
+import { authorizedAppApiFetch, readAppApiErrorJson } from "../app-api-http.js";
 import type { AppConfigsPayloadV1 } from "../app-configs.js";
 import { MANIFEST_SYNC_KEY } from "./constants.js";
 import { envelopeFromBase64Wire, envelopeToBase64Wire, isValidCse1EnvelopeBytes } from "./envelope.js";
@@ -55,9 +55,8 @@ export async function fetchConfigsApi(
     return undefined;
   }
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await fetch(`${base}/configs`, {
+  const response = await authorizedAppApiFetch(session, `${base}/configs`, {
     method: "GET",
-    headers: appApiAuthHeaders(session),
   });
   if (response.status === 401) {
     return undefined;
@@ -123,10 +122,9 @@ export async function putConfigsManifest(
   }
   assertWireManifestCiphertext(body.manifestCiphertext);
   const base = getAppApiUrl().replace(/\/$/, "");
-  const response = await fetch(`${base}/configs`, {
+  const response = await authorizedAppApiFetch(session, `${base}/configs`, {
     method: "PUT",
     headers: {
-      ...appApiAuthHeaders(session),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
