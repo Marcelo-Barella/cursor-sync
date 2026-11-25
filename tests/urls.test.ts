@@ -4,8 +4,6 @@ import {
   DEFAULT_PRODUCTION_WEBSITE_URL,
   STAGING_API_URL,
   STAGING_WEBSITE_URL,
-  LEGACY_STAGING_API_URL,
-  LEGACY_STAGING_WEBSITE_URL,
   isTrustedAppWebsiteUrl,
   DEFAULT_DEVELOPER_ENVIRONMENT,
   LOCAL_API_URL,
@@ -94,17 +92,6 @@ describe("config/urls resolveAppApiUrlFromInputs", () => {
         })
       )
     ).toBe("https://custom.api.example");
-  });
-
-  it("allows legacy bergamota staging hosts via custom preset", () => {
-    expect(
-      resolveAppApiUrlFromInputs(
-        inputs({
-          environment: "custom",
-          explicitApiUrl: "https://api-staging-sync.bergamota.dev",
-        })
-      )
-    ).toBe("https://api-staging-sync.bergamota.dev");
   });
 
   it("ignores legacy appApiUrl when environment preset is production", () => {
@@ -227,25 +214,20 @@ describe("config/urls resolveAppWebsiteUrlFromInputs", () => {
 });
 
 describe("config/urls trusted website origins", () => {
-  it("allows staging and legacy staging sign-in URLs", () => {
+  it("allows staging sign-in URLs", () => {
     expect(
       isTrustedAppWebsiteUrl(
         "https://staging.cursor-sync.com/sign-in?redirect_uri=x&state=y"
       )
     ).toBe(true);
-    expect(
-      isTrustedAppWebsiteUrl(
-        "https://staging.sync.bergamota.dev/sign-in?redirect_uri=x&state=y"
-      )
-    ).toBe(true);
   });
 
-  it("allows legacy bergamota staging website via custom preset", () => {
+  it("allows custom preset website origin", () => {
     expect(
-      isTrustedAppWebsiteUrl("https://staging.sync.bergamota.dev/sign-in", {
+      isTrustedAppWebsiteUrl("https://custom.example.com/sign-in", {
         environment: "custom",
-        explicitApiUrl: LEGACY_STAGING_API_URL,
-        explicitWebsiteUrl: LEGACY_STAGING_WEBSITE_URL,
+        explicitApiUrl: "https://api.custom.example.com",
+        explicitWebsiteUrl: "https://custom.example.com",
         legacyApiUrl: undefined,
       })
     ).toBe(true);

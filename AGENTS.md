@@ -4,7 +4,7 @@
 - For npm-package maintenance in this repo: split uncommitted work into phased semver commits, update `CHANGELOG.md` and `package.json`, and ask before releasing if the version was not bumped for the change set.
 - During maintenance commits, do not stage `docs/` unless the user explicitly asks; leave `package-vsix.sh` untracked unless they ask to include it.
 - User often starts work with `/light-prompt` for a tight structured prompt (~200 tokens) and uses parallel swarms for multi-part implementation or research; never spawn subagents on Fast model variants.
-- For chat transport across machines or repos (often the `bergamota` workspace), use the Cursor Sync extension Chats sidebar, not the deprecated `/transport-chat` skill workflow (standalone `~/.cursor/skills/transport-chat` removed in v0.7.0).
+- For chat transport across machines or repos, use the Cursor Sync extension Chats sidebar, not the deprecated `/transport-chat` skill workflow (standalone `~/.cursor/skills/transport-chat` removed in v0.7.0).
 - For substantial features, use superpowers brainstorming then writing-plans; store specs and plans under `docs/superpowers/`.
 - Refreshes `AGENTS.md` via continual-learning and the agents-memory-updater subagent when asked.
 - Prefer concise, high-quality English responses; do not use emojis.
