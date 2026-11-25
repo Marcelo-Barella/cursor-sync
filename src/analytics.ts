@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as crypto from "node:crypto";
+import { appApiFetch } from "./app-api-http.js";
 import { getAppApiUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
@@ -87,7 +88,7 @@ export function sendEvent(
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TELEMETRY_TIMEOUT_MS);
-    void fetch(url, {
+    void appApiFetch(url, {
       method: "POST",
       body,
       headers: { "Content-Type": "application/json" },

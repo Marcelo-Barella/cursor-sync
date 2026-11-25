@@ -7,9 +7,13 @@ vi.mock("../src/app-auth.js", () => ({
 vi.mock("../src/diagnostics.js", () => ({
   loadSyncState: async () => undefined,
 }));
-vi.mock("../src/config/urls.js", () => ({
-  getAppApiUrl: () => "https://api.test.local",
-}));
+vi.mock("../src/config/urls.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config/urls.js")>();
+  return {
+    ...actual,
+    getAppApiUrl: () => "https://api.test.local",
+  };
+});
 import {
   decryptAes256Gcm,
   encryptAes256Gcm,

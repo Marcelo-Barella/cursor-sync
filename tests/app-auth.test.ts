@@ -8,9 +8,11 @@ const showErrorMessageMock = vi.fn();
 const openExternalMock = vi.fn().mockResolvedValue(true);
 const registerUriHandlerMock = vi.fn(() => ({ dispose: () => {} }));
 
-const getAppApiUrlMock = vi.hoisted(() => vi.fn(() => "https://api.cursor-sync.com"));
+const getAppApiUrlMock = vi.hoisted(() =>
+  vi.fn(() => "https://api-staging.cursor-sync.com")
+);
 const getAppWebsiteUrlMock = vi.hoisted(() =>
-  vi.fn(() => "https://cursor-sync.com")
+  vi.fn(() => "https://staging.cursor-sync.com")
 );
 const refreshSidebarMock = vi.hoisted(() => vi.fn());
 
@@ -275,20 +277,20 @@ describe("app-auth sign-in URL and state", () => {
     openExternalMock.mockResolvedValue(true);
     registerUriHandlerMock.mockClear();
     getAppApiUrlMock.mockReset();
-    getAppApiUrlMock.mockReturnValue("https://api.cursor-sync.com");
+    getAppApiUrlMock.mockReturnValue("https://api-staging.cursor-sync.com");
     getAppWebsiteUrlMock.mockReset();
-    getAppWebsiteUrlMock.mockReturnValue("https://cursor-sync.com");
+    getAppWebsiteUrlMock.mockReturnValue("https://staging.cursor-sync.com");
   });
 
   it("buildSignInUrl uses website sign-in path with redirect_uri and state", async () => {
     const { buildSignInUrl } = await import("../src/app-auth.js");
     const url = buildSignInUrl(
-      "https://cursor-sync.com/",
+      "https://staging.cursor-sync.com/",
       "cursor://MarceloBarella.cursor-sync/auth",
       "nonce-123"
     );
     const parsed = new URL(url);
-    expect(parsed.origin + parsed.pathname).toBe("https://cursor-sync.com/sign-in");
+    expect(parsed.origin + parsed.pathname).toBe("https://staging.cursor-sync.com/sign-in");
     expect(parsed.searchParams.get("redirect_uri")).toBe(
       "cursor://MarceloBarella.cursor-sync/auth"
     );
@@ -457,7 +459,7 @@ describe("app-auth session storage", () => {
     showMock.mockReset();
     registerUriHandlerMock.mockClear();
     getAppApiUrlMock.mockReset();
-    getAppApiUrlMock.mockReturnValue("https://api.cursor-sync.com");
+    getAppApiUrlMock.mockReturnValue("https://api-staging.cursor-sync.com");
   });
 
   afterEach(() => {
@@ -482,12 +484,12 @@ describe("app-auth session storage", () => {
     });
 
     const token = await exchangeCodeForSessionToken(
-      "https://api.cursor-sync.com",
+      "https://api-staging.cursor-sync.com",
       "one-time"
     );
     expect(token).toBe("jwt-session-token");
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.cursor-sync.com/auth/token",
+      "https://api-staging.cursor-sync.com/auth/token",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ code: "one-time" }),
@@ -543,7 +545,7 @@ describe("app-auth session storage", () => {
 
     expect(getAppApiUrlMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.cursor-sync.com/auth/token",
+      "https://api-staging.cursor-sync.com/auth/token",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -589,7 +591,7 @@ describe("app-auth session storage", () => {
 
     expect(refreshSidebarMock).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.cursor-sync.com/auth/token",
+      "https://api-staging.cursor-sync.com/auth/token",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({

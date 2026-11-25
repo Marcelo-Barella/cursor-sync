@@ -9,20 +9,31 @@ export const LOCAL_WEBSITE_URL = "http://localhost:3000";
 
 export const DEFAULT_DEVELOPER_ENVIRONMENT = "staging" as const;
 
-export const INVALID_APP_API_URL_MESSAGE = "Invalid Cursor Sync API URL in settings.";
-export const INVALID_APP_WEBSITE_URL_MESSAGE = "Invalid Cursor Sync website URL in settings.";
+export const INVALID_APP_API_URL_MESSAGE =
+  "Invalid Cursor Sync API URL in settings. Custom mode allows loopback URLs only (localhost, 127.0.0.1, [::1]).";
+export const INVALID_APP_WEBSITE_URL_MESSAGE =
+  "Invalid Cursor Sync website URL in settings. Custom mode allows loopback URLs only (localhost, 127.0.0.1, [::1]).";
+export const UNTRUSTED_APP_API_ORIGIN_MESSAGE =
+  "Cursor Sync refused to send credentials to an untrusted API origin.";
 
 export class InvalidAppApiUrlError extends Error {
-  constructor() {
-    super(INVALID_APP_API_URL_MESSAGE);
+  constructor(message: string = INVALID_APP_API_URL_MESSAGE) {
+    super(message);
     this.name = "InvalidAppApiUrlError";
   }
 }
 
 export class InvalidAppWebsiteUrlError extends Error {
-  constructor() {
-    super(INVALID_APP_WEBSITE_URL_MESSAGE);
+  constructor(message: string = INVALID_APP_WEBSITE_URL_MESSAGE) {
+    super(message);
     this.name = "InvalidAppWebsiteUrlError";
+  }
+}
+
+export class UntrustedAppApiOriginError extends Error {
+  constructor(message: string = UNTRUSTED_APP_API_ORIGIN_MESSAGE) {
+    super(message);
+    this.name = "UntrustedAppApiOriginError";
   }
 }
 
@@ -35,9 +46,6 @@ export type DeveloperEnvironment = "production" | "staging" | "local" | "custom"
 
 const CONFIG_SECTION = "cursorSync";
 
-let lastWarnedInvalidApiRaw: string | undefined;
-let lastWarnedInvalidWebsiteRaw: string | undefined;
-
 export interface UrlResolutionInputs {
   environment: DeveloperEnvironment;
   explicitApiUrl: string | undefined;
@@ -45,24 +53,22 @@ export interface UrlResolutionInputs {
   legacyApiUrl: string | undefined;
 }
 
-function readUserConfiguredString(key: string): string | undefined {
+function readGlobalUserString(key: string): string | undefined {
   const inspect = vscode.workspace.getConfiguration(CONFIG_SECTION).inspect<string>(key);
   if (inspect?.globalValue !== undefined && inspect.globalValue !== null) {
     return String(inspect.globalValue);
-  }
-  if (inspect?.workspaceFolderValue !== undefined && inspect.workspaceFolderValue !== null) {
-    return String(inspect.workspaceFolderValue);
-  }
-  if (inspect?.workspaceValue !== undefined && inspect.workspaceValue !== null) {
-    return String(inspect.workspaceValue);
   }
   return undefined;
 }
 
 function readEnvironment(): DeveloperEnvironment {
-  const raw = vscode.workspace
+  const inspect = vscode.workspace
     .getConfiguration(CONFIG_SECTION)
-    .get<string>(DEVELOPER_ENVIRONMENT_KEY, DEFAULT_DEVELOPER_ENVIRONMENT);
+    .inspect<string>(DEVELOPER_ENVIRONMENT_KEY);
+  const raw =
+    inspect?.globalValue ??
+    inspect?.defaultValue ??
+    DEFAULT_DEVELOPER_ENVIRONMENT;
   if (raw === "local" || raw === "custom" || raw === "staging") {
     return raw;
   }
@@ -70,6 +76,90 @@ function readEnvironment(): DeveloperEnvironment {
     return "production";
   }
   return DEFAULT_DEVELOPER_ENVIRONMENT;
+}
+
+export function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+function websiteOrigin(url: string): string {
+  return new URL(stripTrailingSlash(url)).origin;
+}
+
+export const TRUSTED_APP_WEBSITE_ORIGINS: readonly string[] = [
+  websiteOrigin(DEFAULT_PRODUCTION_WEBSITE_URL),
+  websiteOrigin(STAGING_WEBSITE_URL),
+  websiteOrigin(LOCAL_WEBSITE_URL),
+];
+
+function hostnameForPolicy(parsed: URL): string {
+  if (parsed.hostname.startsWith("[") && parsed.hostname.endsWith("]")) {
+    return parsed.hostname.slice(1, -1).toLowerCase();
+  }
+  return parsed.hostname.toLowerCase();
+}
+
+function isAsciiHostname(hostname: string): boolean {
+  for (let i = 0; i < hostname.length; i++) {
+    if (hostname.charCodeAt(i) > 127) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isLoopbackHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
+function assertNoUserinfo(
+  parsed: URL,
+  ErrorCtor: typeof InvalidAppApiUrlError | typeof InvalidAppWebsiteUrlError
+): void {
+  if (parsed.username || parsed.password) {
+    throw new ErrorCtor();
+  }
+}
+
+function assertSafeHostname(
+  hostname: string,
+  ErrorCtor: typeof InvalidAppApiUrlError | typeof InvalidAppWebsiteUrlError
+): void {
+  if (!isAsciiHostname(hostname)) {
+    throw new ErrorCtor();
+  }
+  if (hostname.includes("xn--")) {
+    throw new ErrorCtor();
+  }
+}
+
+function validateCustomLoopbackUrl(
+  raw: string,
+  ErrorCtor: typeof InvalidAppApiUrlError | typeof InvalidAppWebsiteUrlError
+): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new ErrorCtor();
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new ErrorCtor();
+  }
+  assertNoUserinfo(parsed, ErrorCtor);
+  const hostname = hostnameForPolicy(parsed);
+  assertSafeHostname(hostname, ErrorCtor);
+  if (!isLoopbackHostname(hostname)) {
+    throw new ErrorCtor();
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ErrorCtor();
+  }
+  const path = parsed.pathname.replace(/\/+$/, "");
+  const normalized = `${parsed.protocol}//${parsed.host}${path}${parsed.search}${parsed.hash}`;
+  return stripTrailingSlash(normalized);
 }
 
 export function normalizeHttpUrl(
@@ -94,20 +184,6 @@ export function normalizeHttpUrl(
   return { url: stripTrailingSlash(normalized), usedFallback: false };
 }
 
-export function stripTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, "");
-}
-
-function websiteOrigin(url: string): string {
-  return new URL(stripTrailingSlash(url)).origin;
-}
-
-export const TRUSTED_APP_WEBSITE_ORIGINS: readonly string[] = [
-  websiteOrigin(DEFAULT_PRODUCTION_WEBSITE_URL),
-  websiteOrigin(STAGING_WEBSITE_URL),
-  websiteOrigin(LOCAL_WEBSITE_URL),
-];
-
 export function isTrustedAppWebsiteUrl(
   candidateUrl: string,
   inputsOverride?: UrlResolutionInputs
@@ -125,39 +201,23 @@ export function isTrustedAppWebsiteUrl(
 
   const inputs = inputsOverride ?? resolveUrlResolutionInputs();
   if (inputs.environment === "custom") {
-    const configuredWebsite = resolveAppWebsiteUrlFromInputs(inputs);
-    return origin === websiteOrigin(configuredWebsite);
+    try {
+      const configuredWebsite = resolveAppWebsiteUrlFromInputs(inputs);
+      return origin === websiteOrigin(configuredWebsite);
+    } catch {
+      return false;
+    }
   }
 
   return false;
 }
 
-function warnInvalidApi(raw: string, fallbackUrl: string): void {
-  if (lastWarnedInvalidApiRaw === raw) {
-    return;
-  }
-  lastWarnedInvalidApiRaw = raw;
-  void vscode.window.showWarningMessage(
-    `Cursor Sync: Invalid API URL "${raw}". Using ${fallbackUrl}.`
-  );
-}
-
-function warnInvalidWebsite(raw: string, fallbackUrl: string): void {
-  if (lastWarnedInvalidWebsiteRaw === raw) {
-    return;
-  }
-  lastWarnedInvalidWebsiteRaw = raw;
-  void vscode.window.showWarningMessage(
-    `Cursor Sync: Invalid website URL "${raw}". Using ${fallbackUrl}.`
-  );
-}
-
 export function resolveUrlResolutionInputs(): UrlResolutionInputs {
   return {
     environment: readEnvironment(),
-    explicitApiUrl: readUserConfiguredString(DEVELOPER_API_URL_KEY),
-    explicitWebsiteUrl: readUserConfiguredString(DEVELOPER_WEBSITE_URL_KEY),
-    legacyApiUrl: readUserConfiguredString(LEGACY_APP_API_URL_KEY),
+    explicitApiUrl: readGlobalUserString(DEVELOPER_API_URL_KEY),
+    explicitWebsiteUrl: readGlobalUserString(DEVELOPER_WEBSITE_URL_KEY),
+    legacyApiUrl: readGlobalUserString(LEGACY_APP_API_URL_KEY),
   };
 }
 
@@ -173,22 +233,7 @@ export function resolveAppApiUrlFromInputs(inputs: UrlResolutionInputs): string 
   if (inputs.environment === "custom") {
     const raw =
       inputs.explicitApiUrl !== undefined ? inputs.explicitApiUrl : inputs.legacyApiUrl;
-    const trimmed = (raw ?? "").trim();
-    if (!trimmed) {
-      throw new InvalidAppApiUrlError();
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      throw new InvalidAppApiUrlError();
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new InvalidAppApiUrlError();
-    }
-    const path = parsed.pathname.replace(/\/+$/, "");
-    const normalized = `${parsed.protocol}//${parsed.host}${path}${parsed.search}${parsed.hash}`;
-    return stripTrailingSlash(normalized);
+    return validateCustomLoopbackUrl(raw ?? "", InvalidAppApiUrlError);
   }
 
   return DEFAULT_PRODUCTION_API_URL;
@@ -204,22 +249,8 @@ export function resolveAppWebsiteUrlFromInputs(inputs: UrlResolutionInputs): str
   }
 
   if (inputs.environment === "custom") {
-    const trimmed = (inputs.explicitWebsiteUrl ?? "").trim();
-    if (!trimmed) {
-      throw new InvalidAppWebsiteUrlError();
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      throw new InvalidAppWebsiteUrlError();
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new InvalidAppWebsiteUrlError();
-    }
-    const pathPart = parsed.pathname.replace(/\/+$/, "");
-    const normalized = `${parsed.protocol}//${parsed.host}${pathPart}${parsed.search}${parsed.hash}`;
-    return stripTrailingSlash(normalized);
+    const raw = inputs.explicitWebsiteUrl ?? "";
+    return validateCustomLoopbackUrl(raw, InvalidAppWebsiteUrlError);
   }
 
   return DEFAULT_PRODUCTION_WEBSITE_URL;

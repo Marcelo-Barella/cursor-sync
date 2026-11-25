@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getAppApiUrl, InvalidAppApiUrlError } from "../config/urls.js";
 import { getAppSession } from "../app-auth.js";
-import { appApiAuthHeaders, readAppApiErrorJson } from "../app-api-http.js";
+import { authorizedAppApiFetch, readAppApiErrorJson } from "../app-api-http.js";
 import { rateLimitMessageFromResponse } from "./rate-limit.js";
 import { KEYS_GET_TIMEOUT_MS } from "./network-errors.js";
 import { assertDekVerifierHex, type KdfParamsWire, type KeyWrapBytes } from "./key-material.js";
@@ -161,13 +161,7 @@ async function authFetch(
     }
     throw err;
   }
-  return fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      ...appApiAuthHeaders(session),
-      ...(init?.headers ?? {}),
-    },
-  });
+  return authorizedAppApiFetch(session, `${base}${path}`, init);
 }
 
 export type FetchServerKeyMaterialResult = {

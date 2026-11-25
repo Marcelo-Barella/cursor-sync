@@ -5,9 +5,13 @@ const getAppSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("vscode", () => ({}));
 
-vi.mock("../src/config/urls.js", () => ({
-  getAppApiUrl: () => "http://localhost:8100",
-}));
+vi.mock("../src/config/urls.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config/urls.js")>();
+  return {
+    ...actual,
+    getAppApiUrl: () => "http://localhost:8100",
+  };
+});
 
 vi.mock("../src/app-auth.js", () => ({
   getAppSession: getAppSessionMock,
