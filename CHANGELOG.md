@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## v0.9.0-staging.12
+
+### Added
+- Settings sidebar **Account** section and `cursorSync.app.logout` (modal confirm, coordinated abort of in-flight app configs, partial R2 push manifest commit, best-effort server logout).
+
+### Fixed
+- Status bar **Sync: Setup** defaults to `cursorSync.loginToApp` on initialize/activate; invalid PAT reconfigure still uses `configureGithub` explicitly.
+- Scheduled Gist sync skips silently without app session or PAT (`allowAuthPrompt: false`); app-session scheduled path unchanged.
+- Logout exact abort detection, pull rollback via `openVerifiedDirChain`, and verified path isolation preserved alongside staging PR #41 app-storage safety.
+
 ## v0.8.4-staging.17-logout
 
 ### Fixed
