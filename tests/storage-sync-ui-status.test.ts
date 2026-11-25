@@ -74,4 +74,21 @@ describe("deriveStorageSyncPresentation", () => {
     expect(p.level).toBe("warning");
     expect(p.warningKind).toBe("partial");
   });
+
+  it("tooltip reports conflict instead of succeeded", () => {
+    const history = [
+      storageEntry({
+        success: false,
+        conflict: true,
+        fileCount: 2,
+        direction: "pull",
+        error: "2 conflicting file(s)",
+      }),
+    ];
+    const presentation = deriveStorageSyncPresentation({ history });
+    expect(presentation.level).toBe("conflict");
+    const tooltip = formatStorageSyncStatusTooltip(presentation, history[0]);
+    expect(tooltip).toMatch(/conflict/i);
+    expect(tooltip).not.toMatch(/succeeded/i);
+  });
 });

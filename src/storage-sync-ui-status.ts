@@ -54,6 +54,9 @@ function sidebarStatusLabel(entry: SyncHistoryEntry): string {
   if (entry.held || entry.error?.startsWith("held:")) {
     return `Storage pull held`;
   }
+  if (entry.conflict) {
+    return "Storage sync conflict";
+  }
   if (entry.partial) {
     return `Storage ${entry.direction} partial`;
   }
@@ -150,7 +153,7 @@ export function formatStorageSyncStatusTooltip(
 export function storageSyncSidebarStatus(
   presentation: StorageSyncUiPresentation
 ): "synced" | "error" | "syncing" | "warning" {
-  if (presentation.level === "error") {
+  if (presentation.level === "error" || presentation.level === "conflict") {
     return "error";
   }
   if (presentation.level === "warning") {
@@ -169,6 +172,9 @@ export function storageSyncSidebarStatusDetail(
     }
     if (presentation.warningKind === "partial" || entry.partial) {
       return sidebarStatusLabel({ ...entry, partial: true, success: true });
+    }
+    if (presentation.level === "conflict" || entry.conflict) {
+      return sidebarStatusLabel({ ...entry, success: false, conflict: true });
     }
     if (presentation.level === "error") {
       return sidebarStatusLabel({ ...entry, success: false });
