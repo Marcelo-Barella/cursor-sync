@@ -863,7 +863,8 @@ def resolve_golden_store_template_path() -> Path | None:
 
 
 def _sqlite_open_readonly(db_path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True)
+    uri = db_path.resolve().as_uri()
+    return sqlite3.connect(f"{uri}?mode=ro", uri=True)
 
 
 def read_template_user_version(db_path: Path) -> int | None:

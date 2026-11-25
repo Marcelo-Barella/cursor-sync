@@ -39,7 +39,6 @@ export async function refreshSyncStatusBar(
       tickFailed,
     });
     const storageEntry = latestStorageHistoryEntry(history);
-    const storageTooltip = formatStorageSyncStatusTooltip(presentation, storageEntry);
     if (options?.held && presentation.level === "ok") {
       presentation.level = "warning";
       presentation.warningKind = "held";
@@ -49,6 +48,7 @@ export async function refreshSyncStatusBar(
       presentation.level = "warning";
       presentation.warningKind = presentation.warningKind ?? "partial";
     }
+    const storageTooltip = formatStorageSyncStatusTooltip(presentation, storageEntry);
     switch (presentation.level) {
       case "error":
         updateStatusBar("error", {
