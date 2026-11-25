@@ -1,6 +1,5 @@
 import * as crypto from "node:crypto";
-
-const DEFAULT_APP_STORAGE_API_BASE = "https://api.sync.bergamota.dev";
+import { DEFAULT_PRODUCTION_API_URL } from "./config/urls.js";
 
 export function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
   const parts = token.split(".");
@@ -24,7 +23,7 @@ export function accountKeyFromAppSession(session: string): string {
 
 export function appStorageAccountKey(
   session: string,
-  apiBase: string = DEFAULT_APP_STORAGE_API_BASE
+  apiBase: string = DEFAULT_PRODUCTION_API_URL
 ): string {
   const payload = decodeJwtPayload(session);
   const userId =

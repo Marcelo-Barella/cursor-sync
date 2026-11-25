@@ -1,15 +1,15 @@
-# Transport run: bergamota → cursor-ca-orchestrator
+# Transport run: source-workspace → cursor-ca-orchestrator
 
 **Date:** 2026-05-22  
 **Skill:** `~/.cursor/skills/transport-chat`  
-**Conversation:** `98776645-d6fb-43ac-a47c-be4d509f8a33` (Resume/CV brainstorm — picked at random from bergamota)  
+**Conversation:** `98776645-d6fb-43ac-a47c-be4d509f8a33` (Resume/CV brainstorm — picked at random from source-workspace)  
 **Bundle:** `/tmp/chat-transport-98776645-d6fb-43ac-a47c-be4d509f8a33.json`
 
 ## Workspaces
 
 | Role | Folder | Project key | Workspace storage ID | Chats key (md5) |
 |------|--------|-------------|----------------------|-----------------|
-| Source | `/home/marcelo/dev/private/bergamota` | `home-marcelo-dev-private-bergamota` | `4e5cd03ad3cbea80b768dec1e7ab9335` | `026c4ad309c267a7c5f770cc1ef693a9` |
+| Source | `/home/marcelo/dev/private/source-workspace` | `home-marcelo-dev-private-source-workspace` | `4e5cd03ad3cbea80b768dec1e7ab9335` | `026c4ad309c267a7c5f770cc1ef693a9` |
 | Destination | `/home/marcelo/dev/tools/cursor-ca-orchestrator` | `home-marcelo-dev-tools-cursor-ca-orchestrator` | `4f33c9fdb22d5ce3666f4a7decc5b1e0` | `9828bcd9d6275fa3b94fa604bed4100e` |
 
 ## Commands
@@ -18,7 +18,7 @@
 SKILL="${HOME}/.cursor/skills/transport-chat"
 TRANSPORT="${SKILL}/scripts/transport_chat.py"
 CHAT_IO="${SKILL}/scripts/cursor_chat_io.py"
-SRC="/home/marcelo/dev/private/bergamota"
+SRC="/home/marcelo/dev/private/source-workspace"
 DEST="/home/marcelo/dev/tools/cursor-ca-orchestrator"
 CID="98776645-d6fb-43ac-a47c-be4d509f8a33"
 ```
@@ -33,10 +33,10 @@ python3 "$TRANSPORT" resolve --workspace-folder "$SRC"
 
 ```
 {
-  "folderFsPath": "/home/marcelo/dev/private/bergamota",
+  "folderFsPath": "/home/marcelo/dev/private/source-workspace",
   "workspaceStorageId": "4e5cd03ad3cbea80b768dec1e7ab9335",
   "stateDb": "/home/marcelo/.config/Cursor/User/workspaceStorage/4e5cd03ad3cbea80b768dec1e7ab9335/state.vscdb",
-  "projectKey": "home-marcelo-dev-private-bergamota",
+  "projectKey": "home-marcelo-dev-private-source-workspace",
   "chatsWorkspaceKey": "026c4ad309c267a7c5f770cc1ef693a9"
 }
 ```
@@ -61,52 +61,52 @@ python3 "$TRANSPORT" resolve --workspace-folder "$DEST"
 
 ---
 
-## Gate 2 — Pick (bergamota, limit 20)
+## Gate 2 — Pick (source-workspace, limit 20)
 
 ```bash
 python3 "$TRANSPORT" pick --workspace-folder "$SRC" --limit 20
 ```
 
 ```
-2026-05-22 10:25  dcd462a1-da70-42c7-a0c4-0c3a02074503  [home-marcelo-dev-private-bergamota]
+2026-05-22 10:25  dcd462a1-da70-42c7-a0c4-0c3a02074503  [home-marcelo-dev-private-source-workspace]
   \n/debugger \n\nThe \"Continue with GitHub\" does not work properly, take a look at it\n
-2026-05-22 09:51  08902662-19e7-42fa-8e6e-8aa099bc64c6  [home-marcelo-dev-private-bergamota]
+2026-05-22 09:51  08902662-19e7-42fa-8e6e-8aa099bc64c6  [home-marcelo-dev-private-source-workspace]
   \n/debugger \n\nTake a look at the Continue with GitHub, I can't login properly to the app
-2026-05-07 09:15  f2da9187-69e4-4b5b-bd7c-6af57224a1ba  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:15  f2da9187-69e4-4b5b-bd7c-6af57224a1ba  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-05-07 09:13  a1e506a0-abd7-4ed9-ba8a-303e60e558bb  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:13  a1e506a0-abd7-4ed9-ba8a-303e60e558bb  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-05-07 09:10  a8aafef8-41a3-412e-a770-ee8606ce4d77  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:10  a8aafef8-41a3-412e-a770-ee8606ce4d77  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-05-07 09:08  c7d79ea2-cf20-4b2f-89fc-b64bd3974185  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:08  c7d79ea2-cf20-4b2f-89fc-b64bd3974185  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-05-07 09:07  98a69119-84f0-450b-ae6e-7d0c8f70fa6c  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:07  98a69119-84f0-450b-ae6e-7d0c8f70fa6c  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-05-07 09:05  1cdff191-616c-435e-8639-0b6364addd65  [home-marcelo-dev-private-bergamota]
+2026-05-07 09:05  1cdff191-616c-435e-8639-0b6364addd65  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-28 20:42  98776645-d6fb-43ac-a47c-be4d509f8a33  [home-marcelo-dev-private-bergamota]
+2026-04-28 20:42  98776645-d6fb-43ac-a47c-be4d509f8a33  [home-marcelo-dev-private-source-workspace]
   \n/brainstorming \n\nGenerate a single markdown file as a Resume (CV) about Marcelo Barell
-2026-04-28 20:29  6b6b5beb-7d22-493c-928e-64219acc495b  [home-marcelo-dev-private-bergamota]
+2026-04-28 20:29  6b6b5beb-7d22-493c-928e-64219acc495b  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-28 20:28  20880acd-1cd7-480e-9756-237a6df2b888  [home-marcelo-dev-private-bergamota]
+2026-04-28 20:28  20880acd-1cd7-480e-9756-237a6df2b888  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-28 20:26  b600bee9-af0d-490d-a616-4daa3cca3441  [home-marcelo-dev-private-bergamota]
+2026-04-28 20:26  b600bee9-af0d-490d-a616-4daa3cca3441  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-28 18:57  403e8100-1866-47d2-9c10-b1cd7a737ca3  [home-marcelo-dev-private-bergamota]
+2026-04-28 18:57  403e8100-1866-47d2-9c10-b1cd7a737ca3  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-28 18:39  f15d676a-f515-47ff-80a1-f29413ce50e2  [home-marcelo-dev-private-bergamota]
+2026-04-28 18:39  f15d676a-f515-47ff-80a1-f29413ce50e2  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-26 15:12  8aa33d09-56cd-49e5-a9dc-25d37bfb2af1  [home-marcelo-dev-private-bergamota]
+2026-04-26 15:12  8aa33d09-56cd-49e5-a9dc-25d37bfb2af1  [home-marcelo-dev-private-source-workspace]
   \nI need you to generate a QrCode sending to https://www.linkedin.com/in/marcelo-barella-2
-2026-04-26 15:12  ee48f93e-44ac-4f34-8513-75a0a6be6e3e  [home-marcelo-dev-private-bergamota]
+2026-04-26 15:12  ee48f93e-44ac-4f34-8513-75a0a6be6e3e  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-22 13:53  ba358a98-25e1-4b9c-b32d-119f85253415  [home-marcelo-dev-private-bergamota]
+2026-04-22 13:53  ba358a98-25e1-4b9c-b32d-119f85253415  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-22 13:51  84462c52-24df-4e34-973c-f39eadf4d923  [home-marcelo-dev-private-bergamota]
+2026-04-22 13:51  84462c52-24df-4e34-973c-f39eadf4d923  [home-marcelo-dev-private-source-workspace]
   \nUsing canva MCP. \n\nCreate a simple presentation about England current industry\n
-2026-04-22 13:51  e38057a4-4675-418b-a843-a8391628f097  [home-marcelo-dev-private-bergamota]
+2026-04-22 13:51  e38057a4-4675-418b-a843-a8391628f097  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
-2026-04-22 13:50  64a6b413-a063-4c8d-85f3-e10732c2a5f5  [home-marcelo-dev-private-bergamota]
+2026-04-22 13:50  64a6b413-a063-4c8d-85f3-e10732c2a5f5  [home-marcelo-dev-private-source-workspace]
   \nFollow the /light-prompt skill: turn the user text into one tight structured prompt (~20
 ```
 
@@ -131,8 +131,8 @@ python3 "$TRANSPORT" run \
 
 ```
 === Transport chat ===
-Source:      /home/marcelo/dev/private/bergamota
-  project:   home-marcelo-dev-private-bergamota
+Source:      /home/marcelo/dev/private/source-workspace
+  project:   home-marcelo-dev-private-source-workspace
   state-db:  /home/marcelo/.config/Cursor/User/workspaceStorage/4e5cd03ad3cbea80b768dec1e7ab9335/state.vscdb
 Destination: /home/marcelo/dev/tools/cursor-ca-orchestrator
   project:   home-marcelo-dev-tools-cursor-ca-orchestrator
@@ -226,7 +226,7 @@ python3 "$CHAT_IO" inspect /tmp/chat-transport-98776645-d6fb-43ac-a47c-be4d509f8
   "previewText": "<manually_attached_skills>\nThe user has manually attached the following skills t"
 }
 transcriptFiles: 1
-  - home-marcelo-dev-private-bergamota/agent-transcripts/98776645-d6fb-43ac-a47c-be4d509f8a33/98776645-d6fb-43ac-a47c-be4d509f8a33.jsonl (41825 bytes)
+  - home-marcelo-dev-private-source-workspace/agent-transcripts/98776645-d6fb-43ac-a47c-be4d509f8a33/98776645-d6fb-43ac-a47c-be4d509f8a33.jsonl (41825 bytes)
 sidebarSnapshot keys: composerData, composerHeaders, conversationId, stateDbPath
 ```
 
@@ -253,7 +253,7 @@ User command (from `~/Applications/cursor`):
 
 ```bash
 python3 ~/.cursor/skills/transport-chat/scripts/transport_chat.py run \
-  --source /home/marcelo/dev/private/bergamota \
+  --source /home/marcelo/dev/private/source-workspace \
   --destination /home/marcelo/dev/tools/cursor-ca-orchestrator \
   --conversation-id 98776645-d6fb-43ac-a47c-be4d509f8a33 \
   --disk-only
@@ -263,8 +263,8 @@ python3 ~/.cursor/skills/transport-chat/scripts/transport_chat.py run \
 
 ```
 === Transport chat ===
-Source:      /home/marcelo/dev/private/bergamota
-  project:   home-marcelo-dev-private-bergamota
+Source:      /home/marcelo/dev/private/source-workspace
+  project:   home-marcelo-dev-private-source-workspace
   state-db:  /home/marcelo/.config/Cursor/User/workspaceStorage/4e5cd03ad3cbea80b768dec1e7ab9335/state.vscdb
 Destination: /home/marcelo/dev/tools/cursor-ca-orchestrator
   project:   home-marcelo-dev-tools-cursor-ca-orchestrator
