@@ -10,6 +10,9 @@
     "url": "https://github.com/Marcelo-Barella/cursor-sync.git"
   },
   "license": "MIT",
+  "sponsor": {
+    "url": "https://buymeacoffee.com/mbarella"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },

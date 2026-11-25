@@ -2,6 +2,8 @@
 
 Sync user-level Cursor settings and `~/.cursor` assets to a private GitHub Gist or to **Cursor Sync** cloud storage when signed in, with manual push/pull, optional scheduled sync, export/import via private Gists, and configurable extension sync.
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mbarella)
+
 ## Install (VSIX sideload)
 
 The **0.9.0** line is installed by sideloading a VSIX. It is **not** published to the Visual Studio Marketplace or Open VSX.
