@@ -27,5 +27,8 @@ describe("telemetry secrets do not ship in extension bundle", () => {
     expect(text).not.toMatch(/api_secret/i);
     expect(text).not.toMatch(/google-analytics\.com\/mp\/collect/i);
     expect(text).toContain("/v1/telemetry");
+    expect(text).not.toMatch(/Authorization/);
+    expect(text).not.toMatch(/Bearer/);
+    expect(text).not.toContain("appSession");
   });
 });

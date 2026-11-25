@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as crypto from "node:crypto";
-const APP_SESSION_SECRET = "cursorSync.appSession";
 import { getAppApiUrl } from "./config/urls.js";
 import { getLogger } from "./diagnostics.js";
 
@@ -86,25 +85,16 @@ export function sendEvent(
       // ignore
     }
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    void Promise.resolve(context.secrets?.get(APP_SESSION_SECRET))
-      .then((token) => {
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), TELEMETRY_TIMEOUT_MS);
-        return fetch(url, {
-          method: "POST",
-          body,
-          headers,
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeout));
-      })
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TELEMETRY_TIMEOUT_MS);
+    void fetch(url, {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    })
+      .finally(() => clearTimeout(timeout))
       .then((response) => {
-        if (!response) {
-          return;
-        }
         if (!response.ok) {
           return response.text().then((text) => {
             logAnalyticsFailure(
