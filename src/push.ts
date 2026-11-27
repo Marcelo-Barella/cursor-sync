@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
-import { enumerateSyncFiles, syncKeyToGistFileName } from "./paths.js";
+import {
+  enumerateSyncFiles,
+  resolveSyncRoots,
+  syncKeyToGistFileName,
+} from "./paths.js";
+import { parseGistManifest, planGistFileRetention } from "./gist-retention.js";
 import { packageFiles, computeChecksum } from "./packaging.js";
 import { GistClient } from "./gist.js";
 import { requireToken, validateStoredToken } from "./auth.js";
@@ -125,7 +130,7 @@ async function doPush(
   }
 
   const extensionsJson = generateExtensionsJson();
-  const cursorUserRoot = (await import("./paths.js")).resolveSyncRoots().cursorUser;
+  const cursorUserRoot = resolveSyncRoots().cursorUser;
   await writeExtensionsFile(cursorUserRoot, extensionsJson);
 
   const files = await enumerateSyncFiles();
@@ -143,6 +148,7 @@ async function doPush(
 
   let gistId = syncState?.gistId;
   let isNewGist = false;
+  let retainedChecksums: Record<string, string> = {};
 
   if (!gistId) {
     const existingResult = await withRetry(() => client.findExistingGist());
@@ -190,11 +196,24 @@ async function doPush(
     const existingResult = await withRetry(() => client.getGist(gistId!));
     let filesToDelete: Record<string, null> = {};
     if (existingResult.ok) {
-      const existingFiles = Object.keys(existingResult.data.files);
-      for (const existing of existingFiles) {
-        if (existing !== "manifest.json" && !gistFiles[existing]) {
-          filesToDelete[existing] = null;
-        }
+      const previousManifest = parseGistManifest(
+        existingResult.data.files["manifest.json"]?.content
+      );
+      const retention = await planGistFileRetention(
+        Object.keys(existingResult.data.files),
+        new Set(Object.keys(gistFiles)),
+        resolveSyncRoots(),
+        previousManifest
+      );
+      filesToDelete = retention.filesToDelete;
+      retainedChecksums = retention.retainedChecksums;
+      Object.assign(manifest.files, retention.retainedManifestFiles);
+      gistFiles["manifest.json"] = { content: JSON.stringify(manifest, null, 2) };
+      const retainedCount = Object.keys(retention.retainedChecksums).length;
+      if (retainedCount > 0) {
+        logger.appendLine(
+          `[${new Date().toISOString()}] Push retaining ${retainedCount} gist file(s) still present locally but excluded from the current selection`
+        );
       }
     }
 
@@ -237,7 +256,7 @@ async function doPush(
     }
   }
 
-  const checksums: Record<string, string> = {};
+  const checksums: Record<string, string> = { ...retainedChecksums };
   for (const [key, value] of packaged) {
     checksums[key] = value.checksum;
   }

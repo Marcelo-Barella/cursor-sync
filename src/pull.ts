@@ -5,7 +5,11 @@ import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, saveSyncState, getLogger, addSyncHistoryEntry } from "./diagnostics.js";
-import { resolveSyncRoots, gistFileNameToSyncKey } from "./paths.js";
+import {
+  gistFileNameToSyncKey,
+  resolveSyncRoots,
+  syncKeyToAbsolutePath,
+} from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { detectConflicts, clearConflicts, getResolutionForKey, getPendingConflicts } from "./conflicts.js";
 import { createBackup, rollbackFromBackup, pruneOldBackups } from "./rollback.js";
@@ -393,23 +397,6 @@ async function doPull(
     `[${new Date().toISOString()}] Pull succeeded: ${filesToWrite.length} files`
   );
   return true;
-}
-
-function syncKeyToAbsolutePath(
-  syncKey: string,
-  roots: { cursorUser: string; dotCursor: string }
-): string | undefined {
-  if (syncKey.startsWith("cursor-user/")) {
-    const rel = syncKey.slice("cursor-user/".length);
-    return path.join(roots.cursorUser, ...rel.split("/"));
-  }
-
-  if (syncKey.startsWith("dot-cursor/")) {
-    const rel = syncKey.slice("dot-cursor/".length);
-    return path.join(roots.dotCursor, ...rel.split("/"));
-  }
-
-  return undefined;
 }
 
 const CONCURRENT_INSTALLS = 2;

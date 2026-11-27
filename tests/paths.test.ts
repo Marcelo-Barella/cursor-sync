@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import {
+  __resetCursorSyncInspect,
+  __setCursorSyncInspect,
+} from "./__mocks__/vscode.js";
 
 vi.mock("vscode", () => import("./__mocks__/vscode.js"));
 
@@ -124,6 +128,7 @@ describe("paths", () => {
     });
 
     afterEach(async () => {
+      __resetCursorSyncInspect();
       await fs.rm(tmpDir, { recursive: true, force: true });
     });
 
@@ -164,6 +169,62 @@ describe("paths", () => {
       expect(keys).not.toContain("cursor-user/settings.json");
     });
 
+    it("ignores workspace excludeGlobs that would empty the push set", async () => {
+      __setCursorSyncInspect({
+        workspace: { excludeGlobs: ["**"] },
+      });
+      const { enumerateSyncFiles } = await import("../src/paths.js");
+      const roots = {
+        cursorUser: path.join(tmpDir, "cursorUser"),
+        dotCursor: path.join(tmpDir, "dotCursor"),
+      };
+      const keys = (await enumerateSyncFiles(roots)).map((f) => f.relativeSyncKey);
+      expect(keys).toContain("cursor-user/settings.json");
+      expect(keys).toContain("cursor-user/keybindings.json");
+    });
+
+    it("honors user-global excludeGlobs", async () => {
+      __setCursorSyncInspect({
+        global: { excludeGlobs: ["**"] },
+        workspace: { excludeGlobs: [] },
+      });
+      const { enumerateSyncFiles } = await import("../src/paths.js");
+      const roots = {
+        cursorUser: path.join(tmpDir, "cursorUser"),
+        dotCursor: path.join(tmpDir, "dotCursor"),
+      };
+      const keys = (await enumerateSyncFiles(roots)).map((f) => f.relativeSyncKey);
+      expect(keys).toEqual([]);
+    });
+
+    it("ignores workspace enabledPaths and maxFileSizeKB that would empty the push set", async () => {
+      __setCursorSyncInspect({
+        workspace: { enabledPaths: [], maxFileSizeKB: 0 },
+      });
+      const { enumerateSyncFiles } = await import("../src/paths.js");
+      const roots = {
+        cursorUser: path.join(tmpDir, "cursorUser"),
+        dotCursor: path.join(tmpDir, "dotCursor"),
+      };
+      const keys = (await enumerateSyncFiles(roots)).map((f) => f.relativeSyncKey);
+      expect(keys).toContain("cursor-user/settings.json");
+      expect(keys).toContain("dot-cursor/skills/coding/SKILL.md");
+    });
+
+    it("honors user-global maxFileSizeKB of 0 for non-vsix files", async () => {
+      __setCursorSyncInspect({
+        global: { maxFileSizeKB: 0 },
+      });
+      const { enumerateSyncFiles } = await import("../src/paths.js");
+      const roots = {
+        cursorUser: path.join(tmpDir, "cursorUser"),
+        dotCursor: path.join(tmpDir, "dotCursor"),
+      };
+      const keys = (await enumerateSyncFiles(roots)).map((f) => f.relativeSyncKey);
+      expect(keys).not.toContain("cursor-user/settings.json");
+      expect(keys).toContain("cursor-user/vsix/sample.vsix");
+    });
+
     it("allows .vsix files larger than maxFileSizeKB", async () => {
       await fs.mkdir(path.join(tmpDir, "cursorUser", "vsix"), { recursive: true });
       const vsixPath = path.join(tmpDir, "cursorUser", "vsix", "big.vsix");
@@ -178,6 +239,47 @@ describe("paths", () => {
       const keys = files.map((f) => f.relativeSyncKey);
 
       expect(keys).toContain("cursor-user/vsix/big.vsix");
+    });
+  });
+
+  describe("syncKeyToAbsolutePath", () => {
+    it("resolves keys under the matching root and rejects traversal", async () => {
+      const { syncKeyToAbsolutePath } = await import("../src/paths.js");
+      const roots = {
+        cursorUser: path.join("/tmp", "cursor-user-root"),
+        dotCursor: path.join("/tmp", "dot-cursor-root"),
+      };
+      expect(syncKeyToAbsolutePath("cursor-user/settings.json", roots)).toBe(
+        path.resolve(roots.cursorUser, "settings.json")
+      );
+      expect(
+        syncKeyToAbsolutePath("cursor-user/../outside.json", roots)
+      ).toBeUndefined();
+      expect(syncKeyToAbsolutePath("other/settings.json", roots)).toBeUndefined();
+    });
+  });
+
+  describe("classifyUnselectedSyncKey", () => {
+    it("classifies missing, present, and unmapped keys", async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "cursor-sync-classify-"));
+      const cursorUser = path.join(tmp, "cursorUser");
+      await fs.mkdir(cursorUser, { recursive: true });
+      await fs.writeFile(path.join(cursorUser, "settings.json"), "{}");
+      const { classifyUnselectedSyncKey } = await import("../src/paths.js");
+      const roots = {
+        cursorUser,
+        dotCursor: path.join(tmp, "dotCursor"),
+      };
+      expect(
+        await classifyUnselectedSyncKey("cursor-user/settings.json", roots)
+      ).toBe("present-unselected");
+      expect(
+        await classifyUnselectedSyncKey("cursor-user/keybindings.json", roots)
+      ).toBe("absent");
+      expect(await classifyUnselectedSyncKey("unknown/file.json", roots)).toBe(
+        "unmapped"
+      );
+      await fs.rm(tmp, { recursive: true, force: true });
     });
   });
 });

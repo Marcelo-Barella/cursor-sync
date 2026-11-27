@@ -68,6 +68,42 @@ export class Disposable {
   }
 }
 
+const CONFIG_DEFAULTS: Record<string, unknown> = {
+  enabledPaths: [
+    "settings.json",
+    "keybindings.json",
+    "snippets/**",
+    "extensions.json",
+    "vsix/**",
+    "skills/**",
+    "skills-cursor/**/SKILL.md",
+    "commands/**/*.md",
+    "rules/*.mdc",
+  ],
+  excludeGlobs: [],
+  maxFileSizeKB: 512,
+  syncProfileName: "default",
+  safeMode: true,
+  "schedule.enabled": false,
+  "schedule.intervalMin": 30,
+};
+
+let inspectGlobalValues: Record<string, unknown> = {};
+let inspectWorkspaceValues: Record<string, unknown> = {};
+
+export function __setCursorSyncInspect(values: {
+  global?: Record<string, unknown>;
+  workspace?: Record<string, unknown>;
+}): void {
+  inspectGlobalValues = { ...(values.global ?? {}) };
+  inspectWorkspaceValues = { ...(values.workspace ?? {}) };
+}
+
+export function __resetCursorSyncInspect(): void {
+  inspectGlobalValues = {};
+  inspectWorkspaceValues = {};
+}
+
 export const workspace = {
   get workspaceFolders() {
     return mockWorkspaceFolders.length ? mockWorkspaceFolders : undefined;
@@ -86,27 +122,21 @@ export const workspace = {
   onDidChangeWorkspaceFolders: (_cb: () => void) => ({ dispose: () => {} }),
   getConfiguration: (_section?: string) => ({
     get: <T>(key: string, defaultValue?: T): T | undefined => {
-      const defaults: Record<string, unknown> = {
-        enabledPaths: [
-          "settings.json",
-          "keybindings.json",
-          "snippets/**",
-          "extensions.json",
-          "vsix/**",
-          "skills/**",
-          "skills-cursor/**/SKILL.md",
-          "commands/**/*.md",
-          "rules/*.mdc",
-        ],
-        excludeGlobs: [],
-        maxFileSizeKB: 512,
-        syncProfileName: "default",
-        safeMode: true,
-        "schedule.enabled": false,
-        "schedule.intervalMin": 30,
-      };
-      return (defaults[key] as T) ?? defaultValue;
+      return (CONFIG_DEFAULTS[key] as T) ?? defaultValue;
     },
+    inspect: <T>(key: string) => ({
+      key,
+      defaultValue: CONFIG_DEFAULTS[key] as T,
+      globalValue: Object.prototype.hasOwnProperty.call(inspectGlobalValues, key)
+        ? (inspectGlobalValues[key] as T)
+        : undefined,
+      workspaceValue: Object.prototype.hasOwnProperty.call(
+        inspectWorkspaceValues,
+        key
+      )
+        ? (inspectWorkspaceValues[key] as T)
+        : undefined,
+    }),
   }),
   onDidChangeConfiguration: () => ({ dispose: () => {} }),
 };

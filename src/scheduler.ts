@@ -6,7 +6,11 @@ import { GistClient } from "./gist.js";
 import { requireToken } from "./auth.js";
 import { withRetry } from "./retry.js";
 import { loadSyncState, getLogger } from "./diagnostics.js";
-import { enumerateSyncFiles } from "./paths.js";
+import {
+  coalesceUnselectedLocalChecksum,
+  enumerateSyncFiles,
+  resolveSyncRoots,
+} from "./paths.js";
 import { computeChecksum } from "./packaging.js";
 import { sendEvent } from "./analytics.js";
 import {
@@ -114,6 +118,7 @@ export async function determineSyncAction(
     }
   }
 
+  const roots = resolveSyncRoots();
   const allKeys = new Set([
     ...Object.keys(localChecksums),
     ...Object.keys(remoteChecksums),
@@ -128,7 +133,12 @@ export async function determineSyncAction(
   for (const key of allKeys) {
     const baseLocal = syncState.localChecksums[key];
     const baseRemote = syncState.remoteChecksums[key];
-    const currentLocal = localChecksums[key];
+    const currentLocal = await coalesceUnselectedLocalChecksum(
+      key,
+      localChecksums[key],
+      baseLocal,
+      roots
+    );
     const currentRemote = remoteChecksums[key];
 
     const localChanged = currentLocal !== baseLocal;

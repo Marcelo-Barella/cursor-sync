@@ -233,7 +233,8 @@
             "commands/**/*.md",
             "rules/*.mdc"
           ],
-          "description": "Glob patterns for included sync paths"
+          "scope": "application",
+          "description": "Glob patterns for included sync paths. User/global setting only; workspace and folder values are ignored."
         },
         "cursorSync.excludeGlobs": {
           "type": "array",
@@ -241,7 +242,8 @@
             "type": "string"
           },
           "default": [],
-          "description": "Additional glob patterns to exclude from sync"
+          "scope": "application",
+          "description": "Additional glob patterns to exclude from sync. User/global setting only; workspace and folder values are ignored. Excluded files are not deleted from the gist while they still exist locally."
         },
         "cursorSync.schedule.enabled": {
           "type": "boolean",
@@ -257,7 +259,9 @@
         "cursorSync.maxFileSizeKB": {
           "type": "number",
           "default": 512,
-          "description": "Skip files larger than this size in KB"
+          "minimum": 0,
+          "scope": "application",
+          "description": "Skip files larger than this size in KB. User/global setting only; workspace and folder values are ignored. Oversized files are not deleted from the gist while they still exist locally."
         },
         "cursorSync.syncProfileName": {
           "type": "string",

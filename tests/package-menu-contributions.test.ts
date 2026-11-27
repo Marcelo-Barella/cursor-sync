@@ -87,6 +87,18 @@ describe("package menu contributions", () => {
     });
   });
 
+  it("marks push-selection settings as application scope", () => {
+    const pkg = readPackageJson();
+    const properties = pkg.contributes.configuration.properties;
+    for (const key of [
+      "cursorSync.enabledPaths",
+      "cursorSync.excludeGlobs",
+      "cursorSync.maxFileSizeKB",
+    ]) {
+      expect(properties[key].scope).toBe("application");
+    }
+  });
+
   it("declares set chat encryption password command", () => {
     const pkg = readPackageJson();
     const command = pkg.contributes.commands.find(

@@ -565,6 +565,120 @@ describe("determineSyncAction", () => {
       expect(result.keys).toEqual(["cursor-user/settings.json"]);
     }
   });
+
+  it("returns none when a previously synced file still exists but was filtered out", async () => {
+    const diagnostics = await import("../src/diagnostics.js");
+    vi.spyOn(diagnostics, "loadSyncState").mockResolvedValue({
+      lastSyncTimestamp: new Date().toISOString(),
+      lastSyncDirection: "push",
+      gistId: "abc123",
+      localChecksums: { "cursor-user/settings.json": "aaa111" },
+      remoteChecksums: { "cursor-user/settings.json": "aaa111" },
+    });
+
+    const auth = await import("../src/auth.js");
+    vi.spyOn(auth, "requireToken").mockResolvedValue("fake-token");
+
+    const gist = await import("../src/gist.js");
+    vi.spyOn(gist.GistClient.prototype, "getGist").mockResolvedValue({
+      ok: true,
+      data: {
+        id: "abc123",
+        html_url: "",
+        description: "",
+        files: {
+          "manifest.json": {
+            content: JSON.stringify({
+              schemaVersion: 1,
+              syncProfileName: "default",
+              createdAt: new Date().toISOString(),
+              sourceMachineId: "machine1",
+              sourceOS: "linux",
+              files: { "cursor-user/settings.json": { checksum: "aaa111", sizeBytes: 100 } },
+            }),
+          },
+        },
+        created_at: "",
+        updated_at: "",
+      },
+    });
+
+    const retry = await import("../src/retry.js");
+    vi.spyOn(retry, "withRetry").mockImplementation((fn: () => unknown) => fn());
+
+    const paths = await import("../src/paths.js");
+    vi.spyOn(paths, "enumerateSyncFiles").mockResolvedValue([]);
+    vi.spyOn(paths, "coalesceUnselectedLocalChecksum").mockImplementation(
+      async (_key, currentLocal, baseLocal) => currentLocal ?? baseLocal
+    );
+
+    const { determineSyncAction } = await import("../src/scheduler.js");
+    const context = {
+      globalStorageUri: { fsPath: "/tmp/test" },
+      secrets: { get: async () => "fake-token", store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
+      subscriptions: [],
+    } as unknown as import("vscode").ExtensionContext;
+
+    const result = await determineSyncAction(context);
+    expect(result).toEqual({ action: "none" });
+  });
+
+  it("returns push when a previously synced file is gone from disk", async () => {
+    const diagnostics = await import("../src/diagnostics.js");
+    vi.spyOn(diagnostics, "loadSyncState").mockResolvedValue({
+      lastSyncTimestamp: new Date().toISOString(),
+      lastSyncDirection: "push",
+      gistId: "abc123",
+      localChecksums: { "cursor-user/settings.json": "aaa111" },
+      remoteChecksums: { "cursor-user/settings.json": "aaa111" },
+    });
+
+    const auth = await import("../src/auth.js");
+    vi.spyOn(auth, "requireToken").mockResolvedValue("fake-token");
+
+    const gist = await import("../src/gist.js");
+    vi.spyOn(gist.GistClient.prototype, "getGist").mockResolvedValue({
+      ok: true,
+      data: {
+        id: "abc123",
+        html_url: "",
+        description: "",
+        files: {
+          "manifest.json": {
+            content: JSON.stringify({
+              schemaVersion: 1,
+              syncProfileName: "default",
+              createdAt: new Date().toISOString(),
+              sourceMachineId: "machine1",
+              sourceOS: "linux",
+              files: { "cursor-user/settings.json": { checksum: "aaa111", sizeBytes: 100 } },
+            }),
+          },
+        },
+        created_at: "",
+        updated_at: "",
+      },
+    });
+
+    const retry = await import("../src/retry.js");
+    vi.spyOn(retry, "withRetry").mockImplementation((fn: () => unknown) => fn());
+
+    const paths = await import("../src/paths.js");
+    vi.spyOn(paths, "enumerateSyncFiles").mockResolvedValue([]);
+    vi.spyOn(paths, "coalesceUnselectedLocalChecksum").mockImplementation(
+      async (_key, currentLocal) => currentLocal
+    );
+
+    const { determineSyncAction } = await import("../src/scheduler.js");
+    const context = {
+      globalStorageUri: { fsPath: "/tmp/test" },
+      secrets: { get: async () => "fake-token", store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
+      subscriptions: [],
+    } as unknown as import("vscode").ExtensionContext;
+
+    const result = await determineSyncAction(context);
+    expect(result).toEqual({ action: "push" });
+  });
 });
 
 describe("scheduled sync debug wiring", () => {

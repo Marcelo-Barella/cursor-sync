@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Workspace `cursorSync.excludeGlobs`, `enabledPaths`, and `maxFileSizeKB` can no longer empty the push set and wipe the settings gist. Those filters are User/global only. Push deletes a gist file only when the mapped local file is gone, so a filter omission is not treated as a delete.
+
 ## v0.8.0
 
 ### Added

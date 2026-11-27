@@ -60,14 +60,134 @@ export function resolveSyncRoots(
   };
 }
 
+export const SYNC_SELECTION_SETTING_KEYS = [
+  "enabledPaths",
+  "excludeGlobs",
+  "maxFileSizeKB",
+] as const;
+
+export interface SyncSelectionPolicy {
+  enabledPaths: string[];
+  excludeGlobs: string[];
+  maxFileSizeKB: number;
+}
+
+export type UnselectedSyncKeyClass =
+  | "absent"
+  | "present-unselected"
+  | "unmapped";
+
+export function readSyncSelectionPolicy(): SyncSelectionPolicy {
+  const enabledPaths = readUserStringArray(
+    "enabledPaths",
+    getDefaultEnabledPaths()
+  );
+  const excludeGlobs = readUserStringArray("excludeGlobs", []);
+  const maxFileSizeKB = readUserMaxFileSizeKB();
+  return { enabledPaths, excludeGlobs, maxFileSizeKB };
+}
+
+function readUserStringArray(key: string, fallback: string[]): string[] {
+  const inspect = vscode.workspace
+    .getConfiguration("cursorSync")
+    .inspect<string[]>(key);
+  if (inspect && Array.isArray(inspect.globalValue)) {
+    return inspect.globalValue;
+  }
+  if (inspect && Array.isArray(inspect.defaultValue)) {
+    return inspect.defaultValue;
+  }
+  return fallback;
+}
+
+function readUserMaxFileSizeKB(): number {
+  const inspect = vscode.workspace
+    .getConfiguration("cursorSync")
+    .inspect<number>("maxFileSizeKB");
+  let value = 512;
+  if (typeof inspect?.globalValue === "number") {
+    value = inspect.globalValue;
+  } else if (typeof inspect?.defaultValue === "number") {
+    value = inspect.defaultValue;
+  }
+  if (!Number.isFinite(value) || value < 0) {
+    return 512;
+  }
+  return value;
+}
+
+export function syncKeyToAbsolutePath(
+  syncKey: string,
+  roots: SyncRoots
+): string | undefined {
+  let root: string | undefined;
+  let rel: string | undefined;
+  if (syncKey.startsWith("cursor-user/")) {
+    root = roots.cursorUser;
+    rel = syncKey.slice("cursor-user/".length);
+  } else if (syncKey.startsWith("dot-cursor/")) {
+    root = roots.dotCursor;
+    rel = syncKey.slice("dot-cursor/".length);
+  }
+  if (!root || !rel) {
+    return undefined;
+  }
+  const parts = rel.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === "..")) {
+    return undefined;
+  }
+  const absolutePath = path.resolve(root, ...parts);
+  if (!isPathInsideRoot(absolutePath, root)) {
+    return undefined;
+  }
+  return absolutePath;
+}
+
+function isPathInsideRoot(absolutePath: string, root: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedAbs = path.resolve(absolutePath);
+  const relative = path.relative(resolvedRoot, resolvedAbs);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+export async function classifyUnselectedSyncKey(
+  syncKey: string,
+  roots: SyncRoots
+): Promise<UnselectedSyncKeyClass> {
+  const absolutePath = syncKeyToAbsolutePath(syncKey, roots);
+  if (!absolutePath) {
+    return "unmapped";
+  }
+  try {
+    const stat = await fs.stat(absolutePath);
+    return stat.isFile() ? "present-unselected" : "absent";
+  } catch {
+    return "absent";
+  }
+}
+
+export async function coalesceUnselectedLocalChecksum(
+  syncKey: string,
+  currentLocal: string | undefined,
+  baseLocal: string | undefined,
+  roots: SyncRoots
+): Promise<string | undefined> {
+  if (currentLocal !== undefined || baseLocal === undefined) {
+    return currentLocal;
+  }
+  const classification = await classifyUnselectedSyncKey(syncKey, roots);
+  if (classification === "absent") {
+    return currentLocal;
+  }
+  return baseLocal;
+}
+
 export async function enumerateSyncFiles(
   roots?: SyncRoots
 ): Promise<SyncFileEntry[]> {
   const resolved = roots ?? resolveSyncRoots();
-  const config = vscode.workspace.getConfiguration("cursorSync");
-  const enabledPaths = config.get<string[]>("enabledPaths") ?? getDefaultEnabledPaths();
-  const excludeGlobs = config.get<string[]>("excludeGlobs") ?? [];
-  const maxFileSizeKB = config.get<number>("maxFileSizeKB") ?? 512;
+  const { enabledPaths, excludeGlobs, maxFileSizeKB } =
+    readSyncSelectionPolicy();
   const maxBytes = maxFileSizeKB * 1024;
 
   const cursorUserGlobs = enabledPaths.filter(
