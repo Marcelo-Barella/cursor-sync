@@ -104,11 +104,11 @@ Commands such as Resolve Conflicts and Reset are available from the Command Pale
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `cursorSync.enabledPaths` | `string[]` | *(see path matrix above)* | Glob patterns for included sync paths |
-| `cursorSync.excludeGlobs` | `string[]` | `[]` | Additional glob patterns to exclude |
+| `cursorSync.enabledPaths` | `string[]` | *(see path matrix above)* | Glob patterns for included sync paths (User/global only; workspace values are ignored) |
+| `cursorSync.excludeGlobs` | `string[]` | `[]` | Additional glob patterns to exclude (User/global only; excluded files stay in the gist while they still exist locally) |
 | `cursorSync.schedule.enabled` | `boolean` | `true` | Enable periodic auto-sync (pull and push) |
 | `cursorSync.schedule.intervalMin` | `number` | `30` | Minutes between scheduled syncs (minimum 5) |
-| `cursorSync.maxFileSizeKB` | `number` | `512` | Skip files larger than this size in KB |
+| `cursorSync.maxFileSizeKB` | `number` | `512` | Skip files larger than this size in KB (User/global only; oversized files stay in the gist while they still exist locally) |
 | `cursorSync.syncProfileName` | `string` | `"default"` | Profile name written to the sync manifest |
 | `cursorSync.safeMode` | `boolean` | `true` | Require confirmation before pull overwrites local files |
 | `cursorSync.syncExtensions.autoInstall` | `boolean` | `true` | On pull, auto-install extensions that are in the synced list but not installed locally |

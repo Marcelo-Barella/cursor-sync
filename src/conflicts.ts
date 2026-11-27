@@ -7,7 +7,11 @@ import type {
   ConflictResolution,
 } from "./types.js";
 import { computeChecksum } from "./packaging.js";
-import { enumerateSyncFiles } from "./paths.js";
+import {
+  coalesceUnselectedLocalChecksum,
+  enumerateSyncFiles,
+  resolveSyncRoots,
+} from "./paths.js";
 import { loadSyncState } from "./diagnostics.js";
 import { getLogger } from "./diagnostics.js";
 
@@ -50,6 +54,7 @@ export async function detectConflicts(
   }
 
   const conflicts: ConflictEntry[] = [];
+  const roots = resolveSyncRoots();
   const allKeys = new Set([
     ...Object.keys(localChecksums),
     ...Object.keys(remoteChecksums),
@@ -58,7 +63,12 @@ export async function detectConflicts(
   for (const key of allKeys) {
     const baseLocal = syncState.localChecksums[key];
     const baseRemote = syncState.remoteChecksums[key];
-    const currentLocal = localChecksums[key];
+    const currentLocal = await coalesceUnselectedLocalChecksum(
+      key,
+      localChecksums[key],
+      baseLocal,
+      roots
+    );
     const currentRemote = remoteChecksums[key];
 
     if (!baseLocal || !baseRemote) {
